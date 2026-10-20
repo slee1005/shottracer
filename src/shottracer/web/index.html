@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shot Tracer</title>
+  <link rel="stylesheet" href="/static/style.css?v={{v}}">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>Shot Tracer</div>
+  <div class="actions">
+    <select id="lang" title="Language / 언어"><option value="en">English</option><option value="ko">한국어</option></select>
+    <label class="btn primary"><span data-i18n="app.add"></span><input id="file" type="file" accept="video/*" multiple hidden></label>
+    <button id="renderAll" class="btn" data-i18n="app.renderAll"></button>
+  </div>
+</header>
+
+<main>
+  <aside id="sidebar">
+    <div id="drop" class="drop" data-i18n="app.drop"></div>
+    <ul id="projects"></ul>
+  </aside>
+
+  <section id="center">
+    <div id="stageWrap">
+      <div id="stage" class="empty">
+        <img id="view" alt="">
+        <canvas id="overlay"></canvas>
+        <div id="placeholder" data-i18n="app.placeholder"></div>
+        <div id="busy" hidden><div class="spinner"></div><span id="busyText"></span></div>
+      </div>
+    </div>
+    <div id="transport">
+      <button id="prev" class="icon" data-i18n-title="app.prev">◀︎</button>
+      <button id="play" class="icon" data-i18n-title="app.play">▶︎</button>
+      <button id="next" class="icon" data-i18n-title="app.next">▶︎▏</button>
+      <div id="timelineWrap">
+        <input id="timeline" type="range" min="0" max="0" value="0">
+        <div id="marks"></div>
+      </div>
+      <span id="time">0 / 0</span>
+    </div>
+    <div id="tools">
+      <button class="tool" data-tool="ball" title="B" data-i18n="tool.ball"></button>
+      <button class="tool" data-tool="landing" title="L" data-i18n="tool.landing"></button>
+      <label class="check"><input id="guide" type="checkbox" checked> <span data-i18n="tool.guide"></span></label>
+      <span id="hint"></span>
+    </div>
+  </section>
+
+  <aside id="panel">
+    <nav id="tabs">
+      <button data-tab="shot" class="active" data-i18n="tab.shot"></button>
+      <button data-tab="style" data-i18n="tab.style"></button>
+      <button data-tab="popups" data-i18n="tab.popups"></button>
+      <button data-tab="swing" data-i18n="tab.swing"></button>
+      <button data-tab="export" data-i18n="tab.export"></button>
+    </nav>
+    <div id="tabBody"></div>
+  </aside>
+</main>
+
+<div id="toast" hidden></div>
+<script src="/static/i18n.js?v={{v}}"></script>
+<script src="/static/app.js?v={{v}}"></script>
+</body>
+</html>

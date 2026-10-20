@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# shottracer outputs
+*_traced.mp4
+*_debug.png
+
+# sample videos (too large for GitHub)
+*.MP4
+*.mp4
