@@ -94,4 +94,4 @@ uv run pytest
 ## 후원
 
 shottracer가 도움이 되셨다면 후원으로 개발을 응원해 주세요:
-[PayPal로 후원하기](https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD)
+<a href="https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" border="0" title="PayPal - The safer, easier way to pay online!" alt="Donate with PayPal button" /></a>

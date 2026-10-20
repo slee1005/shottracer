@@ -159,4 +159,4 @@ option to the language menu in `index.html`.
 ## Support
 
 If shottracer is useful to you, you can support its development with a donation:
-[Donate with PayPal](https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD)
+<a href="https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" border="0" title="PayPal - The safer, easier way to pay online!" alt="Donate with PayPal button" /></a>
