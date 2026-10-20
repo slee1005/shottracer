@@ -1050,7 +1050,17 @@ function renderExport(body) {
   const btn = el(`<button class="btn primary wide" ${!(analysed() || S.cur.annotations.length) || busy ? "disabled" : ""}>${busy ? t("export.rendering", { p: Math.round(r.progress * 100) }) : t("export.render")}</button>`);
   btn.onclick = async () => { await flush(); await api("POST", "/api/render", { ids: [S.cur.id] }); refresh(); };
   e.appendChild(btn);
-  if (r?.status === "done" || (!r && S.cur.has_output)) e.appendChild(el(`<p><a class="btn wide" style="display:block;text-align:center;margin-top:8px;text-decoration:none" href="/api/projects/${S.cur.id}/output" download>${t("export.download")}</a></p>`));
+  if (r?.status === "done" || (!r && S.cur.has_output)) {
+    const dl = el(`<p><a class="btn wide" style="display:block;text-align:center;margin-top:8px;text-decoration:none" href="/api/projects/${S.cur.id}/output" download>${t("export.download")}</a></p>`);
+    // The desktop app window has no download bar: save through a native dialog instead.
+    dl.querySelector("a").onclick = async (ev) => {
+      if (!window.pywebview?.api?.save_output) return;
+      ev.preventDefault();
+      const path = await window.pywebview.api.save_output(S.cur.id);
+      if (path) toast(t("export.saved", { path }), 5000);
+    };
+    e.appendChild(dl);
+  }
   if (r?.status === "error") e.appendChild(el(`<p class="note err">${esc(serverText(r.message))}</p>`));
   e.appendChild(el(`<p class="note">${t("export.note")}</p>`));
 }

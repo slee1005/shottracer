@@ -1,0 +1,33 @@
+# Builds the standalone app on each OS (PyInstaller cannot cross-compile) and runs its
+# self-test. Started by hand (Actions -> Build app -> Run workflow); the apps are kept as
+# short-lived run artifacts only, never committed to the repository or published.
+name: Build app
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple silicon
+            artifact: ShotTracer-mac-arm64
+            files: dist/ShotTracer-*.dmg
+          - os: windows-latest  # x64
+            artifact: ShotTracer-windows-x64
+            files: dist/ShotTracer-*.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --group desktop
+      - run: uv run pytest -q
+      - run: uv run --group desktop python packaging/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 7

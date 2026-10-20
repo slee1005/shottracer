@@ -5,7 +5,41 @@
 골프 스윙 동영상에 공의 비행 궤적(트레이서), 스윙 경로, 데이터 팝업을 입히는 로컬 편집기.
 영상은 이 컴퓨터 밖으로 나가지 않습니다.
 
-## 설치
+## 독립 실행 앱
+
+Shot Tracer는 독립 실행 앱으로 만들 수 있습니다. Python, uv, ffmpeg 설치가 필요 없고, ffmpeg와 자세 인식 모델까지
+모두 앱 안에 들어갑니다. 앱 파일은 이 저장소에 **올리지 않으므로**, 사용할 운영체제에서 직접 빌드하세요:
+
+```bash
+uv sync --group desktop
+uv run --group desktop python packaging/build.py      # -> dist/ 폴더
+```
+
+GitHub에서는 **Actions → Build app → Run workflow** 로 macOS·Windows용을 함께 빌드할 수 있고, 실행 페이지에서
+7일 동안 내려받을 수 있습니다.
+
+| 시스템 | 파일 | 설치 |
+| --- | --- | --- |
+| macOS, Apple 실리콘(M1 이상) | `ShotTracer-<버전>-mac-arm64.dmg` | DMG를 열고 **Shot Tracer**를 **응용 프로그램** 폴더로 끌어 놓기 |
+| Windows 10/11, 64비트(x64) | `ShotTracer-<버전>-windows-x64.zip` | 오른쪽 클릭 → **압축 풀기…** 후 `ShotTracer\ShotTracer.exe` 실행 |
+
+아직 유료 개발자 인증서로 서명하지 않아서, 처음 실행할 때 경고가 나옵니다.
+
+- **macOS:** "확인되지 않은 개발자가 배포했기 때문에 열 수 없습니다" → 창을 닫고, 응용 프로그램 폴더에서
+  **Shot Tracer**를 오른쪽 클릭 → **열기** → **열기**. (또는 시스템 설정 → 개인정보 보호 및 보안 → **그래도 열기**.)
+  처음 한 번만 하면 됩니다.
+- **Windows:** "Windows의 PC 보호" → **추가 정보** → **실행**. 앱 창은 Microsoft Edge WebView2를 쓰며, Windows 11과
+  최신 Windows 10에는 기본으로 들어 있습니다. 앱 대신 브라우저가 열리면
+  [WebView2 런타임](https://developer.microsoft.com/microsoft-edge/webview2/)을 설치하세요.
+
+앱은 편집기를 자체 창으로 열고, 창을 닫으면 종료됩니다. 프로젝트는 `~/.shottracer/projects`
+(Windows: `%USERPROFILE%\.shottracer\projects`)에 저장되어 아래 개발자 버전과 공유되며, 문제 해결용 로그는
+`~/.shottracer/shottracer.log`에 남습니다. 앱에는 FFmpeg(GPL)가 별도 프로그램으로 포함되어 있습니다(앱 안
+`licenses/FFMPEG-LICENSE.txt` 참고).
+
+## 설치 (개발자 버전)
+
+앱 대신 소스에서 실행하려면:
 
 shottracer는 이 컴퓨터에서 실행되는 작은 Python 서버와 웹 브라우저로 동작합니다. 다음 세 가지 도구가 필요합니다.
 
@@ -127,7 +161,7 @@ shottracer는 이 컴퓨터에서 실행되는 작은 Python 서버와 웹 브�
 
 ## 실행
 
-[설치](#설치) 후 `shottracer` 폴더에서 `uv run shottracer-ui` 를 실행하면 브라우저에서 <http://127.0.0.1:8765> 이 열립니다.
+[설치](#설치-개발자-버전) 후 `shottracer` 폴더에서 `uv run shottracer-ui` 를 실행하면 브라우저에서 <http://127.0.0.1:8765> 이 열립니다.
 
 1. **영상 추가** (여러 개 가능, 드래그&드롭 지원)
 2. 타임라인을 다운스윙 전 프레임으로 옮기고 **⦿ 공 지정** → 공 클릭

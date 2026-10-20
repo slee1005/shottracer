@@ -31,6 +31,10 @@ def _default_cache() -> Path:
 
 
 def model_path() -> Path:
+    # The standalone app ships the model, so it works offline from the first analysis.
+    bundled = Path(getattr(sys, "_MEIPASS", "")) / "models" / "pose_landmarker_full.task"
+    if getattr(sys, "frozen", False) and bundled.exists():
+        return bundled
     cache = Path(os.environ.get("SHOTTRACER_CACHE") or _default_cache())
     path = cache / "models" / "pose_landmarker_full.task"
     if path.exists() and _sha256(path) == MODEL_SHA256:

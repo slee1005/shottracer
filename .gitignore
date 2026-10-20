@@ -16,3 +16,9 @@ wheels/
 # sample videos (too large for GitHub)
 *.MP4
 *.mp4
+
+# standalone app builds (never committed; see packaging/build.py)
+*.dmg
+*.app/
+*.exe
+ShotTracer-*.zip

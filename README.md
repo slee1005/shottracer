@@ -11,7 +11,45 @@ onto golf swing videos. Everything runs on your machine; videos never leave it.
 - Pop-ups (distance, speed, apex, hang time, club, player, text) and logo watermark
 - Batch rendering, slow motion, English / Korean UI
 
-## Installation
+## Standalone app
+
+Shot Tracer can be packaged as a standalone app: no Python, uv or ffmpeg needed — everything
+(including ffmpeg and the pose model) is inside. App files are **not** kept in this repository;
+build them yourself (on the OS you build for):
+
+```bash
+uv sync --group desktop
+uv run --group desktop python packaging/build.py      # -> dist/
+```
+
+On GitHub, **Actions → Build app → Run workflow** builds both (macOS and Windows) and offers
+them as downloads on the run page for 7 days.
+
+| System | File | Install |
+| --- | --- | --- |
+| macOS, Apple silicon (M1 or newer) | `ShotTracer-<version>-mac-arm64.dmg` | Open the DMG and drag **Shot Tracer** to **Applications** |
+| Windows 10/11, 64-bit (x64) | `ShotTracer-<version>-windows-x64.zip` | Right-click → **Extract All…**, then run `ShotTracer\ShotTracer.exe` |
+
+The apps are not signed with a paid developer certificate yet, so the first launch shows a
+warning:
+
+- **macOS:** "cannot be opened because the developer cannot be verified" → close it, then
+  right-click **Shot Tracer** in Applications → **Open** → **Open**. (Or System Settings →
+  Privacy & Security → **Open Anyway**.) Only needed once.
+- **Windows:** "Windows protected your PC" → **More info** → **Run anyway**. The window uses
+  Microsoft Edge WebView2, which is built into Windows 11 and current Windows 10; if the app
+  opens your browser instead, install the
+  [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+
+The app opens the editor in its own window; closing the window quits it. Projects are kept in
+`~/.shottracer/projects` (Windows: `%USERPROFILE%\.shottracer\projects`), shared with the
+developer version below, and a log for troubleshooting is written to `~/.shottracer/shottracer.log`.
+The app includes FFmpeg (GPL), run as a separate program; see `licenses/FFMPEG-LICENSE.txt`
+inside the app.
+
+## Installation (developer version)
+
+To run from source instead of the app:
 
 shottracer runs locally: a small Python server plus your web browser. You need three tools:
 
@@ -139,7 +177,7 @@ processor**.
 
 ## Quick start
 
-After [installing](#installation), start the editor with `uv run shottracer-ui` in the
+After [installing](#installation-developer-version), start the editor with `uv run shottracer-ui` in the
 `shottracer` folder; it opens <http://127.0.0.1:8765> in your browser.
 
 1. **Add videos** (several at once, or drag & drop)

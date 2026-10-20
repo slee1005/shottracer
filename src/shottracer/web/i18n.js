@@ -54,6 +54,7 @@ const STRINGS = {
     "wm.password": "비밀번호", "wm.wrong": "비밀번호가 틀렸습니다.", "wm.cancel": "취소", "wm.ok": "확인",
     "wm.removed": "워터마크를 지웠습니다",
     "zoom.in": "확대 (+, Ctrl/⌘+스크롤)", "zoom.out": "축소 (-)", "zoom.fit": "창에 맞추기 (0)", "zoom.wide": "영상 목록 숨기기 (화면 넓게)",
+    "export.saved": "저장했습니다: {path}",
     "hint.edit": "핸들을 드래그해 궤적을 조정할 수 있습니다",
     "panel.selectVideo": "영상을 선택하세요.",
 
@@ -153,6 +154,7 @@ const STRINGS = {
     "wm.password": "Password", "wm.wrong": "Wrong password.", "wm.cancel": "Cancel", "wm.ok": "OK",
     "wm.removed": "Watermark removed",
     "zoom.in": "Zoom in (+, Ctrl/⌘+scroll)", "zoom.out": "Zoom out (-)", "zoom.fit": "Fit to window (0)", "zoom.wide": "Hide the video list (wider view)",
+    "export.saved": "Saved: {path}",
     "hint.edit": "Drag the handles to adjust the trajectory",
     "panel.selectVideo": "Select a video.",
 

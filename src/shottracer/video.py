@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,18 +34,25 @@ def probe(path: Path) -> VideoInfo:
     return VideoInfo(width, height, fps, count, _has_audio(path))
 
 
+# Windowed apps on Windows would flash a console for every ffmpeg call.
+NO_WINDOW = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
+
 def _has_audio(path: Path) -> bool:
-    if not shutil.which("ffprobe"):
-        return False
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "json", str(path)],
-        capture_output=True,
-        text=True,
-    )
-    try:
-        return bool(json.loads(out.stdout or "{}").get("streams"))
-    except json.JSONDecodeError:
-        return False
+    if shutil.which("ffprobe"):
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "json", str(path)],
+            capture_output=True, text=True, **NO_WINDOW,
+        )
+        try:
+            return bool(json.loads(out.stdout or "{}").get("streams"))
+        except json.JSONDecodeError:
+            return False
+    if shutil.which("ffmpeg"):  # the standalone app ships ffmpeg only: read its stream list
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path)], capture_output=True, text=True,
+                             errors="replace", **NO_WINDOW)
+        return any("Stream #" in line and "Audio:" in line for line in out.stderr.splitlines())
+    return False
 
 
 def analysis_size(width: int, height: int, work_width: int) -> tuple[int, int, float]:
@@ -130,7 +138,7 @@ class Writer:
                 cmd += ["-i", str(source), "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"]
             cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart", str(out)]
-            self._ffmpeg = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+            self._ffmpeg = subprocess.Popen(cmd, stdin=subprocess.PIPE, **NO_WINDOW)
         else:
             fourcc = cv2.VideoWriter.fourcc(*"mp4v")
             self._cv = cv2.VideoWriter(str(out), fourcc, info.fps, (info.width, info.height))
