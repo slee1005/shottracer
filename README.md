@@ -1,6 +1,6 @@
 **English** | [한국어](README.ko.md)
 
-# shottracer
+# shottracer <a href="https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" border="0" title="PayPal - The safer, easier way to pay online!" alt="Donate with PayPal button" /></a>
 
 A local editor that draws the ball flight (shot tracer), swing path and data pop-ups
 onto golf swing videos. Everything runs on your machine; videos never leave it.

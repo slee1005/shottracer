@@ -1,6 +1,6 @@
 [English](README.md) | **한국어**
 
-# shottracer
+# shottracer <a href="https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif" border="0" title="PayPal - The safer, easier way to pay online!" alt="Donate with PayPal button" /></a>
 
 골프 스윙 동영상에 공의 비행 궤적(트레이서), 스윙 경로, 데이터 팝업을 입히는 로컬 편집기.
 영상은 이 컴퓨터 밖으로 나가지 않습니다.
