@@ -22,8 +22,8 @@ from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import camera, engine, render
-from .settings import Logo, Popup, Project, Shot, SlowMo, Style, Swing, Trace
+from . import camera, engine, render, watermark
+from .settings import Annotation, Logo, Popup, Project, Shot, SlowMo, Style, Swing, Trace
 from .trajectory import AnalysisError
 
 WEB = Path(__file__).parent / "web"
@@ -94,6 +94,9 @@ def _run_analysis(job: Job) -> None:
             if cur is not None:
                 # Keep settings edited while analysing; take the analysis result.
                 cur.analysis, cur.status, cur.error = tr.analysis, tr.status, tr.error
+                if tr.analysis and cur.shot.manual_auto:  # a stand-in path from the landing tool
+                    cur.shot.manual = cur.shot.manual_ctrl = None
+                    cur.shot.manual_auto = False
                 engine.sync_manual(current, cur)  # a drawn line stays renderable if analysis failed
                 if cur.analysis:
                     engine.apply_edits(current, cur)
@@ -151,7 +154,8 @@ def _summary(p: Project) -> dict:
         mine = [j for j in jobs if j.kind == "analyze" and j.trace == tr.key]
         td["job"] = asdict(mine[-1]) if mine else None
         td.pop("analysis")
-        if tr.analysis:
+        td["drawable"] = bool(tr.analysis)  # something to render (a ball path or swing points)
+        if engine.has_path(tr):
             path = engine.ShotPath(p, tr)
             td["result"] = {
                 "mode": path.mode,
@@ -232,6 +236,8 @@ def update(pid: str, body: dict = Body(...)) -> dict:
                 tr.color = body["color"] or None
             if "name" in body:
                 p.name = str(body["name"])
+            if "annotations" in body:
+                p.annotations = [Annotation.model_validate(x) for x in body["annotations"]]
             for item in body.get("restore", []):  # undo/redo: whole per-shot settings
                 try:
                     other = p.trace(item["key"])
@@ -319,9 +325,30 @@ def render_many(body: dict = Body(...)) -> list[dict]:
     jobs = []
     for pid in body.get("ids", []):
         p = _project(pid)
-        if any(tr.analysis for tr in p.traces):
+        if render.renderable(p):
             jobs.append(asdict(_enqueue(pid, "render")))
     return jobs
+
+
+@app.get("/api/watermark")
+def get_watermark() -> dict:
+    return {"enabled": watermark.enabled(), "text": watermark.TEXT}
+
+
+@app.post("/api/watermark/unlock")
+def unlock_watermark(body: dict = Body(...)) -> dict:
+    """Turning the watermark off needs the password (checked against a salted hash)."""
+    if not watermark.check_password(str(body.get("password", ""))):
+        time.sleep(1.0)  # slows down guessing
+        raise HTTPException(403, "wrong password")
+    watermark.set_enabled(False)
+    return {"enabled": False, "text": watermark.TEXT}
+
+
+@app.post("/api/watermark/lock")
+def lock_watermark() -> dict:
+    watermark.set_enabled(True)
+    return {"enabled": True, "text": watermark.TEXT}
 
 
 @app.get("/api/jobs")
@@ -338,10 +365,11 @@ def frame(pid: str, index: int) -> FileResponse:
 
 
 @app.get("/api/projects/{pid}/preview/{index}.jpg")
-def preview(pid: str, index: int) -> Response:
+def preview(pid: str, index: int, ann: bool = True) -> Response:
+    """Rendered frame; ann=false leaves the on-screen shapes to the editor canvas."""
     p = _project(pid)
     try:
-        return _jpeg(render.preview(p, index))
+        return _jpeg(render.preview(p, index, ann))
     except KeyError:
         raise HTTPException(404) from None
 
@@ -351,7 +379,7 @@ def overlay(pid: str, index: int, trace: str | None = None) -> dict:
     """Edit handles of one shot for the UI, in preview pixels of frame `index`."""
     p = _project(pid)
     tr = _trace(p, trace)
-    if not tr.analysis:
+    if not engine.has_path(tr):
         return {}
     path = engine.ShotPath(p, tr)
     t = engine.transforms(p, tr)

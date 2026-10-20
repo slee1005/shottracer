@@ -340,13 +340,20 @@ def apply_edits(p: Project, tr: Trace) -> None:
 # --------------------------------------------------------------------------- manual path
 
 
+def has_path(tr: Trace) -> bool:
+    """The shot has a ball path to draw (a trace may hold only swing points)."""
+    a = tr.analysis
+    return bool(a) and (a.get("mode") != "manual" or bool(tr.shot.manual and len(tr.shot.manual) >= 2))
+
+
 def sync_manual(p: Project, tr: Trace) -> None:
     """Keep a hand-drawn path renderable without (or after a failed) analysis.
 
     With a drawn path and no analysis, a minimal "manual" analysis is created: a static
     camera (identity transforms) and no golfer masks. Clearing the path removes it."""
     a = tr.analysis
-    if tr.shot.manual and not a:
+    wanted = bool(tr.shot.manual or tr.shot.swing_points)
+    if wanted and not a:
         total = int(p.info["frames"])
         tracedir(p.id, tr).mkdir(parents=True, exist_ok=True)
         np.save(tracedir(p.id, tr) / "transforms.npy", np.tile(np.eye(3), (total, 1, 1)))
@@ -356,7 +363,7 @@ def sync_manual(p: Project, tr: Trace) -> None:
             "impact": float(tr.shot.impact if tr.shot.impact is not None else tr.shot.manual_frame),
         }
         tr.status, tr.error = "ready", None
-    elif not tr.shot.manual and a and a.get("mode") == "manual":
+    elif not wanted and a and a.get("mode") == "manual":
         tr.analysis, tr.status = None, "new"
     elif a and a.get("mode") == "manual":
         a["impact"] = float(tr.shot.impact if tr.shot.impact is not None else tr.shot.manual_frame)

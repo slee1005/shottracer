@@ -11,20 +11,136 @@ onto golf swing videos. Everything runs on your machine; videos never leave it.
 - Pop-ups (distance, speed, apex, hang time, club, player, text) and logo watermark
 - Batch rendering, slow motion, English / Korean UI
 
-## Requirements
+## Installation
 
-- macOS (tested on Apple silicon). Linux should work but is untested; set `SHOTTRACER_CACHE`
-  there, since the default cache path follows macOS conventions
-- [uv](https://docs.astral.sh/uv/) — installs Python 3.13 and all dependencies
-- [ffmpeg](https://ffmpeg.org/) on `PATH` for H.264 output with the original audio
-  (without it, videos are written with OpenCV and have no audio)
+shottracer runs locally: a small Python server plus your web browser. You need three tools:
+
+| Tool | Why | Required? |
+| --- | --- | --- |
+| [uv](https://docs.astral.sh/uv/) | Installs Python 3.13 and all libraries for this project only (nothing system-wide) | Yes |
+| [ffmpeg](https://ffmpeg.org/) | H.264 output **with the original audio** | Recommended (without it, videos are saved without sound) |
+| [Git](https://git-scm.com/) | Download and update the code | Optional (you can download a ZIP instead) |
+
+The first `uv sync` downloads about 300–500 MB (Python and libraries). The first analysis also
+downloads a 9 MB pose model. After that everything works offline.
+
+### macOS
+
+**Supported:** Macs with Apple silicon (M1, M2, M3, M4 …). Intel Macs are not supported, because
+the pose library (MediaPipe) has no Intel-Mac build. Check with Apple menu → **About This Mac** →
+*Chip* should say **Apple M…**.
+
+1. **Open Terminal** (Applications → Utilities → Terminal, or `⌘ Space` and type *Terminal*).
+
+2. **Install Homebrew** (a package manager), if you don't have it yet. Paste this and follow the
+   prompts (it asks for your Mac password):
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+   At the end Homebrew prints two or three `echo … >> ~/.zprofile` / `eval …` lines under
+   *Next steps* — run them, then close and reopen Terminal. Check with `brew --version`.
+
+3. **Install uv, ffmpeg and Git:**
+   ```bash
+   brew install uv ffmpeg git
+   ```
+   Check: `uv --version` and `ffmpeg -version` both print a version.
+
+4. **Download shottracer** (into your home folder):
+   ```bash
+   cd ~
+   git clone https://github.com/slee1005/shottracer.git
+   cd shottracer
+   ```
+   Without Git: on the GitHub page press **Code → Download ZIP**, unzip it, then in Terminal
+   `cd ~/Downloads/shottracer-main` (or wherever you put the folder).
+
+5. **Install the dependencies** (first time only, takes a few minutes):
+   ```bash
+   uv sync
+   ```
+
+6. **Start the editor:**
+   ```bash
+   uv run shottracer-ui
+   ```
+   Your browser opens <http://127.0.0.1:8765>. Keep Terminal open while you work; press
+   `Ctrl+C` in Terminal to stop the editor.
+
+**Next time:** open Terminal and run `cd ~/shottracer && uv run shottracer-ui`.
+
+**Update to the latest version:** `cd ~/shottracer && git pull && uv sync`.
+
+### Windows
+
+**Supported:** Windows 10 or 11, 64-bit on an Intel/AMD processor (x64). Windows on ARM
+(e.g. Snapdragon laptops) is not supported, because OpenCV has no build for it. Check with
+**Settings → System → About** → *System type* should say **64-bit operating system, x64-based
+processor**.
+
+> Windows support is newer and less tested than macOS. If something does not work, please
+> [open an issue](https://github.com/slee1005/shottracer/issues) with the error message.
+
+1. **Open PowerShell:** press the Windows key, type *PowerShell*, press Enter
+   (a normal window is fine — no administrator rights needed).
+
+2. **Install uv:**
+   ```powershell
+   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   ```
+   (or `winget install --id=astral-sh.uv -e`). **Close and reopen PowerShell**, then check with
+   `uv --version`.
+
+3. **Install ffmpeg and Git** with winget (built into Windows 10/11):
+   ```powershell
+   winget install --id=Gyan.FFmpeg -e
+   winget install --id=Git.Git -e
+   ```
+   Accept the agreements if asked. **Close and reopen PowerShell** again so the new commands are
+   found, then check with `ffmpeg -version` and `git --version`.
+
+4. **Download shottracer** (into your user folder):
+   ```powershell
+   cd ~
+   git clone https://github.com/slee1005/shottracer.git
+   cd shottracer
+   ```
+   Without Git: on the GitHub page press **Code → Download ZIP**, right-click the ZIP →
+   **Extract All…**, then `cd $HOME\Downloads\shottracer-main\shottracer-main` (adjust to where the
+   folder with `pyproject.toml` is).
+
+5. **Install the dependencies** (first time only, takes a few minutes):
+   ```powershell
+   uv sync
+   ```
+
+6. **Start the editor:**
+   ```powershell
+   uv run shottracer-ui
+   ```
+   Your browser opens <http://127.0.0.1:8765> (if not, open that address yourself). Keep the
+   PowerShell window open while you work; press `Ctrl+C` there to stop the editor.
+
+**Next time:** open PowerShell and run `cd ~\shottracer; uv run shottracer-ui`.
+
+**Update to the latest version:** `cd ~\shottracer; git pull; uv sync`.
+
+### Troubleshooting
+
+| Problem | Fix |
+| --- | --- |
+| `uv`, `ffmpeg` or `git` is "not found" / "not recognized" | Close and reopen the terminal after installing. On macOS make sure you ran Homebrew's *Next steps* lines |
+| Exported videos have no sound | ffmpeg is missing: install it (see above), restart the editor, render again |
+| `address already in use` / port 8765 busy | Another copy is running — close it, or start with `uv run shottracer-ui --port 9000` |
+| `uv sync` fails on a Mac | Check the Mac has Apple silicon (Intel Macs are not supported) |
+| `uv sync` fails on Windows | Check the PC is x64, not ARM |
+| The browser does not open | Open <http://127.0.0.1:8765> manually |
+| The editor looks broken after updating | Stop it (`Ctrl+C`), start it again and reload the browser page |
 
 ## Quick start
 
-```bash
-uv sync
-uv run shottracer-ui          # opens http://127.0.0.1:8765 in your browser
-```
+After [installing](#installation), start the editor with `uv run shottracer-ui` in the
+`shottracer` folder; it opens <http://127.0.0.1:8765> in your browser.
 
 1. **Add videos** (several at once, or drag & drop)
 2. Move the timeline to a frame before the downswing, press **⦿ Pick ball** and click the ball
@@ -36,17 +152,28 @@ uv run shottracer-ui          # opens http://127.0.0.1:8765 in your browser
 5. Choose style, pop-ups, swing and logo, then **Render this video** or **Render all** (batch)
 
 Shortcuts: `←/→` step frames (`Shift` for 10), `Space` play, `B` pick ball, `L` landing spot,
-`D` draw line, `1`–`4` select shot, `Ctrl/⌘+Z` undo, `Ctrl/⌘+Shift+Z` redo, `Esc` cancel tool.
+`D` draw path, `P` swing points, `C` circle, `S` line, `Delete` remove shape, `1`–`4` select shot, `+`/`-`/`0` zoom in/out/fit (or `Ctrl/⌘`+scroll, pinch), `Ctrl/⌘+Z` undo, `Ctrl/⌘+Shift+Z` redo, `Esc` cancel tool.
 
 **Several shots in one video (up to 4):** press **+ Add shot** in the tool bar. Each shot has its own
 ball, analysis, drawn line, landing edits, pop-ups and (optionally) line color; style, swing, slow
 motion and logo are shared. The Shot and Pop-ups tabs edit the selected shot.
 
-**Draw the line by hand:** press **✎ Draw line** and drag over the video. The drawn line replaces
-the automatic path and renders even without analysis (when auto detection fails). It starts at the
-impact frame (or the frame you drew on) and takes the flight time. The line disappears right after
-landing by default (Style → *Hold after landing*). **↺ Reset project** (Shot tab, or the ↺ on a
-project in the list) clears everything except the video.
+**Draw the ball path by hand:** press **⌒ Draw path** (`D`), click where the ball starts and where it
+lands, then drag the **Start / Apex / Landing** handles to shape the curve. The drawn path replaces the
+automatic one and renders even without analysis (when auto detection fails). It starts at the impact
+frame (or the frame you drew on) and takes the flight time. The line disappears right after landing by
+default (Style → *Hold after landing*). **↺ Reset project** (Shot tab, or the ↺ on a project in the
+list) clears everything except the video.
+
+**Swing points:** if the detected club-head or hands path is off, press **✦ Swing points** (`P`) and click
+the club head (or hands) frame by frame; each click steps forward (2 frames by default, Swing tab). With
+two or more points a smooth curve through them replaces the detected path. Drag the current frame's
+point to move it, `Delete` removes it.
+
+**Shapes for swing analysis:** **◯ Circle** (`C`, drag from the center) and **／ Line** (`S`) mark e.g. the
+head or hip position. They stay in the same place on screen for the whole video and are included in the
+export. Click a shape to select it, drag to move, drag its white dots to resize, `Delete` to remove;
+colors and widths are in the **Draw** tab.
 
 Pick **English / 한국어** at the top right. The choice is remembered; the first visit follows
 the browser language. You can also open `http://127.0.0.1:8765/#lang=ko`.
@@ -66,6 +193,10 @@ The server only listens on `127.0.0.1`.
 
 Distance and speed cannot be measured from a single video, so you type them in. Hang time is
 filled in from the analysis when left empty.
+
+**Watermark:** previews and exported videos carry a small *Create by AJC_shottracer* line at the
+bottom. Removing it (Export tab → **Remove watermark…**) needs a password; it then stays off for every
+video on that computer until turned back on.
 
 ## Command line
 
@@ -90,7 +221,7 @@ Coordinates are video pixels on `--ball-frame`. Run `uv run shottracer --help` f
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHOTTRACER_HOME` | `~/.shottracer/projects` | Projects: copied source video, preview frames, masks, settings, renders |
-| `SHOTTRACER_CACHE` | `~/Library/Caches/shottracer` | Downloaded models |
+| `SHOTTRACER_CACHE` | macOS `~/Library/Caches/shottracer`, Windows `%LOCALAPPDATA%\shottracer\Cache`, Linux `~/.cache/shottracer` | Downloaded models |
 
 On the first analysis the MediaPipe pose model (about 9 MB) is downloaded from Google's
 model storage and checked against a pinned SHA-256 before use. This is the only network

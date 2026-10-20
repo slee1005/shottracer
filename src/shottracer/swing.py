@@ -258,6 +258,35 @@ def _savgol(y: np.ndarray, half: int, order: int) -> np.ndarray:
     return out
 
 
+def through_points(rows: list[tuple[float, float, float]], per: int = 24) -> np.ndarray:
+    """Smooth (t, x, y) samples through user-placed points. Centripetal Catmull-Rom in the
+    image avoids loops and overshoot between unevenly spaced clicks; time is interpolated
+    linearly within each interval."""
+    arr = np.asarray(sorted(rows), dtype=np.float64)
+    if len(arr) < 2:
+        return np.empty((0, 3))
+    pts = arr[:, 1:]
+    ext = np.vstack([2 * pts[0] - pts[1], pts, 2 * pts[-1] - pts[-2]])
+    out = []
+    for i in range(1, len(ext) - 2):
+        p0, p1, p2, p3 = ext[i - 1], ext[i], ext[i + 1], ext[i + 2]
+        k0 = 0.0
+        k1 = k0 + max(np.linalg.norm(p1 - p0) ** 0.5, 1e-6)
+        k2 = k1 + max(np.linalg.norm(p2 - p1) ** 0.5, 1e-6)
+        k3 = k2 + max(np.linalg.norm(p3 - p2) ** 0.5, 1e-6)
+        u = np.linspace(k1, k2, per, endpoint=False)[:, None]
+        a1 = (k1 - u) / (k1 - k0) * p0 + (u - k0) / (k1 - k0) * p1
+        a2 = (k2 - u) / (k2 - k1) * p1 + (u - k1) / (k2 - k1) * p2
+        a3 = (k3 - u) / (k3 - k2) * p2 + (u - k2) / (k3 - k2) * p3
+        b1 = (k2 - u) / (k2 - k0) * a1 + (u - k0) / (k2 - k0) * a2
+        b2 = (k3 - u) / (k3 - k1) * a2 + (u - k1) / (k3 - k1) * a3
+        xy = (k2 - u) / (k2 - k1) * b1 + (u - k1) / (k2 - k1) * b2
+        t = arr[i - 1, 0] + (u[:, 0] - k1) / (k2 - k1) * (arr[i, 0] - arr[i - 1, 0])
+        out.append(np.column_stack([t, xy]))
+    out.append(arr[-1][None])
+    return np.vstack(out)
+
+
 def _catmull_rom(points: np.ndarray, per: int) -> np.ndarray:
     """Uniform Catmull-Rom through all rows (every column interpolated), `per` samples
     per interval, endpoints included."""

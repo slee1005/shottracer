@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 Point = tuple[float, float]
 Corner = Literal["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -22,6 +22,16 @@ class Shot(BaseModel):
     flight_time: float | None = None  # user override (seconds)
     height: float = Field(1.0, ge=0.2, le=3.0)  # user apex height scale
     manual: list[Point] | None = None  # hand-drawn path, video pixels on `manual_frame`
+    manual_ctrl: list[Point] | None = None  # its start/apex/landing handles (editor), same frame
+    manual_auto: bool = False  # made by the landing tool before analysis; analysis replaces it
+    # Club head / hands positions placed by the user: (frame, x, y), video px on that frame.
+    # Two or more replace the detected swing path.
+    swing_points: list[tuple[float, float, float]] = []
+
+    @field_validator("swing_points")
+    @classmethod
+    def _one_point_per_frame(cls, pts):
+        return sorted({int(f): (float(int(f)), x, y) for f, x, y in pts}.values())
     manual_frame: int = 0
 
 
@@ -54,9 +64,20 @@ class Popup(BaseModel):
     value: str = ""  # empty hangtime = measured flight time
     anchor: Literal["landing", "apex", "start", "top-left", "top-right", "bottom-left", "bottom-right"] = "landing"
     delay: float = 0.0  # seconds after the anchor event (impact for screen anchors)
-    duration: float | None = None  # None = until the end
+    # When it disappears: 1 s after the shot ends (landing / end of roll), at the end of
+    # the video, or after `duration` seconds.
+    hide: Literal["after_shot", "end", "time"] = "after_shot"
+    duration: float | None = None
     color: str = "#111111"
     accent: str = "#FF2D2D"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _keep_timed_popups(cls, data):
+        """Pop-ups saved before `hide` existed keep an explicit display time."""
+        if isinstance(data, dict) and "hide" not in data and data.get("duration") is not None:
+            data = {**data, "hide": "time"}
+        return data
 
 
 class Logo(BaseModel):
@@ -72,6 +93,15 @@ class Swing(BaseModel):
     color: str = "#3AA0FF"
     width: float = Field(1.0, ge=0.2, le=5.0)
     gradient: bool = True  # fade older parts of the path
+
+
+class Annotation(BaseModel):
+    """A shape fixed on screen for the whole video, e.g. to mark head or hip position."""
+
+    kind: Literal["circle", "line"] = "circle"
+    points: list[Point] = Field(min_length=2, max_length=2)  # video px: circle = center, rim
+    color: str = "#FFD400"
+    width: float = Field(1.0, ge=0.3, le=5.0)
 
 
 Status = Literal["new", "analysing", "ready", "error"]
@@ -106,6 +136,7 @@ class Project(BaseModel):
     slowmo: SlowMo = SlowMo()
     logo: Logo = Logo()
     swing: Swing = Swing()
+    annotations: list[Annotation] = []
 
     @model_validator(mode="before")
     @classmethod

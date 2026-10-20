@@ -14,6 +14,8 @@ FONT_CANDIDATES = [
     "/System/Library/Fonts/AppleSDGothicNeo.ttc",
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/Library/Fonts/Arial Unicode.ttf",
+    "C:/Windows/Fonts/malgunbd.ttf",  # Malgun Gothic Bold (Korean)
+    "C:/Windows/Fonts/arialbd.ttf",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 ]

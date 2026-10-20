@@ -65,8 +65,18 @@ main { flex: 1; display: grid; grid-template-columns: 250px 1fr 340px; min-heigh
 
 #center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #stageWrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 14px; min-height: 0; }
-#stage { position: relative; max-width: 100%; max-height: 100%; display: inline-block; line-height: 0; }
-#stage img { max-width: 100%; max-height: calc(100vh - 210px); display: block; border-radius: 4px; background: #000; }
+#stage { position: relative; max-width: 100%; max-height: 100%; display: inline-block; line-height: 0; margin: auto; }
+/* Zoomed: the image gets an explicit size and the wrap scrolls (margin:auto keeps it centred
+   while it fits and lets every edge be scrolled to once it does not). */
+#stageWrap.zoomed { overflow: auto; justify-content: flex-start; align-items: flex-start; }
+#stageWrap.zoomed #stage { max-width: none; max-height: none; }
+#stageWrap.panning, #stageWrap.panning canvas { cursor: grabbing !important; }
+#zoomBox { display: flex; align-items: center; gap: 2px; margin-left: 6px; }
+.zoomlabel { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 5px; font: inherit; font-size: 12px; min-width: 48px; padding: 2px 4px; cursor: pointer; font-variant-numeric: tabular-nums; }
+body.wide main { grid-template-columns: 0 1fr 340px; }
+body.wide #sidebar { visibility: hidden; }
+#wide.on { color: var(--accent, #ff3b3b); }
+#stage img { display: block; border-radius: 4px; background: #000; } /* sized by setZoom() */
 #stage.empty img { display: none; }
 #overlay { position: absolute; left: 0; top: 0; }
 #placeholder { display: none; color: var(--muted); line-height: 1.4; }
@@ -141,3 +151,12 @@ input[type=color] { width: 36px; height: 26px; border: 1px solid var(--line); bo
 #tools { flex-wrap: wrap; row-gap: 6px; }
 #traces .trace, .tool { white-space: nowrap; }
 .icon:disabled { opacity: 0.3; cursor: default; }
+.card.on { outline: 1px solid #fff8; }
+.card .head span { cursor: pointer; }
+
+/* watermark password dialog */
+#wmDialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; width: 340px; }
+#wmDialog::backdrop { background: #000a; }
+#wmDialog h3 { margin: 0 0 6px; font-size: 15px; }
+#wmDialog input { width: 100%; box-sizing: border-box; margin: 8px 0 4px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: #0006; color: inherit; font: inherit; }
+#wmDialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }

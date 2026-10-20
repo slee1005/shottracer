@@ -40,6 +40,12 @@
         <div id="marks"></div>
       </div>
       <span id="time">0 / 0</span>
+      <div id="zoomBox">
+        <button id="zoomOut" class="icon" data-i18n-title="zoom.out">−</button>
+        <button id="zoomFit" class="zoomlabel" data-i18n-title="zoom.fit">100%</button>
+        <button id="zoomIn" class="icon" data-i18n-title="zoom.in">+</button>
+        <button id="wide" class="icon" data-i18n-title="zoom.wide">⇔</button>
+      </div>
     </div>
     <div id="tools">
       <div id="traces"></div>
@@ -47,7 +53,10 @@
       <button id="redo" class="icon" data-i18n-title="undo.redoTitle" disabled>↷</button>
       <button class="tool" data-tool="ball" title="B" data-i18n="tool.ball"></button>
       <button class="tool" data-tool="landing" title="L" data-i18n="tool.landing"></button>
-      <button class="tool" data-tool="draw" title="D" data-i18n="tool.draw"></button>
+      <button class="tool" data-tool="path" title="D" data-i18n="tool.path"></button>
+      <button class="tool" data-tool="swing" title="P" data-i18n="tool.swing"></button>
+      <button class="tool" data-tool="circle" title="C" data-i18n="tool.circle"></button>
+      <button class="tool" data-tool="line" title="S" data-i18n="tool.line"></button>
       <label class="check"><input id="guide" type="checkbox" checked> <span data-i18n="tool.guide"></span></label>
       <span id="hint"></span>
     </div>
@@ -58,6 +67,7 @@
       <button data-tab="shot" class="active" data-i18n="tab.shot"></button>
       <button data-tab="style" data-i18n="tab.style"></button>
       <button data-tab="popups" data-i18n="tab.popups"></button>
+      <button data-tab="draw" data-i18n="tab.draw"></button>
       <button data-tab="swing" data-i18n="tab.swing"></button>
       <button data-tab="export" data-i18n="tab.export"></button>
     </nav>
@@ -66,6 +76,18 @@
 </main>
 
 <div id="toast" hidden></div>
+<dialog id="wmDialog">
+  <form id="wmForm" method="dialog">
+    <h3 data-i18n="wm.dialogTitle"></h3>
+    <p class="note" data-i18n="wm.dialogText"></p>
+    <input id="wmPassword" type="password" autocomplete="off" data-i18n-placeholder="wm.password">
+    <p id="wmError" class="note err" data-i18n="wm.wrong" hidden></p>
+    <div class="buttons">
+      <button id="wmCancel" type="button" class="btn" data-i18n="wm.cancel"></button>
+      <button id="wmOk" class="btn primary" value="ok" data-i18n="wm.ok"></button>
+    </div>
+  </form>
+</dialog>
 <script src="/static/i18n.js?v={{v}}"></script>
 <script src="/static/app.js?v={{v}}"></script>
 </body>

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,8 +22,16 @@ LEFT_WRIST, RIGHT_WRIST = 15, 16
 LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_ANKLE, RIGHT_ANKLE = 11, 12, 27, 28
 
 
+def _default_cache() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "shottracer"
+    if sys.platform == "win32":
+        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "shottracer" / "Cache"
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "shottracer"
+
+
 def model_path() -> Path:
-    cache = Path(os.environ.get("SHOTTRACER_CACHE", Path.home() / "Library" / "Caches" / "shottracer"))
+    cache = Path(os.environ.get("SHOTTRACER_CACHE") or _default_cache())
     path = cache / "models" / "pose_landmarker_full.task"
     if path.exists() and _sha256(path) == MODEL_SHA256:
         return path

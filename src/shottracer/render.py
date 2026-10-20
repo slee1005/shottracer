@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import camera, engine, popups, swing, video
+from . import camera, engine, popups, swing, video, watermark
 from .settings import Project, Trace
 
 
@@ -45,14 +45,19 @@ PRESETS = {
 }
 
 
-class Renderer:
-    """Draws every analysed shot of a project onto a frame."""
+LANDING_EFFECT = 1.0  # seconds the landing effect stays, however short the line hold
+POPUP_AFTER_SHOT = 1.0  # pop-ups set to hide after the shot go this long after it ends
 
-    def __init__(self, p: Project, out_size: tuple[int, int]):
+
+class Renderer:
+    """Draws every analysed shot and the on-screen shapes of a project onto a frame."""
+
+    def __init__(self, p: Project, out_size: tuple[int, int], annotations: bool = True):
         self.p = p
+        self.w, self.h = out_size
         self.layers = [Layer(p, tr, out_size) for tr in p.traces if tr.analysis]
-        if not self.layers:
-            raise ValueError("project is not analysed")
+        self.annotations = p.annotations if annotations else []
+        self.watermark = watermark.enabled()
 
     def draw(self, frame: np.ndarray, index: float) -> np.ndarray:
         out = frame.astype(np.float32)
@@ -61,11 +66,29 @@ class Renderer:
         for layer in self.layers:
             layer.swing_path(out, index)
         img = np.clip(out, 0, 255).astype(np.uint8)
+        self._annotations(img)
         for layer in self.layers:
             layer.popups(img, index)
         if self.p.logo.path:
             popups.logo(img, self.p.logo.path, self.p.logo.corner, self.p.logo.size, self.p.logo.opacity)
+        if self.watermark:
+            watermark.draw(img)
         return img
+
+
+    def _annotations(self, img: np.ndarray) -> None:
+        f = self.w / float(self.p.info["width"])  # video px -> output px
+        base = max(1.5, self.h / 360.0)
+        for a in self.annotations:
+            (x0, y0), (x1, y1) = ((x * f, y * f) for x, y in a.points)
+            w = max(1, int(round(base * a.width)))
+            p0, p1 = (int(round(x0 * 4)), int(round(y0 * 4))), (int(round(x1 * 4)), int(round(y1 * 4)))
+            for color, width in (((0, 0, 0), w + 2), (parse_color(a.color), w)):  # dark edge keeps it readable
+                if a.kind == "circle":
+                    r = int(round(math.hypot(x1 - x0, y1 - y0) * 4))
+                    cv2.circle(img, p0, r, color, width, cv2.LINE_AA, shift=2)
+                else:
+                    cv2.line(img, p0, p1, color, width, cv2.LINE_AA, shift=2)
 
 
 class Layer:
@@ -79,7 +102,7 @@ class Layer:
         self.scale = self.w / float(a.get("work_width", p.info["work_width"]))  # analysis px -> output px
         self.range_end = a.get("range", [0, int(p.info["frames"]) - 1])[1]
         self.transforms = engine.transforms(p, tr)
-        self.path = engine.ShotPath(p, tr)
+        self.path = engine.ShotPath(p, tr) if engine.has_path(tr) else None  # None: swing points only
         self.masks = engine.tracedir(p.id, tr) / "masks"
         st = p.style
         base = PRESETS[st.preset]
@@ -97,11 +120,20 @@ class Layer:
             self.core = parse_color(st.core_color)
         self.base = max(1.5, self.h / 270.0) * st.width
         sw = a.get("swing", {})
-        rows = sw.get(p.swing.source, []) if p.swing.enabled else []
-        dense = swing.densify(rows)
+        user = tr.shot.swing_points
+        if len(user) >= 2:  # placed by the user: smooth curve through them, camera-compensated
+            s = a["scale"]
+            rows = [(f, *camera.apply(self.transforms[int(np.clip(f, 0, len(self.transforms) - 1))], [(x / s, y / s)])[0])
+                    for f, x, y in user]
+            dense = swing.through_points(rows) if p.swing.enabled else np.empty((0, 3))
+            last = user[-1][0]
+        else:
+            rows = sw.get(p.swing.source, []) if p.swing.enabled else []
+            dense = swing.densify(rows)
+            last = sw.get("window", [0, self.range_end])[1]
         self.swing = dense if len(dense) >= 2 else None
         # The swing path fades out 1.5 s after the follow-through.
-        self.swing_end = sw.get("window", [0, self.range_end])[1] + 1.5 * self.fps
+        self.swing_end = last + 1.5 * self.fps
 
     # -------------------------------------------------------------- helpers
     def _to_frame(self, index: float, pts: np.ndarray) -> np.ndarray:
@@ -119,26 +151,31 @@ class Layer:
         m = cv2.GaussianBlur(m, (0, 0), max(1.0, self.h / 540))
         return (m.astype(np.float32) / 255.0)[..., None]
 
-    def _hold_alpha(self, t: float) -> float:
+    def _hold_alpha(self, t: float, minimum: float = 0.0) -> float:
         # Camera motion is only known inside the analysed range: fade out after it.
         index = self.path.t0 + t * self.fps
         a = float(np.clip(1.0 - (index - self.range_end) / (0.5 * self.fps), 0.0, 1.0))
         hold = self.p.style.hold
         if hold is None:
             return a
+        hold = max(hold, minimum)
         end = self.path.end + hold
         return a * (float(np.clip(1.0 - (t - end) / 0.25, 0.0, 1.0)) if t > end else 1.0)
 
     # -------------------------------------------------------------- drawing
     def tracer(self, out: np.ndarray, original: np.ndarray, index: float) -> np.ndarray:
+        if self.path is None:
+            return out
         t = (index - self.path.t0) / self.fps
         drew_tracer = False
         if t > 0:
             alpha = self._hold_alpha(t)
             if alpha > 0:
                 drew_tracer = self._tracer(out, index, t, alpha)
-                if self.p.style.landing_marker and self.path.end <= t:
-                    self._landing(out, index, t - self.path.end, alpha)
+            # The landing effect plays out even when the line clears right at landing.
+            marker = self._hold_alpha(t, minimum=LANDING_EFFECT)
+            if self.p.style.landing_marker and self.path.end <= t and marker > 0:
+                self._landing(out, index, t - self.path.end, marker)
         if drew_tracer and self.p.style.cutout:
             m = self._mask(index)
             if m is not None:
@@ -150,6 +187,8 @@ class Layer:
             self._swing(out, index)
 
     def popups(self, img: np.ndarray, index: float) -> None:
+        if self.path is None:
+            return
         self._popups(img, index, (index - self.path.t0) / self.fps)
 
     def _tracer(self, out: np.ndarray, index: float, t: float, alpha: float) -> bool:
@@ -257,12 +296,18 @@ class Layer:
         for pop in self.tr.popups:
             appear = events.get(pop.anchor, 0.0) + pop.delay
             local = t - appear
-            if local < 0 or (pop.duration is not None and local > pop.duration + 0.3):
+            if pop.hide == "time" and pop.duration is not None:
+                duration = pop.duration
+            elif pop.hide == "after_shot":  # but always visible for at least 1 s
+                duration = max(path.end + POPUP_AFTER_SHOT - appear, POPUP_AFTER_SHOT)
+            else:
+                duration = None
+            if local < 0 or (duration is not None and local > duration + 0.3):
                 continue
             fade_in = min(1.0, local / 0.3)
             fade_out = 1.0
-            if pop.duration is not None and local > pop.duration:
-                fade_out = max(0.0, 1.0 - (local - pop.duration) / 0.3)
+            if duration is not None and local > duration:
+                fade_out = max(0.0, 1.0 - (local - duration) / 0.3)
             value = pop.value or (f"{path.end:.1f}s" if pop.kind == "hangtime" else "")
             if not value and not pop.label:
                 continue
@@ -288,7 +333,7 @@ def timeline(p: Project) -> list[float]:
     n = int(p.info["frames"])
     fps = float(p.info["fps"])
     sm = p.slowmo
-    impacts = sorted(float(tr.analysis["impact"]) for tr in p.traces if tr.analysis)
+    impacts = sorted(float(tr.analysis["impact"]) for tr in p.traces if engine.has_path(tr))
     if not sm.enabled or not impacts or sm.factor <= 1.0:
         return [float(i) for i in range(n)]
     windows: list[list[float]] = []
@@ -311,13 +356,17 @@ def timeline(p: Project) -> list[float]:
     return out
 
 
-def preview(p: Project, index: int) -> np.ndarray:
+def renderable(p: Project) -> bool:
+    return bool(p.annotations) or any(tr.analysis for tr in p.traces)
+
+
+def preview(p: Project, index: int, annotations: bool = True) -> np.ndarray:
     img = cv2.imread(str(engine.workdir(p.id) / "previews" / f"{index:05d}.jpg"))
     if img is None:
         raise KeyError(index)
-    if not any(tr.analysis for tr in p.traces):
+    if not any(tr.analysis for tr in p.traces) and not (annotations and p.annotations) and not watermark.enabled():
         return img
-    r = Renderer(p, (img.shape[1], img.shape[0]))
+    r = Renderer(p, (img.shape[1], img.shape[0]), annotations)
     return r.draw(img, float(index))
 
 
