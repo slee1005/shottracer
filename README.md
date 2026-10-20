@@ -36,7 +36,17 @@ uv run shottracer-ui          # opens http://127.0.0.1:8765 in your browser
 5. Choose style, pop-ups, swing and logo, then **Render this video** or **Render all** (batch)
 
 Shortcuts: `←/→` step frames (`Shift` for 10), `Space` play, `B` pick ball, `L` landing spot,
-`Esc` cancel tool.
+`D` draw line, `1`–`4` select shot, `Ctrl/⌘+Z` undo, `Ctrl/⌘+Shift+Z` redo, `Esc` cancel tool.
+
+**Several shots in one video (up to 4):** press **+ Add shot** in the tool bar. Each shot has its own
+ball, analysis, drawn line, landing edits, pop-ups and (optionally) line color; style, swing, slow
+motion and logo are shared. The Shot and Pop-ups tabs edit the selected shot.
+
+**Draw the line by hand:** press **✎ Draw line** and drag over the video. The drawn line replaces
+the automatic path and renders even without analysis (when auto detection fails). It starts at the
+impact frame (or the frame you drew on) and takes the flight time. The line disappears right after
+landing by default (Style → *Hold after landing*). **↺ Reset project** (Shot tab, or the ↺ on a
+project in the list) clears everything except the video.
 
 Pick **English / 한국어** at the top right. The choice is remembered; the first visit follows
 the browser language. You can also open `http://127.0.0.1:8765/#lang=ko`.
@@ -145,3 +155,8 @@ uv run pytest
 
 UI strings live in `src/shottracer/web/i18n.js`; add a language by adding a block there and an
 option to the language menu in `index.html`.
+
+## Support
+
+If shottracer is useful to you, you can support its development with a donation:
+[Donate with PayPal](https://www.paypal.com/donate/?business=57PYF6ECLXA6L&no_recurring=0&currency_code=USD)

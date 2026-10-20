@@ -101,3 +101,13 @@ def test_launch_requires_ball_to_have_left_address():
     assert found is None or found[0] >= 14
     found = tj.detect_launch(cands, START, 1, 25, max_jump=240, min_speed=19, gone=lambda t: t >= 11)
     assert found is not None and found[0] == 11
+
+
+def test_blurred_fast_launch_needs_tolerant_mode():
+    # Measured on a real drive: the ball is seen right after impact, blurred out for two
+    # frames, then found again much slower (it flies away from the camera).
+    offsets = {13: (65, -62), 16: (103, -108), 17: (109, -114), 18: (113, -119), 19: (117, -123)}
+    cands = _cands([(f, START[0] + dx, START[1] + dy) for f, (dx, dy) in offsets.items()])
+    assert tj.detect_launch(cands, START, 1, 25, max_jump=288, min_speed=19) is None
+    found = tj.detect_launch(cands, START, 12, 30, max_jump=288, min_speed=9.6, max_gap=3, min_ratio=0.15)
+    assert found is not None and found[0] == 13 and [c.frame for c in found[1]] == [13, 16, 17]

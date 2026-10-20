@@ -5,13 +5,16 @@ const S = {
   projects: [],
   cur: null,          // current project summary
   frame: 0,
-  tool: null,         // "ball" | "landing" | null
+  tool: null,         // "ball" | "landing" | "draw" | null
   tab: "shot",
   overlay: null,      // edit handles for the current frame
   version: 0,         // bumps when settings change (preview cache-buster)
   playing: false,
   drag: null,
+  stroke: null,       // canvas points of the line being drawn by hand
+  trace: null,        // key of the shot being edited (a video has up to MAX_TRACES)
 };
+const MAX_TRACES = 4;
 const $ = (id) => document.getElementById(id);
 const view = $("view"), canvas = $("overlay"), ctx = canvas.getContext("2d");
 
@@ -39,7 +42,8 @@ async function refresh() {
   if (S.cur) {
     const fresh = S.projects.find((p) => p.id === S.cur.id);
     if (fresh) {
-      const becameReady = S.cur.status !== "ready" && fresh.status === "ready";
+      // A shot whose analysis just finished.
+      const becameReady = fresh.traces.some((x) => x.result && !S.cur.traces.find((y) => y.key === x.key)?.result);
       S.cur = fresh;
       if (becameReady) { S.version++; await loadOverlay(); showFrame(); renderPanel(); renderMarks(); renderTools(); toast(t("toast.analysed")); }
     } else S.cur = null;
@@ -57,7 +61,7 @@ function statusBadge(p) {
   if (p.status === "error") return [t("badge.error"), "error"];
   if (r?.status === "done" || (!r && p.has_output)) return [t("badge.done"), "ready"];
   if (p.status === "ready") return [t("badge.ready"), "ready"];
-  return [p.shot.ball ? t("badge.needAnalysis") : t("badge.needBall"), ""];
+  return [p.traces.some((x) => x.shot.ball) ? t("badge.needAnalysis") : t("badge.needBall"), ""];
 }
 
 function renderList() {
@@ -66,9 +70,9 @@ function renderList() {
     const li = document.createElement("li");
     if (S.cur && p.id === S.cur.id) li.classList.add("active");
     const [label, cls, prog] = statusBadge(p);
-    li.innerHTML = `<img src="/api/projects/${p.id}/frames/${p.shot.ball_frame}.jpg" loading="lazy">
+    li.innerHTML = `<img src="/api/projects/${p.id}/frames/${p.traces[0].shot.ball_frame}.jpg" loading="lazy">
       <div class="meta"><span class="name" title="${esc(p.name)}">${esc(p.name)}</span><span class="badge ${cls}">${label}</span></div>
-      <button class="del" title="${t("list.delete")}">✕</button>${prog !== undefined ? `<div class="bar" style="width:${prog * 100}%"></div>` : ""}`;
+      <button class="reset" title="${t("reset.title")}">↺</button><button class="del" title="${t("list.delete")}">✕</button>${prog !== undefined ? `<div class="bar" style="width:${prog * 100}%"></div>` : ""}`;
     li.onclick = () => select(p.id);
     li.querySelector(".del").onclick = async (e) => {
       e.stopPropagation();
@@ -77,8 +81,24 @@ function renderList() {
       if (S.cur?.id === p.id) { S.cur = null; $("stage").classList.add("empty"); renderPanel(); }
       refresh();
     };
+    li.querySelector(".reset").onclick = (e) => { e.stopPropagation(); resetProject(p); };
     ul.appendChild(li);
   }
+}
+
+async function resetProject(p) {
+  if (!confirm(t("reset.confirm", { name: p.name }))) return;
+  if (S.cur?.id === p.id) { stop(); clearTimeout(saveTimer); pending = {}; editOpen = false; }
+  delete HISTORY[p.id]; // a reset cannot be undone, and older steps no longer apply
+  try {
+    const fresh = await api("POST", `/api/projects/${p.id}/reset`);
+    await refresh();
+    if (S.cur?.id === p.id) {
+      S.cur = fresh; S.trace = fresh.traces[0].key; S.version++; S.tool = "ball"; S.stroke = null;
+      await loadOverlay(); showFrame(); renderPanel(); renderTools(); renderMarks();
+    }
+    toast(t("reset.done"));
+  } catch (e) { toast(serverText(e.message)); }
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -86,8 +106,9 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 async function select(id) {
   stop();
   S.cur = S.projects.find((p) => p.id === id) || (await api("GET", `/api/projects/${id}`));
-  S.frame = S.cur.shot.ball_frame || 0;
-  S.tool = S.cur.shot.ball ? null : "ball";
+  S.trace = S.cur.traces[0].key;
+  S.frame = TR().shot.ball_frame || 0;
+  S.tool = TR().shot.ball || TR().shot.manual ? null : "ball";
   $("stage").classList.remove("empty");
   $("timeline").max = S.cur.info.frames - 1;
   await loadOverlay();
@@ -106,9 +127,123 @@ async function upload(files) {
   }
 }
 
+// ---------------------------------------------------------------- shots (traces)
+// The shot being edited; ball, line, edits and pop-ups belong to it.
+function TR() { return S.cur.traces.find((x) => x.key === S.trace) || S.cur.traces[0]; }
+const traceColor = (tr) => tr.color || S.cur.style.color;
+
+async function switchTrace(key) {
+  await flush();
+  stop();
+  S.trace = key; S.stroke = null; S.drag = null;
+  const tr = TR();
+  S.tool = tr.shot.ball || tr.shot.manual ? null : "ball";
+  if (tr.shot.ball) S.frame = tr.shot.ball_frame;
+  await loadOverlay(); showFrame(); renderPanel(); renderTools(); renderMarks();
+}
+
+async function addTrace() {
+  await flush();
+  try {
+    S.cur = await api("POST", `/api/projects/${S.cur.id}/traces`);
+    await switchTrace(S.cur.traces[S.cur.traces.length - 1].key);
+    renderList();
+    toast(t("trace.added", { n: S.cur.traces.length }));
+  } catch (e) { toast(serverText(e.message)); }
+}
+
+async function removeTrace() {
+  const n = S.cur.traces.indexOf(TR()) + 1;
+  if (!confirm(t("trace.confirmDelete", { n }))) return;
+  await flush();
+  try {
+    S.cur = await api("DELETE", `/api/projects/${S.cur.id}/traces/${TR().key}`);
+    S.version++;
+    await switchTrace(S.cur.traces[Math.min(n - 1, S.cur.traces.length - 1)].key);
+    renderList();
+  } catch (e) { toast(serverText(e.message)); }
+}
+
+function renderTraces() {
+  const box = $("traces"); box.innerHTML = "";
+  if (!S.cur) return;
+  S.cur.traces.forEach((tr, i) => {
+    const busy = tr.status === "analysing" || ["queued", "running"].includes(tr.job?.status);
+    const state = busy ? "busy" : tr.result ? "ready" : tr.status === "error" ? "error" : "";
+    const b = el(`<button class="trace ${tr.key === TR().key ? "on" : ""} ${state}"><i style="background:${traceColor(tr)}"></i>${t("trace.name", { n: i + 1 })}</button>`);
+    b.onclick = () => tr.key !== TR().key && switchTrace(tr.key);
+    box.appendChild(b);
+  });
+  if (S.cur.traces.length < MAX_TRACES) {
+    const add = el(`<button class="trace add" title="${t("trace.addTitle", { max: MAX_TRACES })}">${t("trace.add")}</button>`);
+    add.onclick = addTrace; box.appendChild(add);
+  }
+  if (S.cur.traces.length > 1) {
+    const del = el(`<button class="trace del" title="${t("trace.delete")}">✕</button>`);
+    del.onclick = removeTrace; box.appendChild(del);
+  }
+}
+
 // ---------------------------------------------------------------- settings save
 let saveTimer = null, pending = {};
+
+// ---------------------------------------------------------------- undo / redo
+// Per video: snapshots of every editable setting. Edits saved together (a slider drag,
+// typing in a field) form one step. Adding/removing shots and reset are not undone.
+const HISTORY = {}, HISTORY_MAX = 100;
+let editOpen = false;
+const history = () => (HISTORY[S.cur.id] ??= { undo: [], redo: [] });
+function snapshot() {
+  const c = structuredClone;
+  return {
+    style: c(S.cur.style), slowmo: c(S.cur.slowmo), logo: c(S.cur.logo), swing: c(S.cur.swing),
+    traces: S.cur.traces.map((x) => ({ key: x.key, shot: c(x.shot), popups: c(x.popups), color: x.color })),
+  };
+}
+function beginEdit() {
+  if (editOpen || !S.cur) return;
+  editOpen = true;
+  const h = history();
+  h.undo.push(snapshot()); h.redo = [];
+  if (h.undo.length > HISTORY_MAX) h.undo.shift();
+  renderUndo();
+}
+async function undo(redo = false) {
+  if (!S.cur) return;
+  if (Object.keys(pending).length) { clearTimeout(saveTimer); await flush(); }
+  const h = history(), from = redo ? h.redo : h.undo, to = redo ? h.undo : h.redo;
+  if (!from.length) { toast(t(redo ? "undo.nothingRedo" : "undo.nothing")); return; }
+  const snap = from.pop();
+  to.push(snapshot());
+  const { traces, ...rest } = snap;
+  try {
+    S.cur = await api("PUT", `/api/projects/${S.cur.id}`, { ...rest, restore: traces });
+  } catch (e) { toast(t("toast.saveFailed", { msg: serverText(e.message) })); return; }
+  S.version++; S.stroke = null; S.drag = null;
+  const tr = TR();
+  if (tr.shot.ball && S.tool === "ball") S.tool = null;
+  await loadOverlay(); showFrame(); renderList(); renderPanel(); renderTools(); renderMarks();
+  toast(t(redo ? "undo.redone" : "undo.undone"), 1200);
+}
+function renderUndo() {
+  const h = S.cur && HISTORY[S.cur.id];
+  $("undo").disabled = !h?.undo.length;
+  $("redo").disabled = !h?.redo.length;
+}
+
+// Settings of the current shot: applied locally, then saved with its key.
+function patchTrace(part, immediate = false) {
+  beginEdit();
+  const tr = TR();
+  for (const [k, v] of Object.entries(part)) {
+    if (k === "shot") Object.assign(tr.shot, v);
+    else if (k === "popups" || k === "color") tr[k] = v;
+  }
+  patch({ ...part, trace: tr.key }, immediate);
+}
 function patch(part, immediate = false) {
+  beginEdit();
+  if (part.trace && pending.trace && part.trace !== pending.trace) flush(); // never mix two shots in one save
   for (const [k, v] of Object.entries(part)) {
     pending[k] = (typeof v === "object" && !Array.isArray(v) && v !== null) ? { ...(pending[k] || {}), ...v } : v;
     if (k in S.cur && typeof v === "object" && !Array.isArray(v) && v !== null) Object.assign(S.cur[k], v);
@@ -119,16 +254,20 @@ function patch(part, immediate = false) {
 }
 async function flush() {
   if (!S.cur) return;
-  const body = pending; pending = {};
+  const body = pending; pending = {}; editOpen = false;
+  const states = () => S.cur.traces.map((x) => x.status).join();
+  const status = states();
   try {
     S.cur = await api("PUT", `/api/projects/${S.cur.id}`, body);
     S.version++;
     await loadOverlay(); showFrame(); renderStats(); renderList();
+    if (states() !== status) { renderPanel(); renderTools(); renderMarks(); } // e.g. a drawn line made it renderable
   } catch (e) { toast(t("toast.saveFailed", { msg: serverText(e.message) })); }
 }
 
 // ---------------------------------------------------------------- frame display
-function analysed() { return S.cur && S.cur.status === "ready" && S.cur.result; }
+// Some shot has a path to draw (previews then show the tracers).
+function analysed() { return S.cur && S.cur.traces.some((x) => x.result); }
 
 function frameUrl(i) {
   return analysed() ? `/api/projects/${S.cur.id}/preview/${i}.jpg?v=${S.version}` : `/api/projects/${S.cur.id}/frames/${i}.jpg`;
@@ -154,7 +293,7 @@ view.onload = () => {
 view.onerror = () => { loading = false; };
 
 async function loadOverlay() {
-  S.overlay = analysed() ? await api("GET", `/api/projects/${S.cur.id}/overlay/${S.frame}`) : null;
+  S.overlay = S.cur && TR().result ? await api("GET", `/api/projects/${S.cur.id}/overlay/${S.frame}?trace=${TR().key}`) : null;
 }
 
 function sizeCanvas() {
@@ -169,10 +308,11 @@ function drawOverlay() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!S.cur || S.playing) return;
   const s = scale(), kk = k();
-  const ball = S.cur.shot.ball;
-  if (ball && (!analysed() || S.frame === S.cur.shot.ball_frame) && !S.overlay) {
+  const ball = TR().shot.ball;
+  if (ball && (!TR().result || S.frame === TR().shot.ball_frame) && !S.overlay) {
     ring(ball[0] / s * kk, ball[1] / s * kk, 11, "#ffd400");
   }
+  if (S.stroke) { polyline(S.stroke, traceColor(TR()), 3); return; }
   if (!$("guide").checked || !S.overlay || !S.overlay.path) return;
   const o = S.overlay;
   ctx.save();
@@ -181,12 +321,17 @@ function drawOverlay() {
   o.path.forEach(([x, y], i) => (i ? ctx.lineTo(x * kk, y * kk) : ctx.moveTo(x * kk, y * kk)));
   ctx.stroke(); ctx.restore();
   ring(o.start[0] * kk, o.start[1] * kk, 8, "#ffd400");
+  if (o.mode === "manual") return; // a drawn line is edited by redrawing it
   const lp = S.drag?.what === "landing" ? S.drag.pos : [o.landing[0] * kk, o.landing[1] * kk];
   handle(lp[0], lp[1], "#00e0ff", t("handle.landing"));
   if (o.mode === "flight") {
     const ap = S.drag?.what === "apex" ? S.drag.pos : [o.apex[0] * kk, o.apex[1] * kk];
     diamond(ap[0], ap[1], "#ff9f1a"); label(ap[0] + 10, ap[1] - 8, t("handle.apex"));
   }
+}
+function polyline(pts, c, w) {
+  ctx.save(); ctx.strokeStyle = c; ctx.lineWidth = w; ctx.lineJoin = ctx.lineCap = "round";
+  ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); ctx.restore();
 }
 function ring(x, y, r, c) {
   ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.stroke();
@@ -238,27 +383,33 @@ canvas.addEventListener("mousedown", (e) => {
   if (!S.cur) return;
   const [x, y] = eventPos(e), kk = k(), s = scale();
   const o = S.overlay;
-  if (o && $("guide").checked && !S.tool) {
+  if (S.tool === "draw") { stop(); S.stroke = [[x, y]]; drawOverlay(); return; }
+  if (o && o.mode !== "manual" && $("guide").checked && !S.tool) {
     if (Math.hypot(x - o.landing[0] * kk, y - o.landing[1] * kk) < 12) { S.drag = { what: "landing", pos: [x, y] }; return; }
     if (o.mode === "flight" && Math.hypot(x - o.apex[0] * kk, y - o.apex[1] * kk) < 12) {
-      S.drag = { what: "apex", pos: [o.apex[0] * kk, y], startY: o.start[1] * kk, apexY: o.apex[1] * kk, h: S.cur.shot.height };
+      S.drag = { what: "apex", pos: [o.apex[0] * kk, y], startY: o.start[1] * kk, apexY: o.apex[1] * kk, h: TR().shot.height };
       return;
     }
   }
   const vx = (x / kk) * s, vy = (y / kk) * s;
   if (S.tool === "ball") {
-    patch({ shot: { ball: [vx, vy], ball_frame: S.frame } }, true);
+    patchTrace({ shot: { ball: [vx, vy], ball_frame: S.frame } }, true);
     S.tool = null; renderTools(); drawOverlay(); renderList(); renderPanel(); renderMarks();
     toast(t("toast.ballSet"));
   } else if (S.tool === "landing") {
-    if (S.cur.shot.mode !== "flight") { toast(t("toast.landingFlightOnly")); return; }
-    patch({ shot: { landing: [vx, vy] }, landing_frame: S.frame }, true);
+    if (TR().shot.mode !== "flight") { toast(t("toast.landingFlightOnly")); return; }
+    patchTrace({ shot: { landing: [vx, vy] }, landing_frame: S.frame }, true);
     S.tool = null; renderTools(); if (S.tab === "shot") renderPanel();
   }
 });
 canvas.addEventListener("mousemove", (e) => {
+  if (S.stroke) {
+    const [x, y] = eventPos(e), last = S.stroke[S.stroke.length - 1];
+    if (Math.hypot(x - last[0], y - last[1]) >= 3) { S.stroke.push([x, y]); drawOverlay(); }
+    return;
+  }
   if (!S.drag) {
-    const o = S.overlay; if (!o || !$("guide").checked) { canvas.style.cursor = S.tool ? "crosshair" : "default"; return; }
+    const o = S.overlay; if (!o || o.mode === "manual" || !$("guide").checked) { canvas.style.cursor = S.tool ? "crosshair" : "default"; return; }
     const [x, y] = eventPos(e), kk = k();
     const near = Math.hypot(x - o.landing[0] * kk, y - o.landing[1] * kk) < 12 ||
       (o.mode === "flight" && Math.hypot(x - o.apex[0] * kk, y - o.apex[1] * kk) < 12);
@@ -270,25 +421,54 @@ canvas.addEventListener("mousemove", (e) => {
   drawOverlay();
 });
 window.addEventListener("mouseup", () => {
+  if (S.stroke) { finishStroke(); return; }
   const d = S.drag; if (!d) return;
   S.drag = null;
   const kk = k(), s = scale();
   if (d.what === "landing") {
-    patch({ shot: { landing: [(d.pos[0] / kk) * s, (d.pos[1] / kk) * s] }, landing_frame: S.frame }, true);
+    patchTrace({ shot: { landing: [(d.pos[0] / kk) * s, (d.pos[1] / kk) * s] }, landing_frame: S.frame }, true);
     if (S.tab === "shot") renderPanel();
   } else {
     const rise0 = d.startY - d.apexY, rise1 = d.startY - d.pos[1];
     if (rise0 > 2) {
       const h = Math.max(0.2, Math.min(3, (d.h * rise1) / rise0));
-      patch({ shot: { height: +h.toFixed(3) } }, true);
+      patchTrace({ shot: { height: +h.toFixed(3) } }, true);
     }
   }
 });
 
+// Chaikin smoothing keeps the drawn shape but removes mouse jitter.
+function smooth(pts, passes = 2) {
+  for (let n = 0; n < passes && pts.length > 2; n++) {
+    const out = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [a, b] = [pts[i], pts[i + 1]];
+      out.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]]);
+    }
+    out.push(pts[pts.length - 1]); pts = out;
+  }
+  return pts;
+}
+function finishStroke() {
+  const pts = S.stroke; S.stroke = null;
+  const len = pts.slice(1).reduce((acc, p, i) => acc + Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]), 0);
+  if (pts.length < 2 || len < 15) { drawOverlay(); toast(t("toast.drawShort")); return; }
+  const kk = k(), s = scale();
+  let line = smooth(pts);
+  const step = Math.max(1, Math.ceil(line.length / 300));
+  line = line.filter((_, i) => i % step === 0 || i === line.length - 1);
+  const manual = line.map(([x, y]) => [+((x / kk) * s).toFixed(1), +((y / kk) * s).toFixed(1)]);
+  patchTrace({ shot: { manual, manual_frame: S.frame } }, true);
+  S.tool = null; renderTools(); renderPanel(); renderMarks(); drawOverlay();
+  toast(t("toast.drawn"));
+}
+
 // ---------------------------------------------------------------- tools / marks
 function renderTools() {
+  renderTraces();
+  renderUndo();
   document.querySelectorAll(".tool").forEach((b) => b.classList.toggle("active", b.dataset.tool === S.tool));
-  $("hint").textContent = S.tool ? t(`hint.${S.tool}`) : analysed() ? t("hint.edit") : "";
+  $("hint").textContent = S.tool ? t(`hint.${S.tool}`) : S.cur && TR().result && TR().result.mode !== "manual" ? t("hint.edit") : "";
   canvas.style.cursor = S.tool ? "crosshair" : "default";
 }
 function renderMarks() {
@@ -296,8 +476,11 @@ function renderMarks() {
   if (!S.cur) return;
   const n = Math.max(1, S.cur.info.frames - 1);
   const add = (f, cls) => { const s = document.createElement("span"); s.className = cls; s.style.left = `${(f / n) * 100}%`; m.appendChild(s); };
-  if (S.cur.shot.ball) add(S.cur.shot.ball_frame, "ball");
-  if (S.cur.result) add(S.cur.result.impact, "impact");
+  for (const tr of S.cur.traces) {
+    const dim = tr.key === TR().key ? "" : " other";
+    if (tr.shot.ball) add(tr.shot.ball_frame, "ball" + dim);
+    if (tr.result) add(tr.result.impact, "impact" + dim);
+  }
 }
 
 // ---------------------------------------------------------------- panel
@@ -347,23 +530,23 @@ function select_(parent, label, options, value, onChange) {
 }
 
 function renderShot(body) {
-  const p = S.cur, sh = p.shot;
-  const g = group(body, t("shot.group"));
-  seg(g, t("shot.mode"), [["flight", t("shot.flight")], ["putt", t("shot.putt")]], sh.mode, (v) => { patch({ shot: { mode: v } }); renderPanel(); });
+  const p = TR(), sh = p.shot, n = S.cur.traces.indexOf(p) + 1;
+  const g = group(body, S.cur.traces.length > 1 ? t("trace.name", { n }) : t("shot.group"));
+  seg(g, t("shot.mode"), [["flight", t("shot.flight")], ["putt", t("shot.putt")]], sh.mode, (v) => { patchTrace({ shot: { mode: v } }); renderPanel(); });
   if (sh.mode === "flight")
-    select_(g, t("shot.type"), ["chip", "pitch", "full", "drive"].map((k) => [k, t(`shot.${k}`)]), sh.shot, (v) => patch({ shot: { shot: v } }));
+    select_(g, t("shot.type"), ["chip", "pitch", "full", "drive"].map((k) => [k, t(`shot.${k}`)]), sh.shot, (v) => patchTrace({ shot: { shot: v } }));
   const ball = sh.ball ? t("shot.ballAt", { f: sh.ball_frame, xy: sh.ball.map((v) => Math.round(v)).join(", ") }) : t("shot.unset");
   g.appendChild(el(`<div class="row"><label>${t("shot.ball")}</label><span>${ball}</span></div>`));
   const imp = el(`<div class="row"><label>${t("shot.impact")}</label><input type="number" min="0" placeholder="${t("shot.auto")}" value="${sh.impact ?? ""}"></div>`);
-  imp.querySelector("input").onchange = (e) => patch({ shot: { impact: e.target.value === "" ? null : +e.target.value } });
+  imp.querySelector("input").onchange = (e) => patchTrace({ shot: { impact: e.target.value === "" ? null : +e.target.value } });
   g.appendChild(imp);
 
-  const a = S.cur.jobs?.analyze;
+  const a = p.job;
   const running = p.status === "analysing" || a?.status === "running" || a?.status === "queued";
   const btn = el(`<button class="btn primary wide" ${!sh.ball || running ? "disabled" : ""}>${running ? t("shot.analysing") : p.result ? t("shot.reanalyse") : t("shot.analyse")}</button>`);
   btn.onclick = async () => {
     await flush();
-    try { await api("POST", `/api/projects/${p.id}/analyze`); S.cur.status = "analysing"; refresh(); renderPanel(); }
+    try { await api("POST", `/api/projects/${S.cur.id}/analyze?trace=${p.key}`); p.status = "analysing"; refresh(); renderPanel(); }
     catch (e) { toast(serverText(e.message)); }
   };
   g.appendChild(btn);
@@ -372,26 +555,59 @@ function renderShot(body) {
 
   const st = el(`<div class="group" id="stats"></div>`); body.appendChild(st); renderStats();
 
-  if (p.result && sh.mode === "flight") {
+  const cg = group(body, t("trace.line"));
+  toggle(cg, t("trace.ownColor"), p.color != null, (v) => { patchTrace({ color: v ? S.cur.style.color : null }); renderPanel(); });
+  if (p.color != null) color(cg, t("style.color"), p.color, (v) => { patchTrace({ color: v }); renderTraces(); });
+
+  const mg = group(body, t("manual.group"));
+  const mrow = el(`<div class="row"><label>${t("manual.status")}</label><span>${sh.manual ? t("manual.drawn", { f: sh.manual_frame }) : t("manual.none")}</span></div>`);
+  mg.appendChild(mrow);
+  const drawBtn = el(`<button class="btn small">${sh.manual ? t("manual.redraw") : t("manual.draw")}</button>`);
+  drawBtn.onclick = () => { S.tool = "draw"; renderTools(); };
+  mg.appendChild(drawBtn);
+  if (sh.manual) {
+    const clr = el(`<button class="btn small" style="margin-left:6px">${t("manual.clear")}</button>`);
+    clr.onclick = () => { patchTrace({ shot: { manual: null } }, true); renderPanel(); };
+    mg.appendChild(clr);
+    if (p.result) {
+      const auto = sh.flight_time == null;
+      toggle(mg, t("edit.autoTime"), auto, (v) => { patchTrace({ shot: { flight_time: v ? null : +(p.result.duration.toFixed(1)) } }); renderPanel(); });
+      if (!auto) slider(mg, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => patchTrace({ shot: { flight_time: v } }), (v) => `${v.toFixed(1)}s`);
+      else distanceNote(mg);
+    }
+  }
+  mg.appendChild(el(`<p class="note">${t("manual.help")}</p>`));
+
+  if (p.result && sh.mode === "flight" && !sh.manual) {
     const e = group(body, t("edit.group"));
     const auto = sh.flight_time == null;
-    toggle(e, t("edit.autoTime"), auto, (v) => { patch({ shot: { flight_time: v ? null : +(p.result.duration.toFixed(1)) } }); renderPanel(); });
-    if (!auto) slider(e, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => patch({ shot: { flight_time: v } }), (v) => `${v.toFixed(1)}s`);
-    slider(e, t("edit.height"), sh.height, 0.3, 2.5, 0.05, (v) => patch({ shot: { height: v } }), (v) => `×${v.toFixed(2)}`);
+    toggle(e, t("edit.autoTime"), auto, (v) => { patchTrace({ shot: { flight_time: v ? null : +(p.result.duration.toFixed(1)) } }); renderPanel(); });
+    if (!auto) slider(e, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => patchTrace({ shot: { flight_time: v } }), (v) => `${v.toFixed(1)}s`);
+    else distanceNote(e);
+    slider(e, t("edit.height"), sh.height, 0.3, 2.5, 0.05, (v) => patchTrace({ shot: { height: v } }), (v) => `×${v.toFixed(2)}`);
     const row = el(`<div class="row"><label>${t("edit.landing")}</label><span>${sh.landing ? t("edit.set") : t("shot.auto")}</span></div>`);
     if (sh.landing) {
       const b = el(`<button class="btn small">${t("edit.clear")}</button>`);
-      b.onclick = () => { patch({ shot: { landing: null } }, true); renderPanel(); };
+      b.onclick = () => { patchTrace({ shot: { landing: null } }, true); renderPanel(); };
       row.appendChild(b);
     }
     e.appendChild(row);
     e.appendChild(el(`<p class="note">${t("edit.help")}</p>`));
   }
+
+  const rb = el(`<button class="btn wide danger" style="margin-top:12px">${t("reset.button")}</button>`);
+  rb.onclick = () => resetProject(S.cur);
+  body.appendChild(rb);
+}
+
+function distanceNote(parent) {
+  const dt = TR().result?.distance_time;
+  parent.appendChild(el(`<p class="note">${dt != null ? t("edit.fromDistance", { s: dt.toFixed(1) }) : t("edit.distanceHint")}</p>`));
 }
 
 function renderStats() {
   const box = document.getElementById("stats"); if (!box) return;
-  const r = S.cur.result;
+  const r = TR().result;
   if (!r) { box.innerHTML = ""; return; }
   const fps = S.cur.info.fps;
   box.innerHTML = `<h4>${t("stats.title")}</h4><div class="stat">
@@ -423,7 +639,7 @@ function renderStyle(body) {
   toggle(e, t("style.cutout"), st.cutout, (v) => patch({ style: { cutout: v } }));
   toggle(e, t("style.ballHead"), st.ball_head, (v) => patch({ style: { ball_head: v } }));
   toggle(e, t("style.landingFx"), st.landing_marker, (v) => patch({ style: { landing_marker: v } }));
-  toggle(e, t("style.keep"), st.hold == null, (v) => { patch({ style: { hold: v ? null : 2 } }); renderPanel(); });
+  toggle(e, t("style.keep"), st.hold == null, (v) => { patch({ style: { hold: v ? null : 0 } }); renderPanel(); });
   if (st.hold != null) slider(e, t("style.hold"), st.hold, 0, 10, 0.5, (v) => patch({ style: { hold: v } }), (v) => `${v.toFixed(1)}s`);
   const sm = S.cur.slowmo, s = group(body, t("slowmo.group"));
   toggle(s, t("common.enable"), sm.enabled, (v) => { patch({ slowmo: { enabled: v } }); renderPanel(); });
@@ -454,17 +670,18 @@ function renderPopups(body) {
   for (const [kind, [label, value, anchor]] of Object.entries(POPUP_TYPES)) {
     const b = el(`<button class="btn small">+ ${t(`popup.${kind}`)}</button>`);
     b.onclick = () => {
-      const list = [...S.cur.popups, { kind, label, value: value(), anchor, delay: anchor === "landing" ? 0.2 : 0.3, duration: null, color: "#111111", accent: S.cur.style.color }];
-      patch({ popups: list }); renderPanel();
+      const list = [...TR().popups, { kind, label, value: value(), anchor, delay: anchor === "landing" ? 0.2 : 0.3, duration: null, color: "#111111", accent: traceColor(TR()) }];
+      patchTrace({ popups: list }); renderPanel();
     };
     chips.appendChild(b);
   }
   g.appendChild(chips);
   g.appendChild(el(`<p class="note">${t("popup.note")}</p>`));
-  S.cur.popups.forEach((pp, i) => {
+  if (S.cur.traces.length > 1) g.appendChild(el(`<p class="note">${t("trace.popupsFor", { n: S.cur.traces.indexOf(TR()) + 1 })}</p>`));
+  TR().popups.forEach((pp, i) => {
     const c = el(`<div class="card"><div class="head"><span>${t(`popup.${pp.kind}`)}</span><button class="btn small">${t("popup.delete")}</button></div></div>`);
-    const upd = (part) => { const list = S.cur.popups.map((x, j) => (j === i ? { ...x, ...part } : x)); patch({ popups: list }); };
-    c.querySelector(".btn").onclick = () => { patch({ popups: S.cur.popups.filter((_, j) => j !== i) }); renderPanel(); };
+    const upd = (part) => { const list = TR().popups.map((x, j) => (j === i ? { ...x, ...part } : x)); patchTrace({ popups: list }); };
+    c.querySelector(".btn").onclick = () => { patchTrace({ popups: TR().popups.filter((_, j) => j !== i) }); renderPanel(); };
     const lab = el(`<div class="row"><label>${t("popup.label")}</label><input type="text" value="${esc(pp.label)}"></div>`);
     lab.querySelector("input").oninput = (e) => upd({ label: e.target.value });
     const val = el(`<div class="row"><label>${t("popup.value")}</label><input type="text" value="${esc(pp.value)}" placeholder="${pp.kind === "hangtime" ? t("popup.auto") : ""}"></div>`);
@@ -567,14 +784,26 @@ $("guide").onchange = drawOverlay;
 document.querySelectorAll(".tool").forEach((b) => (b.onclick = () => { S.tool = S.tool === b.dataset.tool ? null : b.dataset.tool; renderTools(); }));
 document.querySelectorAll("#tabs button").forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; renderPanel(); }));
 window.addEventListener("resize", () => { sizeCanvas(); drawOverlay(); });
+$("undo").onclick = () => undo();
+$("redo").onclick = () => undo(true);
 window.addEventListener("keydown", (e) => {
+  const typing = e.target.tagName === "TEXTAREA" || (e.target.tagName === "INPUT" && ["text", "number", "search"].includes(e.target.type));
+  const k = e.key.toLowerCase();
+  if ((e.metaKey || e.ctrlKey) && (k === "z" || k === "y") && !typing && S.cur) {
+    e.preventDefault();
+    if (S.stroke) { S.stroke = null; drawOverlay(); return; } // cancel a line being drawn
+    undo(k === "y" || e.shiftKey);
+    return;
+  }
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || !S.cur) return;
   if (e.key === "ArrowLeft") { stop(); goto(S.frame - (e.shiftKey ? 10 : 1)); }
   else if (e.key === "ArrowRight") { stop(); goto(S.frame + (e.shiftKey ? 10 : 1)); }
   else if (e.key === " ") { e.preventDefault(); S.playing ? stop() : play(); }
   else if (e.key === "b") { S.tool = "ball"; renderTools(); }
   else if (e.key === "l") { S.tool = "landing"; renderTools(); }
-  else if (e.key === "Escape") { S.tool = null; renderTools(); }
+  else if (e.key === "d") { S.tool = "draw"; renderTools(); }
+  else if (/^[1-4]$/.test(e.key) && S.cur.traces[+e.key - 1]) switchTrace(S.cur.traces[+e.key - 1].key);
+  else if (e.key === "Escape") { S.tool = null; S.stroke = null; renderTools(); drawOverlay(); }
 });
 
 $("lang").value = LANG;

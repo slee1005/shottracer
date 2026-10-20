@@ -77,7 +77,8 @@ def _run(args) -> int:
 
     print("preparing…", file=sys.stderr)
     p = engine.create(src, copy=False)
-    s = p.shot
+    tr = p.traces[0]
+    s = tr.shot
     s.mode = "putt" if args.putt else "flight"
     s.ball, s.ball_frame, s.landing = args.ball, args.ball_frame, args.landing
     s.impact, s.horizon, s.shot, s.flight_time = args.impact, args.horizon, args.shot, args.flight_time
@@ -88,10 +89,10 @@ def _run(args) -> int:
     if args.slowmo:
         p.slowmo.enabled, p.slowmo.factor = True, args.slowmo
 
-    engine.analyze(p, lambda f, msg="": print(f"\ranalysing {f:4.0%} {msg:<20}", end="", file=sys.stderr))
+    engine.analyze(p, tr, lambda f, msg="": print(f"\ranalysing {f:4.0%} {msg:<20}", end="", file=sys.stderr))
     engine.save(p)
-    path = engine.ShotPath(p)
-    a = p.analysis
+    path = engine.ShotPath(p, tr)
+    a = tr.analysis
     print(
         f"\nimpact ≈ frame {a['impact']:.1f}, ball tracked in {len(a['observations'])} frames, "
         f"{'flight' if path.mode == 'flight' else 'roll'} {path.end:.1f}s  (project {p.id})",

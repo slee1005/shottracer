@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Point = tuple[float, float]
 Corner = Literal["top-left", "top-right", "bottom-left", "bottom-right"]
@@ -20,6 +21,8 @@ class Shot(BaseModel):
     horizon: float | None = None
     flight_time: float | None = None  # user override (seconds)
     height: float = Field(1.0, ge=0.2, le=3.0)  # user apex height scale
+    manual: list[Point] | None = None  # hand-drawn path, video pixels on `manual_frame`
+    manual_frame: int = 0
 
 
 class Style(BaseModel):
@@ -32,7 +35,7 @@ class Style(BaseModel):
     ball_head: bool = True
     landing_marker: bool = True
     cutout: bool = True  # draw the tracer behind the golfer
-    hold: float | None = None  # seconds the line stays after landing; None = until the end
+    hold: float | None = 0.0  # seconds the line stays after landing; None = until the end
 
 
 class SlowMo(BaseModel):
@@ -71,17 +74,54 @@ class Swing(BaseModel):
     gradient: bool = True  # fade older parts of the path
 
 
+Status = Literal["new", "analysing", "ready", "error"]
+MAX_TRACES = 4
+
+
+def new_key() -> str:
+    return uuid.uuid4().hex[:6]
+
+
+class Trace(BaseModel):
+    """One shot traced in the video: its own ball, analysis, line and pop-ups."""
+
+    key: str = Field(default_factory=new_key)  # stable id; names its work directory
+    status: Status = "new"
+    error: str | None = None
+    shot: Shot = Shot()
+    popups: list[Popup] = []
+    color: str | None = None  # line color; None = the style color
+    analysis: dict | None = None
+
+
 class Project(BaseModel):
     id: str
     name: str
     source: str
     info: dict = {}
-    status: Literal["new", "analysing", "ready", "error"] = "new"
+    status: Status = "new"  # aggregate of the traces
     error: str | None = None
-    shot: Shot = Shot()
+    traces: list[Trace] = Field(default_factory=lambda: [Trace()], min_length=1, max_length=MAX_TRACES)
     style: Style = Style()
     slowmo: SlowMo = SlowMo()
-    popups: list[Popup] = []
     logo: Logo = Logo()
     swing: Swing = Swing()
-    analysis: dict | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _single_shot_projects(cls, data):
+        """Projects saved before multi-shot support held one shot at the top level."""
+        if isinstance(data, dict) and "traces" not in data and ("shot" in data or "analysis" in data):
+            data = dict(data)
+            legacy = {k: data.pop(k) for k in ("shot", "analysis", "popups") if k in data}
+            legacy.update(key="legacy", status=data.get("status", "new"), error=data.get("error"))
+            data["traces"] = [legacy]
+        return data
+
+    def trace(self, key: str | None = None) -> Trace:
+        if key is None:
+            return self.traces[0]
+        for tr in self.traces:
+            if tr.key == key:
+                return tr
+        raise KeyError(key)

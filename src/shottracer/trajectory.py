@@ -117,11 +117,16 @@ def detect_launch(
     min_speed: float,
     min_strength: float = 25.0,
     gone=None,
+    max_gap: int = 1,
+    min_ratio: float = 0.35,
 ) -> tuple[int, list[Candidate]] | None:
     """Earliest frame where three consecutive candidates leave `start` along a consistent
     upward path. A struck ball is fastest right after impact and then only slows down in
     the image, which separates it from accelerating club/hand motion; `gone` rejects
     motion while the ball is still at address (e.g. a decelerating late backswing).
+    `max_gap` > 1 tolerates frames where the blurred ball is not detected (speeds are
+    compared per frame) and `min_ratio` bounds how sharply it may slow down between the
+    first two points (a ball flying away from the camera decelerates fast in the image).
     Returns (first in-flight frame, the three candidates)."""
     sx, sy = start
 
@@ -146,18 +151,21 @@ def detect_launch(
             d1 = np.linalg.norm(v1)
             if not (2.0 <= d1 <= max_jump) or v1[1] > -0.3 * d1:  # must head upward
                 continue
-            for c2 in cands.get(t + 1, []):
-                v2 = np.array([c2.x - c1.x, c2.y - c1.y])
-                # c1 may be less than one full frame of travel after impact.
-                if np.linalg.norm(v2) < min_speed or not ok_step(v1, v2, 0.35, 2.5):
-                    continue
-                for c3 in cands.get(t + 2, []):
-                    v3 = np.array([c3.x - c2.x, c3.y - c2.y])
-                    if not ok_step(v2, v3, 0.3, 1.1):
+            for g2 in range(1, max_gap + 1):
+                for c2 in cands.get(t + g2, []):
+                    v2 = np.array([c2.x - c1.x, c2.y - c1.y]) / g2
+                    # c1 may be less than one full frame of travel after impact.
+                    if np.linalg.norm(v2) < min_speed or not ok_step(v1, v2, min_ratio, 2.5):
                         continue
-                    score = c1.strength + c2.strength + c3.strength
-                    if best is None or score > best[0]:
-                        best = (score, [c1, c2, c3])
+                    for g3 in range(1, max_gap + 1):
+                        for c3 in cands.get(t + g2 + g3, []):
+                            v3 = np.array([c3.x - c2.x, c3.y - c2.y]) / g3
+                            if not ok_step(v2, v3, 0.3, 1.1):
+                                continue
+                            # Prefer strong, gap-free seeds.
+                            score = c1.strength + c2.strength + c3.strength - 10.0 * (g2 + g3 - 2)
+                            if best is None or score > best[0]:
+                                best = (score, [c1, c2, c3])
         if best is not None:
             return t, best[1]
     return None

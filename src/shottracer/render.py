@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 from . import camera, engine, popups, swing, video
-from .settings import Project
+from .settings import Project, Trace
 
 
 def parse_color(text: str) -> tuple[int, int, int]:
@@ -46,17 +46,41 @@ PRESETS = {
 
 
 class Renderer:
+    """Draws every analysed shot of a project onto a frame."""
+
     def __init__(self, p: Project, out_size: tuple[int, int]):
-        if not p.analysis:
-            raise ValueError("project is not analysed")
         self.p = p
+        self.layers = [Layer(p, tr, out_size) for tr in p.traces if tr.analysis]
+        if not self.layers:
+            raise ValueError("project is not analysed")
+
+    def draw(self, frame: np.ndarray, index: float) -> np.ndarray:
+        out = frame.astype(np.float32)
+        for layer in self.layers:  # each cut-out puts the golfer back in front of earlier shots too
+            out = layer.tracer(out, frame, index)
+        for layer in self.layers:
+            layer.swing_path(out, index)
+        img = np.clip(out, 0, 255).astype(np.uint8)
+        for layer in self.layers:
+            layer.popups(img, index)
+        if self.p.logo.path:
+            popups.logo(img, self.p.logo.path, self.p.logo.corner, self.p.logo.size, self.p.logo.opacity)
+        return img
+
+
+class Layer:
+    """One traced shot: its path, camera transforms, cut-out masks, swing and pop-ups."""
+
+    def __init__(self, p: Project, tr: Trace, out_size: tuple[int, int]):
+        a = tr.analysis
+        self.p, self.tr = p, tr
         self.w, self.h = out_size
         self.fps = float(p.info["fps"])
-        self.scale = self.w / float(p.analysis.get("work_width", p.info["work_width"]))  # analysis px -> output px
-        self.range_end = p.analysis.get("range", [0, int(p.info["frames"]) - 1])[1]
-        self.transforms = engine.transforms(p)
-        self.path = engine.ShotPath(p)
-        self.masks = engine.workdir(p.id) / "masks"
+        self.scale = self.w / float(a.get("work_width", p.info["work_width"]))  # analysis px -> output px
+        self.range_end = a.get("range", [0, int(p.info["frames"]) - 1])[1]
+        self.transforms = engine.transforms(p, tr)
+        self.path = engine.ShotPath(p, tr)
+        self.masks = engine.tracedir(p.id, tr) / "masks"
         st = p.style
         base = PRESETS[st.preset]
         self.look = Look(
@@ -66,13 +90,13 @@ class Renderer:
             outline=base.outline,
             tail=st.tail if st.tail is not None else base.tail,
         )
-        self.color = parse_color(st.color)
+        self.color = parse_color(tr.color or st.color)
         if self.look.core_from_color:
             self.core = tuple(int(c + (255 - c) * 0.7) for c in self.color)
         else:
             self.core = parse_color(st.core_color)
         self.base = max(1.5, self.h / 270.0) * st.width
-        sw = p.analysis.get("swing", {})
+        sw = a.get("swing", {})
         rows = sw.get(p.swing.source, []) if p.swing.enabled else []
         dense = swing.densify(rows)
         self.swing = dense if len(dense) >= 2 else None
@@ -85,8 +109,10 @@ class Renderer:
         return camera.apply(np.linalg.inv(self.transforms[i]), pts) * self.scale
 
     def _mask(self, index: float) -> np.ndarray | None:
-        i = int(math.floor(index))
-        m = cv2.imread(str(self.masks / f"{i:05d}.png"), cv2.IMREAD_GRAYSCALE)
+        path = self.masks / f"{int(math.floor(index)):05d}.png"
+        if not path.exists():  # no segmentation (e.g. a hand-drawn line without analysis)
+            return None
+        m = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         if m is None:
             return None
         m = cv2.resize(m, (self.w, self.h), interpolation=cv2.INTER_LINEAR)
@@ -101,13 +127,11 @@ class Renderer:
         if hold is None:
             return a
         end = self.path.end + hold
-        return a * (float(np.clip(1.0 - (t - end) / 0.6, 0.0, 1.0)) if t > end else 1.0)
+        return a * (float(np.clip(1.0 - (t - end) / 0.25, 0.0, 1.0)) if t > end else 1.0)
 
     # -------------------------------------------------------------- drawing
-    def draw(self, frame: np.ndarray, index: float) -> np.ndarray:
+    def tracer(self, out: np.ndarray, original: np.ndarray, index: float) -> np.ndarray:
         t = (index - self.path.t0) / self.fps
-        original = frame
-        out = frame.astype(np.float32)
         drew_tracer = False
         if t > 0:
             alpha = self._hold_alpha(t)
@@ -119,13 +143,14 @@ class Renderer:
             m = self._mask(index)
             if m is not None:
                 out = out * (1 - m) + original.astype(np.float32) * m
+        return out
+
+    def swing_path(self, out: np.ndarray, index: float) -> None:
         if self.swing is not None and index <= min(self.range_end, self.swing_end + 0.5 * self.fps):
             self._swing(out, index)
-        img = np.clip(out, 0, 255).astype(np.uint8)
-        self._popups(img, index, t)
-        if self.p.logo.path:
-            popups.logo(img, self.p.logo.path, self.p.logo.corner, self.p.logo.size, self.p.logo.opacity)
-        return img
+
+    def popups(self, img: np.ndarray, index: float) -> None:
+        self._popups(img, index, (index - self.path.t0) / self.fps)
 
     def _tracer(self, out: np.ndarray, index: float, t: float, alpha: float) -> bool:
         path = self.path
@@ -218,7 +243,7 @@ class Renderer:
         out[:] = out * (1 - a) + layer * a
 
     def _popups(self, img: np.ndarray, index: float, t: float) -> None:
-        if not self.p.popups:
+        if not self.tr.popups:
             return
         path = self.path
         events = {"start": 0.0, "apex": path.apex_time, "landing": path.end}
@@ -229,7 +254,7 @@ class Renderer:
         }
         height = max(24, int(self.h * 0.075))
         m = int(0.03 * self.w)
-        for pop in self.p.popups:
+        for pop in self.tr.popups:
             appear = events.get(pop.anchor, 0.0) + pop.delay
             local = t - appear
             if local < 0 or (pop.duration is not None and local > pop.duration + 0.3):
@@ -259,21 +284,29 @@ class Renderer:
 
 
 def timeline(p: Project) -> list[float]:
-    """Output frame -> fractional source frame (slow motion around impact)."""
+    """Output frame -> fractional source frame (slow motion around each shot's impact)."""
     n = int(p.info["frames"])
     fps = float(p.info["fps"])
     sm = p.slowmo
-    if not sm.enabled or not p.analysis or sm.factor <= 1.0:
+    impacts = sorted(float(tr.analysis["impact"]) for tr in p.traces if tr.analysis)
+    if not sm.enabled or not impacts or sm.factor <= 1.0:
         return [float(i) for i in range(n)]
-    impact = float(p.analysis["impact"])
-    a = max(0.0, impact - sm.before * fps)
-    b = min(n - 1.0, impact + sm.after * fps)
-    out = [float(i) for i in range(int(math.ceil(a)))]
-    x = math.ceil(a)
+    windows: list[list[float]] = []
+    for impact in impacts:
+        a, b = max(0.0, impact - sm.before * fps), min(n - 1.0, impact + sm.after * fps)
+        if windows and a <= windows[-1][1]:
+            windows[-1][1] = max(windows[-1][1], b)  # overlapping windows merge
+        else:
+            windows.append([a, b])
+    out: list[float] = []
+    x = 0.0
     step = 1.0 / sm.factor
-    while x < b:
-        out.append(x)
-        x += step
+    for a, b in windows:
+        out += [float(i) for i in range(int(math.ceil(x)), int(math.ceil(a)))]
+        x = float(max(math.ceil(a), math.ceil(x)))
+        while x < b:
+            out.append(x)
+            x += step
     out += [float(i) for i in range(int(math.ceil(x)), n)]
     return out
 
@@ -282,7 +315,7 @@ def preview(p: Project, index: int) -> np.ndarray:
     img = cv2.imread(str(engine.workdir(p.id) / "previews" / f"{index:05d}.jpg"))
     if img is None:
         raise KeyError(index)
-    if not p.analysis:
+    if not any(tr.analysis for tr in p.traces):
         return img
     r = Renderer(p, (img.shape[1], img.shape[0]))
     return r.draw(img, float(index))

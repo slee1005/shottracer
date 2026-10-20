@@ -54,7 +54,9 @@ main { flex: 1; display: grid; grid-template-columns: 250px 1fr 340px; min-heigh
 #projects .meta { padding: 6px 8px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 #projects .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #projects .del { position: absolute; top: 4px; right: 4px; background: #000a; border: none; color: #fff; border-radius: 4px; cursor: pointer; display: none; }
-#projects li:hover .del { display: block; }
+#projects .reset { position: absolute; top: 4px; right: 30px; background: #000a; border: none; color: #fff; border-radius: 4px; cursor: pointer; display: none; }
+#projects li:hover .del, #projects li:hover .reset { display: block; }
+.btn.danger { color: #ff6b6b; border-color: #ff6b6b66; }
 .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #2a2f3a; color: var(--muted); white-space: nowrap; }
 .badge.ready { background: #1d3a2a; color: var(--ok); }
 .badge.busy { background: #3a311d; color: var(--warn); }
@@ -125,3 +127,17 @@ input[type=color] { width: 36px; height: 26px; border: 1px solid var(--line); bo
 .presets i { display: block; height: 4px; margin: 0 8px 6px; border-radius: 2px; }
 #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #2a2f3a; padding: 10px 16px; border-radius: var(--radius); box-shadow: 0 4px 20px #0008; }
 #lang { padding: 6px 8px; }
+
+/* shot (trace) selector */
+#traces { display: flex; gap: 4px; margin-right: 8px; }
+#traces .trace { background: #ffffff10; border: 1px solid #ffffff22; color: inherit; border-radius: 6px; padding: 4px 9px; cursor: pointer; font: inherit; font-size: 12px; display: flex; align-items: center; gap: 5px; }
+#traces .trace i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+#traces .trace.on { border-color: #fff; background: #ffffff26; }
+#traces .trace.ready i { box-shadow: 0 0 0 2px #2ecc7155; }
+#traces .trace.busy { opacity: 0.7; }
+#traces .trace.error { border-color: #ff6b6b; }
+#traces .trace.add, #traces .trace.del { opacity: 0.75; }
+#marks span.other { opacity: 0.35; }
+#tools { flex-wrap: wrap; row-gap: 6px; }
+#traces .trace, .tool { white-space: nowrap; }
+.icon:disabled { opacity: 0.3; cursor: default; }
