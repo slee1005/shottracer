@@ -19,6 +19,9 @@ jobs:
             artifact: ShotTracer-windows-x64
             files: dist/ShotTracer-*.zip
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60  # a stalled step fails within the hour instead of after 6 hours
+    env:
+      PYTHONUNBUFFERED: "1"  # progress shows up in the log immediately
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
