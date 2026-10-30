@@ -61,6 +61,14 @@ def _free_port(preferred: int) -> int:
     raise RuntimeError("no free local port")
 
 
+def _stop_background() -> None:
+    # Finish preview extraction threads before interpreter shutdown (unfinished videos
+    # resume on the next start).
+    from . import engine
+
+    engine.stop_previews()
+
+
 def _start_server(port: int):
     import uvicorn
 
@@ -190,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             webview.start(_watch_drops, api._window, private_mode=False, storage_path=str(Path.home() / ".shottracer" / "webview"))
             print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} window closed, quitting", flush=True)
             server.should_exit = True
+            _stop_background()
             return 0
         except Exception as e:  # no native web view available: use the browser
             print(f"native window unavailable ({e}); opening the browser", file=sys.stderr)
@@ -200,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(3600)
     except KeyboardInterrupt:
         server.should_exit = True
+        _stop_background()
     return 0
 
 

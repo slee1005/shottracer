@@ -463,4 +463,5 @@ def main(argv: list[str] | None = None) -> int:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"shottracer editor: {url}")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    engine.stop_previews()
     return 0

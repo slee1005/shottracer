@@ -96,11 +96,16 @@ def read_analysis_frames(
     return frames, scale
 
 
-def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85) -> int:
+class Cancelled(Exception):
+    """Preview extraction was stopped (e.g. the app is quitting)."""
+
+
+def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85, stop=None) -> int:
     """Store every frame as a JPEG at analysis resolution (same decoder and frame
     numbering as analysis and rendering). Returns the frame count. Decoding is
     sequential; resizing and JPEG encoding run on a thread pool (OpenCV releases the
-    GIL), with a bounded number of frames in flight."""
+    GIL), with a bounded number of frames in flight. `stop` (a threading.Event) ends it
+    early with Cancelled."""
     out_dir.mkdir(parents=True, exist_ok=True)
     params = [cv2.IMWRITE_JPEG_QUALITY, quality]
 
@@ -121,6 +126,8 @@ def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85
     pending: deque = deque()
     with ThreadPoolExecutor(workers) as pool:
         for i, frame in enumerate(iter_frames(path)):
+            if stop is not None and stop.is_set():
+                raise Cancelled
             pending.append(pool.submit(store, i, frame))
             while len(pending) > workers * 2:
                 pending.popleft().result()

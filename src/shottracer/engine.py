@@ -11,6 +11,7 @@ A project lives in WORKSPACE/<id>/:
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import shutil
@@ -182,27 +183,45 @@ def previews_ready(pid: str) -> bool:
     return not (previews_dir(pid) / _PENDING).exists()
 
 
+_stop_previews = threading.Event()
+_failed_previews: set[str] = set()  # failed in this run: not retried until restart
+
+
 def _extract_previews(pid: str, src: Path, work_width: int) -> None:
     d = previews_dir(pid)
     try:
-        count = video.write_previews(src, d, work_width)
-    except Exception as e:  # e.g. project deleted meanwhile, or a damaged file
-        print(f"preview extraction failed for {pid}: {e}", flush=True)
-        count = sum(1 for _ in d.glob("*.jpg")) if d.exists() else 0
-    try:
+        count = video.write_previews(src, d, work_width, stop=_stop_previews)
         (d / _COUNT).write_text(str(count))
         (d / _PENDING).unlink(missing_ok=True)
-    except OSError:
-        pass
+    except Exception as e:
+        # Unfinished extraction keeps its marker and resumes on the next start; a quit or
+        # a deleted project is not an error.
+        quitting = _stop_previews.is_set() or isinstance(e, video.Cancelled) or "after shutdown" in str(e)
+        if not (quitting or not d.exists()):
+            _failed_previews.add(pid)
+            print(f"preview extraction failed for {pid}: {e}", flush=True)
     finally:
         with _preview_guard:
             _preview_threads.pop(pid, None)
 
 
+def stop_previews(timeout: float = 5.0) -> None:
+    """Stop running extractions before the process exits (call when quitting)."""
+    _stop_previews.set()
+    with _preview_guard:
+        threads = list(_preview_threads.values())
+    deadline = time.monotonic() + timeout
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+
+
+atexit.register(stop_previews)
+
+
 def ensure_previews(p: Project) -> None:
     """(Re)start preview extraction if it is unfinished and not running (e.g. after the
     app was closed while extracting)."""
-    if previews_ready(p.id):
+    if previews_ready(p.id) or p.id in _failed_previews or _stop_previews.is_set():
         return
     with _preview_guard:
         t = _preview_threads.get(p.id)
@@ -220,7 +239,7 @@ def preview_frame(pid: str, index: int, timeout: float = 60.0) -> Path | None:
     deadline = time.monotonic() + timeout
     started = False
     while not path.exists():
-        if previews_ready(pid) or time.monotonic() > deadline:
+        if previews_ready(pid) or pid in _failed_previews or time.monotonic() > deadline:
             return path if path.exists() else None
         if not started:
             try:
