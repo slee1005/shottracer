@@ -256,9 +256,15 @@ Coordinates are video pixels on `--ball-frame`. Run `uv run shottracer --help` f
 
 ## Configuration
 
+In the standalone app, added videos are read in place from where they are: nothing is uploaded
+or copied, so a video opens almost immediately. Keep the original file where it is while you
+work on it (moving or deleting it breaks that project). In browser mode the browser cannot
+share file paths, so videos are sent to the local server and copied into the project.
+
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHOTTRACER_HOME` | `~/.shottracer/projects` | Projects: copied source video, preview frames, masks, settings, renders |
+| `SHOTTRACER_HOME` | `~/.shottracer/projects` | Projects: preview frames, masks, settings, renders (and a copy of the video when added through a browser) |
 | `SHOTTRACER_CACHE` | macOS `~/Library/Caches/shottracer`, Windows `%LOCALAPPDATA%\shottracer\Cache`, Linux `~/.cache/shottracer` | Downloaded models |
 
 On the first analysis the MediaPipe pose model (about 9 MB) is downloaded from Google's

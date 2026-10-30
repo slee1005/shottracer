@@ -53,6 +53,7 @@ async function refresh() {
       if (becameReady) { S.version++; await loadOverlay(); showFrame(); renderPanel(); renderMarks(); renderTools(); toast(t("toast.analysed")); }
     } else S.cur = null;
   }
+  if (S.cur) $("timeline").max = S.cur.info.frames - 1;  // final count once frames are extracted
   renderList();
   renderBusy();
 }
@@ -121,6 +122,7 @@ async function select(id) {
   showFrame(); renderList(); renderPanel(); renderTools(); renderMarks();
 }
 
+// Browser: the file contents are sent to the local server (it cannot see file paths).
 async function upload(files) {
   for (const f of files) {
     const fd = new FormData(); fd.append("file", f);
@@ -132,6 +134,24 @@ async function upload(files) {
     } catch (e) { toast(t("toast.uploadFailed", { msg: serverText(e.message) })); }
   }
 }
+
+// Desktop app: videos are registered by path and read in place — nothing is uploaded or
+// copied. Called after the native file dialog and by the window's drop handler.
+const desktop = () => !!window.pywebview?.api?.pick_videos;
+async function addLocalVideos(paths) {
+  if (!paths?.length) return;
+  const name = (x) => x.split(/[\\/]/).pop();
+  toast(t("toast.opening", { name: paths.length > 1 ? `${name(paths[0])} +${paths.length - 1}` : name(paths[0]) }), 60000);
+  try {
+    const res = await api("POST", "/api/projects/local", { paths });
+    const ok = res.filter((p) => !p.error), bad = res.filter((p) => p.error);
+    await refresh();
+    if (ok.length) await select(ok[ok.length - 1].id);
+    if (bad.length) toast(t("toast.uploadFailed", { msg: `${bad[0].name}: ${serverText(bad[0].error)}` }));
+    else toast(t("toast.uploaded", { name: ok.map((p) => p.name).join(", ") }));
+  } catch (e) { toast(t("toast.uploadFailed", { msg: serverText(e.message) })); }
+}
+window.addLocalVideos = addLocalVideos;
 
 // ---------------------------------------------------------------- shots (traces)
 // The shot being edited; ball, line, edits and pop-ups belong to it.
@@ -825,6 +845,15 @@ function renderShot(body) {
     e.appendChild(el(`<p class="note">${t("edit.help")}</p>`));
   }
 
+  if (p.result) {
+    // How fast the line is drawn relative to the ball: the line lands after flight / speed.
+    const sg = group(body, t("speed.group"));
+    const real = p.result.duration;
+    slider(sg, t("speed.label"), sh.speed ?? 1, 0.5, 4, 0.25, (v) => patchTrace({ shot: { speed: v } }),
+      (v) => t("speed.value", { x: v.toFixed(2).replace(/0$/, ""), s: (real / v).toFixed(1) }));
+    sg.appendChild(el(`<p class="note">${t("speed.help", { s: real.toFixed(1) })}</p>`));
+  }
+
   const rb = el(`<button class="btn wide danger" style="margin-top:12px">${t("reset.button")}</button>`);
   rb.onclick = () => resetProject(S.cur);
   body.appendChild(rb);
@@ -1069,7 +1098,7 @@ function renderExport(body) {
 async function poll() {
   const busy = S.projects.some((p) => {
     const a = p.jobs?.analyze, r = p.jobs?.render;
-    return p.status === "analysing" || [a?.status, r?.status].some((s) => s === "running" || s === "queued");
+    return !p.previews_ready || p.status === "analysing" || [a?.status, r?.status].some((s) => s === "running" || s === "queued");
   });
   if (busy) {
     const prevJobs = JSON.stringify(S.cur?.jobs);
@@ -1086,13 +1115,19 @@ function renderBusy() {
 }
 
 // ---------------------------------------------------------------- wiring
-$("file").onchange = (e) => upload([...e.target.files]);
+$("file").onchange = (e) => { upload([...e.target.files]); e.target.value = ""; };
+$("file").addEventListener("click", async (e) => {
+  if (!desktop()) return;  // browser: regular file input (upload)
+  e.preventDefault();
+  addLocalVideos(await window.pywebview.api.pick_videos());
+});
 const drop = $("drop");
 for (const target of [drop, document.body]) {
   target.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
   target.addEventListener("dragleave", () => drop.classList.remove("over"));
   target.addEventListener("drop", (e) => {
     e.preventDefault(); drop.classList.remove("over");
+    if (window.pywebview) return;  // desktop app: the window's drop handler passes file paths
     const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("video/") || /\.(mp4|mov|m4v|avi|mkv)$/i.test(f.name));
     if (files.length) upload(files);
   });
