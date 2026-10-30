@@ -72,6 +72,7 @@ function statusBadge(p) {
 
 function renderList() {
   const ul = $("projects"); ul.innerHTML = "";
+  $("deleteAll").hidden = !S.projects.length;
   for (const p of S.projects) {
     const li = document.createElement("li");
     if (S.cur && p.id === S.cur.id) li.classList.add("active");
@@ -1132,6 +1133,18 @@ for (const target of [drop, document.body]) {
     if (files.length) upload(files);
   });
 }
+$("deleteAll").onclick = async () => {
+  const n = S.projects.length;
+  if (!n || !confirm(t("list.confirmDeleteAll", { n }))) return;
+  stop(); clearTimeout(saveTimer); pending = {}; editOpen = false;
+  for (const k of Object.keys(HISTORY)) delete HISTORY[k];
+  try {
+    await api("DELETE", "/api/projects");
+    S.cur = null; $("stage").classList.add("empty"); renderPanel();
+    toast(t("list.deletedAll"));
+  } catch (e) { toast(serverText(e.message)); }
+  refresh();
+};
 $("renderAll").onclick = async () => {
   await flush();
   const ids = S.projects.filter((p) => p.traces.some((x) => x.result) || p.annotations.length).map((p) => p.id);

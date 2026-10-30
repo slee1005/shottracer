@@ -226,6 +226,14 @@ def get_project(pid: str) -> dict:
     return _summary(_project(pid))
 
 
+@app.delete("/api/projects")
+def delete_all_projects() -> dict:
+    ids = [p.id for p in engine.list_projects()]
+    for pid in ids:
+        engine.delete(pid)
+    return {"ok": True, "deleted": len(ids)}
+
+
 @app.delete("/api/projects/{pid}")
 def delete_project(pid: str) -> dict:
     engine.delete(pid)

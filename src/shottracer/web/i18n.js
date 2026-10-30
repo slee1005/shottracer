@@ -16,7 +16,7 @@ const STRINGS = {
 
     "badge.analysing": "분석 {p}%", "badge.queued": "대기", "badge.rendering": "렌더 {p}%", "badge.error": "오류",
     "badge.done": "완료", "badge.ready": "준비됨", "badge.needAnalysis": "분석 필요", "badge.needBall": "공 지정 필요",
-    "list.delete": "삭제", "list.confirmDelete": "'{name}' 프로젝트를 삭제할까요?",
+    "list.delete": "삭제", "list.deleteAll": "모든 영상 삭제", "list.confirmDeleteAll": "추가한 영상 {n}개를 모두 삭제할까요? 원본 파일은 지워지지 않습니다.", "list.deletedAll": "모든 영상을 삭제했습니다", "list.confirmDelete": "'{name}' 프로젝트를 삭제할까요?",
 
     "handle.landing": "착지", "handle.apex": "정점 ↕",
     "hint.ball": "다운스윙 전 프레임에서 공(가려졌으면 클럽 헤드)을 클릭",
@@ -118,7 +118,7 @@ const STRINGS = {
 
     "badge.analysing": "Analysing {p}%", "badge.queued": "Queued", "badge.rendering": "Rendering {p}%", "badge.error": "Error",
     "badge.done": "Done", "badge.ready": "Ready", "badge.needAnalysis": "Needs analysis", "badge.needBall": "Pick the ball",
-    "list.delete": "Delete", "list.confirmDelete": "Delete project '{name}'?",
+    "list.delete": "Delete", "list.deleteAll": "Delete all videos", "list.confirmDeleteAll": "Delete all {n} videos from the list? The original files are not deleted.", "list.deletedAll": "All videos deleted", "list.confirmDelete": "Delete project '{name}'?",
 
     "handle.landing": "Landing", "handle.apex": "Apex ↕",
     "hint.ball": "On a frame before the downswing, click the ball (or the club head if it hides the ball)",
