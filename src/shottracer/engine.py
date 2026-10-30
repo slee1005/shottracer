@@ -444,6 +444,8 @@ def apply_edits(p: Project, tr: Trace) -> None:
         base, a["observations"], float(p.info["fps"]), limits,
         landing=landing_ref(tr), flight_time=flight_time(tr), height=tr.shot.height,
     )
+    if tr.shot.apex_time is not None:
+        m = trajectory.with_apex(m, a["observations"], float(p.info["fps"]), tr.shot.apex_time)
     a["model"] = m.to_dict()
 
 
@@ -521,6 +523,9 @@ class ShotPath:
             self.points = self.model.at(self.times)
             s = (1.0 - np.exp(-self.model.k * self.times)) / self.model.k
             self.depth = 1.0 / (1.0 + self.model.w * s)
+            # The real (height) apex, not the highest image point: perspective moves that
+            # earlier when the ball flies away from the camera.
+            self.apex_index = int(np.argmin(np.abs(self.times - self.model.apex_time())))
         else:
             obs = np.array(a["observations"], dtype=np.float64)
             self.t0 = float(a["impact"])
@@ -529,7 +534,10 @@ class ShotPath:
             self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 4)))
             self.points = np.stack([np.interp(self.times, t, obs[:, 1]), np.interp(self.times, t, obs[:, 2])], 1)
             self.depth = np.ones(len(self.times))
-        self.apex_index = int(np.argmin(self.points[:, 1])) if self.mode != "putt" else len(self.points) - 1
+        if self.mode == "putt":
+            self.apex_index = len(self.points) - 1
+        elif not hasattr(self, "apex_index"):
+            self.apex_index = int(np.argmin(self.points[:, 1]))
         # Real flight/roll time; the drawing timeline below is compressed by the speed.
         self.flight = float(self.end)
         self.flight_apex_time = float(self.times[self.apex_index])
@@ -539,7 +547,8 @@ class ShotPath:
             self.end = self.end / self.speed
 
     def _manual(self, p: Project, tr: Trace) -> None:
-        """Hand-drawn path, animated along its length with an ease-out (the ball slows)."""
+        """Hand-drawn path, animated along its length: the ball is fastest at launch and
+        slows down (drag). With a user apex time the drawn apex is reached at that time."""
         a = tr.analysis
         t = transforms(p, tr)
         frame = int(np.clip(tr.shot.manual_frame, 0, len(t) - 1))
@@ -553,6 +562,18 @@ class ShotPath:
         self.end = manual_duration(tr)
         self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 6)))
         u = 1.0 - (1.0 - self.times / self.end) ** 1.6
+        apex = tr.shot.apex_time if tr.shot.mode == "flight" else None
+        top = int(np.argmin(pts[:, 1]))
+        if apex is not None and 0 < top < len(pts) - 1:
+            # One ease-out (launch fastest), its clock stretched so the drawn apex is
+            # reached at the requested time.
+            lo, hi = trajectory.APEX_FRACTION
+            T = self.end
+            ta = float(np.clip(apex, lo * T, hi * T))
+            tau_a = T * (1.0 - (1.0 - arc[top]) ** (1 / 1.6))  # when the plain ease reaches it
+            tau = np.where(self.times <= ta, self.times * tau_a / ta,
+                           tau_a + (self.times - ta) * (T - tau_a) / (T - ta))
+            u = 1.0 - (1.0 - tau / T) ** 1.6
         self.points = np.stack([np.interp(u, arc, pts[:, 0]), np.interp(u, arc, pts[:, 1])], 1)
         self.depth = np.ones(len(self.times))
 

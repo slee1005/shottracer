@@ -4,12 +4,17 @@ Model (reference-frame image coordinates, t = seconds since impact):
 
     s(t) = (1 - exp(-k t)) / k                         # drag-slowed travel
     u(t) = u0 + (a s + c t^2) / (1 + w s)              # lateral: launch direction + curve
-    v(t) = vh + (v0 - vh - (b s - g t^2)) / (1 + w s)  # height: launch speed - gravity
+    v(t) = vh + (v0 - vh - (b s - g t^2 + l t^3)) / (1 + w s)  # height: launch - gravity + lift
 
 `w` captures the ball moving away from (w > 0) the camera, which shrinks image motion
 over time and pulls the ground track toward the horizon row `vh`. For fixed (w, k, t0)
 the model is linear in (a, c) and (b, g), so fitting is a small grid search plus least
-squares."""
+squares.
+
+The ball is fastest at launch: drag (`k`) slows its travel, and gravity takes over late
+in the flight. The fitted flight (l = 0) peaks a little before half its hang time; a
+user apex time adds backspin lift `l`, solved so the ball still lands at the same time
+but peaks later and drops more steeply (`with_apex`)."""
 
 from __future__ import annotations
 
@@ -24,6 +29,10 @@ DRAG_K = 0.35
 CURVE_RIDGE = 1.0
 W_GRID = np.concatenate([[0.0], np.geomspace(0.05, 40.0, 60)])
 
+
+# Apex time as a fraction of the hang time that `with_apex` accepts: outside it the
+# height curve folds over (dips below the ground or gains a second peak).
+APEX_FRACTION = (0.35, 0.62)
 
 # Gravity is only identifiable once the track covers a good part of the flight; an
 # early-ascent track fits many flight times equally well.
@@ -66,14 +75,25 @@ class Model:
     k: float
     flight_time: float  # seconds
     height: float = 1.0  # user height scale applied on top of the fitted flight
+    lift: float = 0.0  # cubic lift term set by a user apex time (0 = fitted flight)
+
+    def rise(self, t: np.ndarray | float) -> np.ndarray:
+        """Height above the launch point (image units before perspective, unscaled)."""
+        t = np.asarray(t, dtype=np.float64)
+        return self.b * _s(t, self.k) - self.g * t * t + self.lift * t ** 3
 
     def at(self, t: np.ndarray | float) -> np.ndarray:
         t = np.asarray(t, dtype=np.float64)
         s = _s(t, self.k)
         den = 1.0 + self.w * s
         u = self.u0 + (self.a * s + self.c * t * t) / den
-        v = self.vh + (self.v0 - self.vh - self.height * (self.b * s - self.g * t * t)) / den
+        v = self.vh + (self.v0 - self.vh - self.height * self.rise(t)) / den
         return np.stack([u, v], axis=-1)
+
+    def apex_time(self) -> float:
+        """Seconds after impact at which the ball is highest (perspective removed)."""
+        t = np.linspace(0.0, self.flight_time, 2001)
+        return float(t[int(np.argmax(self.rise(t)))])
 
     def to_dict(self) -> dict:
         return {k: float(v) for k, v in self.__dict__.items()}
@@ -209,6 +229,39 @@ def refit(
     m = r[1]
     m.height = height
     return m
+
+
+def apex_shape(T: float, apex: float, k: float = DRAG_K) -> tuple[float, float, float]:
+    """(apex used, gravity, lift) per unit launch speed b for a flight that lands at T and
+    peaks at `apex` (clamped to APEX_FRACTION of T)."""
+    lo, hi = APEX_FRACTION
+    ta = float(np.clip(apex, lo * T, hi * T))
+    A = np.array([[-T * T, T ** 3], [-2.0 * ta, 3.0 * ta * ta]])
+    g, lift = np.linalg.solve(A, -np.array([_s(T, k), math.exp(-k * ta)]))
+    return ta, float(g), float(lift)
+
+
+def with_apex(model: Model, points: list[tuple[float, float, float]], fps: float, apex: float) -> Model:
+    """Reshape the height curve so the ball peaks at `apex` seconds after impact while
+    landing at the same time and spot; the launch speed is refit to the observations."""
+    T = model.flight_time
+    _, gu, lu = apex_shape(T, apex, model.k)
+    p = np.asarray(points, dtype=np.float64)
+    t = (p[:, 0] - model.t0) / fps if len(p) else np.zeros(0)
+    keep = t > 0
+    t, vs = t[keep], p[keep, 2] if len(p) else np.zeros(0)
+    if len(t):
+        s = _s(t, model.k)
+        den = 1.0 + model.w * s
+        basis = (s - gu * t * t + lu * t ** 3) / den
+        rhs = (model.v0 - model.vh) / den + model.vh - vs
+        b = float(basis @ rhs / max(basis @ basis, 1e-12))
+    else:
+        b = model.b
+    if b <= 0:  # observations cannot carry the shape; keep the launch speed
+        b = model.b
+    return Model(model.u0, model.v0, model.vh, model.t0, model.a, model.c, b, gu * b, model.w, model.k,
+                 T, model.height, lu * b)
 
 
 def _solve(points, start, fps, t0, w, limits, horizon, landing, flight_time) -> tuple[float, Model] | None:

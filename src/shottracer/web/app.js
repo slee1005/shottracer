@@ -820,21 +820,13 @@ function renderShot(body) {
     const clr = el(`<button class="btn small" style="margin-left:6px">${t("manual.clear")}</button>`);
     clr.onclick = () => { patchTrace({ shot: { manual: null, manual_ctrl: null } }, true); renderPanel(); };
     mg.appendChild(clr);
-    if (p.result) {
-      const auto = sh.flight_time == null;
-      toggle(mg, t("edit.autoTime"), auto, (v) => { patchTrace({ shot: { flight_time: v ? null : +(p.result.duration.toFixed(1)) } }); renderPanel(); });
-      if (!auto) slider(mg, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => patchTrace({ shot: { flight_time: v } }), (v) => `${v.toFixed(1)}s`);
-      else distanceNote(mg);
-    }
+    if (p.result) timeControls(mg, sh.mode === "flight");
   }
   mg.appendChild(el(`<p class="note">${t("manual.help")}</p>`));
 
   if (p.result && sh.mode === "flight" && !sh.manual) {
     const e = group(body, t("edit.group"));
-    const auto = sh.flight_time == null;
-    toggle(e, t("edit.autoTime"), auto, (v) => { patchTrace({ shot: { flight_time: v ? null : +(p.result.duration.toFixed(1)) } }); renderPanel(); });
-    if (!auto) slider(e, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => patchTrace({ shot: { flight_time: v } }), (v) => `${v.toFixed(1)}s`);
-    else distanceNote(e);
+    timeControls(e, true);
     slider(e, t("edit.height"), sh.height, 0.3, 2.5, 0.05, (v) => patchTrace({ shot: { height: v } }), (v) => `×${v.toFixed(2)}`);
     const row = el(`<div class="row"><label>${t("edit.landing")}</label><span>${sh.landing ? t("edit.set") : t("shot.auto")}</span></div>`);
     if (sh.landing) {
@@ -860,6 +852,41 @@ function renderShot(body) {
   body.appendChild(rb);
 }
 
+// Hang time and time to apex. The ball is fastest at launch and gravity takes over late,
+// so a later apex (more backspin lift) means a steeper drop onto the same landing time.
+function timeControls(parent, withApex) {
+  const sh = TR().shot, r = TR().result;
+  const [lo, hi] = r.apex_range.map((x) => x / r.duration); // accepted apex fractions
+  const hang = () => sh.flight_time ?? r.duration;
+  let apexRow = null;
+  const fitApex = () => { // keep the apex slider inside the range of the current hang time
+    if (!apexRow) return;
+    const inp = apexRow.querySelector("input"), T = hang();
+    inp.min = (lo * T).toFixed(2); inp.max = (hi * T).toFixed(2);
+    const v = Math.min(Math.max(sh.apex_time, lo * T), hi * T);
+    if (v !== sh.apex_time) { inp.value = v; patchTrace({ shot: { apex_time: +v.toFixed(2) } }); }
+    apexRow.querySelector(".val").textContent = apexFmt(+inp.value);
+  };
+  const apexFmt = (v) => `${v.toFixed(2)}s · ${Math.round((100 * v) / hang())}%`;
+  const autoT = sh.flight_time == null;
+  toggle(parent, t("edit.autoTime"), autoT, (v) => { patchTrace({ shot: { flight_time: v ? null : +r.duration.toFixed(1) } }); renderPanel(); });
+  if (!autoT) slider(parent, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => { patchTrace({ shot: { flight_time: v } }); fitApex(); }, (v) => `${v.toFixed(1)}s`);
+  else distanceNote(parent);
+  if (!withApex) return;
+  const autoA = sh.apex_time == null;
+  toggle(parent, t("edit.autoApex"), autoA, (v) => {
+    const T = hang();
+    patchTrace({ shot: { apex_time: v ? null : +Math.min(Math.max(r.apex_time, lo * T), hi * T).toFixed(2) } });
+    renderPanel();
+  });
+  if (!autoA) {
+    const T = hang();
+    apexRow = slider(parent, t("edit.apex"), sh.apex_time, (lo * T).toFixed(2), (hi * T).toFixed(2), 0.05,
+      (v) => patchTrace({ shot: { apex_time: v } }), apexFmt);
+  }
+  parent.appendChild(el(`<p class="note">${t("edit.apexHelp")}</p>`));
+}
+
 function distanceNote(parent) {
   const dt = TR().result?.distance_time;
   parent.appendChild(el(`<p class="note">${dt != null ? t("edit.fromDistance", { s: dt.toFixed(1) }) : t("edit.distanceHint")}</p>`));
@@ -874,7 +901,7 @@ function renderStats() {
     <div><b>${r.impact.toFixed(1)}</b><span>${t("stats.impact", { s: (r.impact / fps).toFixed(2) })}</span></div>
     <div><b>${r.tracked}</b><span>${t("stats.tracked")}</span></div>
     <div><b>${r.duration.toFixed(1)}s</b><span>${r.mode === "putt" ? t("stats.roll") : t("stats.flight")}</span></div>
-    <div><b>${r.mode === "putt" ? "—" : r.apex_time.toFixed(1) + "s"}</b><span>${t("stats.apex")}</span></div></div>`;
+    <div><b>${r.mode === "putt" ? "—" : r.apex_time.toFixed(1) + "s"}</b><span>${t("stats.apex")}${r.mode === "putt" ? "" : ` (${Math.round((100 * r.apex_time) / r.duration)}%)`}</span></div></div>`;
 }
 
 const PRESETS = ["classic", "tv", "neon", "comet", "minimal"];

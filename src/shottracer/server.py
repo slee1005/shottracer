@@ -22,7 +22,7 @@ from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import camera, engine, render, watermark
+from . import camera, engine, render, trajectory, watermark
 from .settings import Annotation, Logo, Popup, Project, Shot, SlowMo, Style, Swing, Trace
 from .trajectory import AnalysisError
 
@@ -164,6 +164,8 @@ def _summary(p: Project) -> dict:
                 "tracked": len(tr.analysis["observations"]),
                 "duration": path.flight,
                 "apex_time": path.flight_apex_time,
+                # Apex times the editor accepts for this hang time (seconds).
+                "apex_range": [f * path.flight for f in trajectory.APEX_FRACTION],
                 "draw_time": float(path.end),
                 "distance_time": engine.distance_time(tr),
             }

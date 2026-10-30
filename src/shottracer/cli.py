@@ -42,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shot", choices=sorted(trajectory.SHOT_TYPES), default="full",
                    help="shot type, bounds the flight time (default: full)")
     p.add_argument("--flight-time", type=float, help="exact flight time in seconds")
+    p.add_argument("--apex-time", type=float, help="seconds from impact to the apex (ball still lands at the flight time)")
     p.add_argument("--trace-speed", type=float, default=1.0,
                    help="tracer drawing speed vs the ball, 0.5-4 (2 = line lands in half the hang time)")
     p.add_argument("--style", choices=sorted(render.PRESETS), default="classic")
@@ -84,6 +85,7 @@ def _run(args) -> int:
     s.mode = "putt" if args.putt else "flight"
     s.ball, s.ball_frame, s.landing = args.ball, args.ball_frame, args.landing
     s.impact, s.horizon, s.shot, s.flight_time = args.impact, args.horizon, args.shot, args.flight_time
+    s.apex_time = args.apex_time
     s.speed = min(4.0, max(0.5, args.trace_speed))
     p.style.preset, p.style.color, p.style.width = args.style, args.color, args.line_width
     p.style.cutout = not args.no_cutout
@@ -98,7 +100,8 @@ def _run(args) -> int:
     a = tr.analysis
     print(
         f"\nimpact ≈ frame {a['impact']:.1f}, ball tracked in {len(a['observations'])} frames, "
-        f"{'flight' if path.mode == 'flight' else 'roll'} {path.flight:.1f}s  (project {p.id})",
+        f"{'flight' if path.mode == 'flight' else 'roll'} {path.flight:.1f}s"
+        f"{f', apex {path.flight_apex_time:.1f}s' if path.mode != 'putt' else ''}  (project {p.id})",
         file=sys.stderr,
     )
     render.export(p, out, _bar)
