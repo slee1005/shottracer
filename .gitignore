@@ -22,3 +22,6 @@ wheels/
 *.app/
 *.exe
 ShotTracer-*.zip
+
+# macOS Finder
+.DS_Store

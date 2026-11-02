@@ -308,7 +308,7 @@ class Layer:
             fade_out = 1.0
             if duration is not None and local > duration:
                 fade_out = max(0.0, 1.0 - (local - duration) / 0.3)
-            value = pop.value or (f"{path.end:.1f}s" if pop.kind == "hangtime" else "")
+            value = pop.value or (f"{path.flight:.1f}s" if pop.kind == "hangtime" else "")
             if not value and not pop.label:
                 continue
             card = popups.card(pop.label, value, height, pop.color, pop.accent)
@@ -361,7 +361,8 @@ def renderable(p: Project) -> bool:
 
 
 def preview(p: Project, index: int, annotations: bool = True) -> np.ndarray:
-    img = cv2.imread(str(engine.workdir(p.id) / "previews" / f"{index:05d}.jpg"))
+    path = engine.preview_frame(p.id, index)
+    img = cv2.imread(str(path)) if path is not None else None
     if img is None:
         raise KeyError(index)
     if not any(tr.analysis for tr in p.traces) and not (annotations and p.annotations) and not watermark.enabled():

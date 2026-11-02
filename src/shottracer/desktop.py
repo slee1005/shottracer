@@ -61,6 +61,14 @@ def _free_port(preferred: int) -> int:
     raise RuntimeError("no free local port")
 
 
+def _stop_background() -> None:
+    # Finish preview extraction threads before interpreter shutdown (unfinished videos
+    # resume on the next start).
+    from . import engine
+
+    engine.stop_previews()
+
+
 def _start_server(port: int):
     import uvicorn
 
@@ -84,6 +92,17 @@ class _Api:
     def __init__(self):
         self._window = None  # private: pywebview exposes public attributes to the page
 
+    def pick_videos(self) -> list[str]:
+        """Native open dialog; the page then registers the files by path (no upload)."""
+        import webview
+
+        picked = self._window.create_file_dialog(
+            webview.FileDialog.OPEN, allow_multiple=True,
+            directory=str(Path.home() / "Movies" if sys.platform == "darwin" else Path.home()),
+            file_types=("Video files (*.mp4;*.mov;*.m4v;*.avi;*.mkv)", "All files (*.*)"),
+        )
+        return [str(x) for x in picked] if picked else []
+
     def save_output(self, pid: str) -> str | None:
         import webview
 
@@ -104,6 +123,24 @@ class _Api:
             dest = dest.with_suffix(".mp4")
         shutil.copyfile(src, dest)
         return str(dest)
+
+
+VIDEO_SUFFIXES = (".mp4", ".mov", ".m4v", ".avi", ".mkv")
+
+
+def _watch_drops(window) -> None:
+    """Dropped files carry their full path only in Python-side DOM handlers; hand the paths
+    to the page, which registers them in place instead of uploading the file contents."""
+    from webview.dom import DOMEventHandler
+
+    def on_drop(event: dict) -> None:
+        files = (event.get("dataTransfer") or {}).get("files") or []
+        paths = [f["pywebviewFullPath"] for f in files
+                 if f.get("pywebviewFullPath") and Path(f["pywebviewFullPath"]).suffix.lower() in VIDEO_SUFFIXES]
+        if paths:
+            window.evaluate_js(f"window.addLocalVideos({json.dumps(paths)})")
+
+    window.dom.document.events.drop += DOMEventHandler(on_drop, prevent_default=True, stop_propagation=True)
 
 
 def self_test() -> int:
@@ -158,9 +195,10 @@ def main(argv: list[str] | None = None) -> int:
             api = _Api()
             api._window = webview.create_window(APP_NAME, url, js_api=api, width=1440, height=900, min_size=(1000, 640))
             # Not private: language, drawing style and other editor preferences persist.
-            webview.start(private_mode=False, storage_path=str(Path.home() / ".shottracer" / "webview"))
+            webview.start(_watch_drops, api._window, private_mode=False, storage_path=str(Path.home() / ".shottracer" / "webview"))
             print(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} window closed, quitting", flush=True)
             server.should_exit = True
+            _stop_background()
             return 0
         except Exception as e:  # no native web view available: use the browser
             print(f"native window unavailable ({e}); opening the browser", file=sys.stderr)
@@ -171,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             time.sleep(3600)
     except KeyboardInterrupt:
         server.should_exit = True
+        _stop_background()
     return 0
 
 

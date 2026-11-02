@@ -22,7 +22,7 @@ from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import camera, engine, render, watermark
+from . import camera, engine, render, trajectory, watermark
 from .settings import Annotation, Logo, Popup, Project, Shot, SlowMo, Style, Swing, Trace
 from .trajectory import AnalysisError
 
@@ -149,6 +149,7 @@ def _summary(p: Project) -> dict:
     d = p.model_dump()
     jobs = sorted((j for j in JOBS.values() if j.project == p.id), key=lambda j: j.created)
     d["jobs"] = {j.kind: asdict(j) for j in jobs}  # latest job per kind
+    d["previews_ready"] = engine.previews_ready(p.id)
     d["has_output"] = (engine.workdir(p.id) / f"{Path(p.name).stem}_traced.mp4").exists()
     for tr, td in zip(p.traces, d["traces"]):
         mine = [j for j in jobs if j.kind == "analyze" and j.trace == tr.key]
@@ -161,8 +162,14 @@ def _summary(p: Project) -> dict:
                 "mode": path.mode,
                 "impact": float(tr.analysis["impact"]),
                 "tracked": len(tr.analysis["observations"]),
-                "duration": float(path.end),
-                "apex_time": path.apex_time,
+                "duration": path.flight,
+                "apex_time": path.flight_apex_time,
+                # Apex times the editor accepts for this hang time (seconds).
+                "apex_range": [f * path.flight for f in trajectory.APEX_FRACTION],
+                "draw_time": float(path.end),
+                # Where/when the ball comes down (video frame, preview px of that frame).
+                "landing_frame": float(tr.analysis["impact"]) + path.flight * float(p.info["fps"]),
+                "landing_set": bool(tr.shot.landing) if path.mode == "flight" else bool(tr.shot.manual),
                 "distance_time": engine.distance_time(tr),
             }
     return d
@@ -204,9 +211,32 @@ def upload(file: UploadFile = File(...)) -> dict:
     return _summary(p)
 
 
+@app.post("/api/projects/local")
+def open_local(body: dict = Body(...)) -> list[dict]:
+    """Register videos by local path (desktop app): read in place, never uploaded or copied.
+    The server only listens on 127.0.0.1, so the paths are on this machine."""
+    out = []
+    for raw in body.get("paths") or []:
+        src = Path(str(raw)).expanduser()
+        try:
+            p = engine.create(src, name=src.name, copy=False)
+            out.append(_summary(p))
+        except ValueError as e:
+            out.append({"error": str(e), "name": src.name})
+    return out
+
+
 @app.get("/api/projects/{pid}")
 def get_project(pid: str) -> dict:
     return _summary(_project(pid))
+
+
+@app.delete("/api/projects")
+def delete_all_projects() -> dict:
+    ids = [p.id for p in engine.list_projects()]
+    for pid in ids:
+        engine.delete(pid)
+    return {"ok": True, "deleted": len(ids)}
 
 
 @app.delete("/api/projects/{pid}")
@@ -358,8 +388,8 @@ def jobs() -> list[dict]:
 
 @app.get("/api/projects/{pid}/frames/{index}.jpg")
 def frame(pid: str, index: int) -> FileResponse:
-    path = engine.workdir(pid) / "previews" / f"{index:05d}.jpg"
-    if not path.exists():
+    path = engine.preview_frame(pid, index)
+    if path is None:
         raise HTTPException(404)
     return FileResponse(path, media_type="image/jpeg")
 
@@ -438,4 +468,5 @@ def main(argv: list[str] | None = None) -> int:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"shottracer editor: {url}")
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    engine.stop_previews()
     return 0

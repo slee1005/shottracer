@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -93,18 +96,44 @@ def read_analysis_frames(
     return frames, scale
 
 
-def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85) -> int:
+class Cancelled(Exception):
+    """Preview extraction was stopped (e.g. the app is quitting)."""
+
+
+def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85, stop=None) -> int:
     """Store every frame as a JPEG at analysis resolution (same decoder and frame
-    numbering as analysis and rendering). Returns the frame count."""
+    numbering as analysis and rendering). Returns the frame count. Decoding is
+    sequential; resizing and JPEG encoding run on a thread pool (OpenCV releases the
+    GIL), with a bounded number of frames in flight. `stop` (a threading.Event) ends it
+    early with Cancelled."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    count = 0
-    for i, frame in enumerate(iter_frames(path)):
+    params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+
+    def store(i: int, frame: np.ndarray) -> None:
         h, w = frame.shape[:2]
         aw, ah, scale = analysis_size(w, h, work_width)
         if scale != 1.0:
             frame = cv2.resize(frame, (aw, ah), interpolation=cv2.INTER_AREA)
-        cv2.imwrite(str(out_dir / f"{i:05d}.jpg"), frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
-        count = i + 1
+        ok, buf = cv2.imencode(".jpg", frame, params)
+        if not ok:
+            raise RuntimeError(f"cannot encode preview frame {i}")
+        tmp = out_dir / f"{i:05d}.tmp"
+        tmp.write_bytes(buf.tobytes())
+        tmp.replace(out_dir / f"{i:05d}.jpg")  # readers never see a partial JPEG
+
+    workers = max(2, min(8, (os.cpu_count() or 4) - 1))
+    count = 0
+    pending: deque = deque()
+    with ThreadPoolExecutor(workers) as pool:
+        for i, frame in enumerate(iter_frames(path)):
+            if stop is not None and stop.is_set():
+                raise Cancelled
+            pending.append(pool.submit(store, i, frame))
+            while len(pending) > workers * 2:
+                pending.popleft().result()
+            count = i + 1
+        for f in pending:
+            f.result()
     return count
 
 

@@ -26,19 +26,22 @@ VENDOR = BUILD / "vendor"
 VERSION = "0.0.1"
 
 FFMPEG_VERSION = "9.0.2"
+# (mirrors tried in order, SHA-256). Each must be the exact same file.
 FFMPEG = {
     "darwin": (  # static arm64 build by Martin Riedl (only macOS system frameworks)
-        "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+        ["https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip"],
         "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
     ),
-    "win32": (  # "essentials" static build by Gyan Doshi (linked from ffmpeg.org)
-        "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
+    "win32": (  # "essentials" static build by Gyan Doshi (linked from ffmpeg.org); his GitHub
+        # mirror first: fast from CI runners, where gyan.dev's CDN can stall downloads.
+        ["https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+         "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip"],
         "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
     ),
 }
 MODEL = (
-    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/"
-    "pose_landmarker_full.task",
+    ["https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/"
+    "pose_landmarker_full.task"],
     "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
 )
 FFMPEG_NOTICE = f"""This application includes FFmpeg {FFMPEG_VERSION} (https://ffmpeg.org) as a separate
@@ -52,24 +55,43 @@ Full license text: https://www.gnu.org/licenses/gpl-3.0.txt
 """
 
 
-def fetch(url: str, sha256: str, dest: Path) -> Path:
+def fetch(urls: list[str], sha256: str, dest: Path) -> Path:
+    """Download from the first mirror that works (stalls time out), verified by SHA-256."""
     if dest.exists() and hashlib.sha256(dest.read_bytes()).hexdigest() == sha256:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    print(f"downloading {url}")
-    req = urllib.request.Request(url, headers={"User-Agent": "shottracer-build"})
-    with urllib.request.urlopen(req) as r, open(dest, "wb") as f:
-        shutil.copyfileobj(r, f)
-    digest = hashlib.sha256(dest.read_bytes()).hexdigest()
-    if digest != sha256:
-        dest.unlink()
-        raise SystemExit(f"checksum mismatch for {url}: {digest}")
-    return dest
+    errors = []
+    for url in urls:
+        for attempt in range(1, 4):
+            print(f"downloading {url} (attempt {attempt})", flush=True)
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "shottracer-build"})
+                with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+                    total, done, shown = int(r.headers.get("Content-Length") or 0), 0, 0
+                    while chunk := r.read(1 << 20):
+                        f.write(chunk)
+                        done += len(chunk)
+                        if total and done * 10 // total > shown:
+                            shown = done * 10 // total
+                            print(f"  {shown * 10}% of {total / 1e6:.0f} MB", flush=True)
+            except OSError as e:  # includes timeouts and HTTP errors
+                errors.append(f"{url}: {e}")
+                print(f"  failed: {e}", flush=True)
+                continue
+            digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+            if digest == sha256:
+                return dest
+            errors.append(f"{url}: checksum {digest}")
+            print(f"  checksum mismatch: {digest}", flush=True)
+            break  # a different file: no point retrying this mirror
+    dest.unlink(missing_ok=True)
+    raise SystemExit("download failed:\n  " + "\n  ".join(errors))
 
 
 def vendor() -> None:
-    url, sha = FFMPEG[sys.platform]
-    archive = fetch(url, sha, VENDOR / "downloads" / Path(url).name)
+    urls, sha = FFMPEG[sys.platform]
+    url = urls[0]
+    archive = fetch(urls, sha, VENDOR / "downloads" / Path(url).name)
     exe = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
     (VENDOR / "bin").mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as z:
@@ -105,7 +127,7 @@ def main() -> int:
         app = DIST / "Shot Tracer.app"
         stage = BUILD / "dmg"
         shutil.rmtree(stage, ignore_errors=True)
-        stage.mkdir(parents=True)
+        stage.mkdir(parents=True, exist_ok=True)  # Finder may recreate .DS_Store meanwhile
         subprocess.run(["ditto", str(app), str(stage / app.name)], check=True)
         (stage / "Applications").symlink_to("/Applications")
         out = DIST / f"ShotTracer-{VERSION}-mac-arm64.dmg"
@@ -119,7 +141,11 @@ def main() -> int:
         shutil.make_archive(str(out.with_suffix("")), "zip", DIST, "ShotTracer")
         self_test = DIST / "ShotTracer" / "ShotTracer.exe"
     print(f"built {out} ({out.stat().st_size / 1e6:.0f} MB)")
-    result = subprocess.run([str(self_test), "--self-test"])
+    print("self-test…", flush=True)
+    try:
+        result = subprocess.run([str(self_test), "--self-test"], timeout=600)
+    except subprocess.TimeoutExpired:
+        raise SystemExit("self-test did not finish within 10 minutes") from None
     log = Path.home() / ".shottracer" / "selftest.log"
     if sys.platform == "win32" and log.exists():
         print(log.read_text())

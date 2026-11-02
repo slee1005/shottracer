@@ -20,7 +20,13 @@ class Shot(BaseModel):
     shot: Literal["chip", "pitch", "full", "drive"] = "full"
     horizon: float | None = None
     flight_time: float | None = None  # user override (seconds)
+    # Seconds from impact to the apex (user override, flight only). The ball still lands
+    # at the flight time; a later apex means more lift and a steeper descent.
+    apex_time: float | None = Field(None, gt=0.0)
     height: float = Field(1.0, ge=0.2, le=3.0)  # user apex height scale
+    # Tracer drawing speed relative to the ball: the line takes flight time / speed to draw
+    # (2.0 = the line lands in half the real hang time). Measured times are unchanged.
+    speed: float = Field(1.0, ge=0.5, le=4.0)
     manual: list[Point] | None = None  # hand-drawn path, video pixels on `manual_frame`
     manual_ctrl: list[Point] | None = None  # its start/apex/landing handles (editor), same frame
     manual_auto: bool = False  # made by the landing tool before analysis; analysis replaces it

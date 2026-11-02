@@ -11,10 +11,12 @@ A project lives in WORKSPACE/<id>/:
 
 from __future__ import annotations
 
+import atexit
 import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -88,6 +90,14 @@ def load(pid: str) -> Project:
         for name in ("transforms.npy", "masks"):
             if (workdir(pid) / name).exists() and not (dest / name).exists():
                 shutil.move(str(workdir(pid) / name), str(dest / name))
+    count = previews_dir(pid) / _COUNT
+    if count.exists() and previews_ready(pid):
+        try:
+            n = int(count.read_text())
+        except ValueError:
+            n = 0
+        if n > 0 and n != p.info.get("frames"):
+            p.info["frames"] = n
     return p
 
 
@@ -112,8 +122,12 @@ def work_width_for(frame_count: int) -> int:
     return WORK_WIDTH if frame_count <= LONG_CLIP_FRAMES else LONG_WORK_WIDTH
 
 
-def create(src: Path, name: str | None = None, copy: bool = True) -> Project:
-    """Register a video. With copy=False (CLI) the original file is referenced in place."""
+def create(src: Path, name: str | None = None, copy: bool = True, background: bool = True) -> Project:
+    """Register a video. With copy=False the original file is read in place (desktop app,
+    CLI); nothing is copied. With background=True the preview frames are extracted on a
+    worker thread and the project is usable at once (frames are served as they appear)."""
+    if not src.is_file():
+        raise ValueError(f"file not found: {src}")
     pid = uuid.uuid4().hex[:10]
     d = workdir(pid)
     d.mkdir(parents=True)
@@ -124,9 +138,19 @@ def create(src: Path, name: str | None = None, copy: bool = True) -> Project:
     else:
         dest = src.resolve()
         source = str(dest)
-    info = video.probe(dest)
+    try:
+        info = video.probe(dest)
+    except ValueError:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
     ww = work_width_for(info.frame_count)
-    count = video.write_previews(dest, d / "previews", ww)
+    if background and info.frame_count > 0:
+        # Provisional count from the container; corrected when extraction finishes.
+        count = info.frame_count
+        previews_dir(pid).mkdir(parents=True, exist_ok=True)
+        (previews_dir(pid) / _PENDING).touch()
+    else:
+        count = video.write_previews(dest, previews_dir(pid), ww)
     aw, ah, scale = video.analysis_size(info.width, info.height, ww)
     p = Project(
         id=pid,
@@ -138,7 +162,93 @@ def create(src: Path, name: str | None = None, copy: bool = True) -> Project:
         },
     )
     save(p)
+    if background and info.frame_count > 0:
+        ensure_previews(p)
     return p
+
+
+# --------------------------------------------------------------------------- previews
+
+_PENDING = ".pending"  # present while preview extraction is unfinished
+_COUNT = ".count"  # decoded frame count, written when extraction finishes
+_preview_threads: dict[str, threading.Thread] = {}
+_preview_guard = threading.Lock()
+
+
+def previews_dir(pid: str) -> Path:
+    return workdir(pid) / "previews"
+
+
+def previews_ready(pid: str) -> bool:
+    return not (previews_dir(pid) / _PENDING).exists()
+
+
+_stop_previews = threading.Event()
+_failed_previews: set[str] = set()  # failed in this run: not retried until restart
+
+
+def _extract_previews(pid: str, src: Path, work_width: int) -> None:
+    d = previews_dir(pid)
+    try:
+        count = video.write_previews(src, d, work_width, stop=_stop_previews)
+        (d / _COUNT).write_text(str(count))
+        (d / _PENDING).unlink(missing_ok=True)
+    except Exception as e:
+        # Unfinished extraction keeps its marker and resumes on the next start; a quit or
+        # a deleted project is not an error.
+        quitting = _stop_previews.is_set() or isinstance(e, video.Cancelled) or "after shutdown" in str(e)
+        if not (quitting or not d.exists()):
+            _failed_previews.add(pid)
+            print(f"preview extraction failed for {pid}: {e}", flush=True)
+    finally:
+        with _preview_guard:
+            _preview_threads.pop(pid, None)
+
+
+def stop_previews(timeout: float = 5.0) -> None:
+    """Stop running extractions before the process exits (call when quitting)."""
+    _stop_previews.set()
+    with _preview_guard:
+        threads = list(_preview_threads.values())
+    deadline = time.monotonic() + timeout
+    for t in threads:
+        t.join(max(0.0, deadline - time.monotonic()))
+
+
+atexit.register(stop_previews)
+
+
+def ensure_previews(p: Project) -> None:
+    """(Re)start preview extraction if it is unfinished and not running (e.g. after the
+    app was closed while extracting)."""
+    if previews_ready(p.id) or p.id in _failed_previews or _stop_previews.is_set():
+        return
+    with _preview_guard:
+        t = _preview_threads.get(p.id)
+        if t is not None and t.is_alive():
+            return
+        t = threading.Thread(target=_extract_previews, args=(p.id, source_path(p), work_width_for(int(p.info["frames"]))),
+                             daemon=True, name=f"previews-{p.id}")
+        _preview_threads[p.id] = t
+        t.start()
+
+
+def preview_frame(pid: str, index: int, timeout: float = 60.0) -> Path | None:
+    """Path of preview frame `index`, waiting while it is still being extracted."""
+    path = previews_dir(pid) / f"{index:05d}.jpg"
+    deadline = time.monotonic() + timeout
+    started = False
+    while not path.exists():
+        if previews_ready(pid) or pid in _failed_previews or time.monotonic() > deadline:
+            return path if path.exists() else None
+        if not started:
+            try:
+                ensure_previews(load(pid))
+            except KeyError:
+                return None
+            started = True
+        time.sleep(0.03)
+    return path
 
 
 # --------------------------------------------------------------------------- analysis
@@ -334,6 +444,8 @@ def apply_edits(p: Project, tr: Trace) -> None:
         base, a["observations"], float(p.info["fps"]), limits,
         landing=landing_ref(tr), flight_time=flight_time(tr), height=tr.shot.height,
     )
+    if tr.shot.apex_time is not None:
+        m = trajectory.with_apex(m, a["observations"], float(p.info["fps"]), tr.shot.apex_time)
     a["model"] = m.to_dict()
 
 
@@ -393,7 +505,9 @@ def transforms(p: Project, tr: Trace) -> list[np.ndarray]:
 
 
 class ShotPath:
-    """Time-parameterised shot path in reference analysis coordinates."""
+    """Time-parameterised shot path in reference analysis coordinates. `times`/`end` are
+    the drawing timeline (the ball's own times divided by the shot's tracer speed);
+    `flight` and `flight_apex_time` are the ball's measured times."""
 
     def __init__(self, p: Project, tr: Trace):
         a = tr.analysis
@@ -409,6 +523,9 @@ class ShotPath:
             self.points = self.model.at(self.times)
             s = (1.0 - np.exp(-self.model.k * self.times)) / self.model.k
             self.depth = 1.0 / (1.0 + self.model.w * s)
+            # The real (height) apex, not the highest image point: perspective moves that
+            # earlier when the ball flies away from the camera.
+            self.apex_index = int(np.argmin(np.abs(self.times - self.model.apex_time())))
         else:
             obs = np.array(a["observations"], dtype=np.float64)
             self.t0 = float(a["impact"])
@@ -417,10 +534,21 @@ class ShotPath:
             self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 4)))
             self.points = np.stack([np.interp(self.times, t, obs[:, 1]), np.interp(self.times, t, obs[:, 2])], 1)
             self.depth = np.ones(len(self.times))
-        self.apex_index = int(np.argmin(self.points[:, 1])) if self.mode != "putt" else len(self.points) - 1
+        if self.mode == "putt":
+            self.apex_index = len(self.points) - 1
+        elif not hasattr(self, "apex_index"):
+            self.apex_index = int(np.argmin(self.points[:, 1]))
+        # Real flight/roll time; the drawing timeline below is compressed by the speed.
+        self.flight = float(self.end)
+        self.flight_apex_time = float(self.times[self.apex_index])
+        self.speed = float(tr.shot.speed)
+        if self.speed != 1.0:
+            self.times = self.times / self.speed
+            self.end = self.end / self.speed
 
     def _manual(self, p: Project, tr: Trace) -> None:
-        """Hand-drawn path, animated along its length with an ease-out (the ball slows)."""
+        """Hand-drawn path, animated along its length: the ball is fastest at launch and
+        slows down (drag). With a user apex time the drawn apex is reached at that time."""
         a = tr.analysis
         t = transforms(p, tr)
         frame = int(np.clip(tr.shot.manual_frame, 0, len(t) - 1))
@@ -434,11 +562,24 @@ class ShotPath:
         self.end = manual_duration(tr)
         self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 6)))
         u = 1.0 - (1.0 - self.times / self.end) ** 1.6
+        apex = tr.shot.apex_time if tr.shot.mode == "flight" else None
+        top = int(np.argmin(pts[:, 1]))
+        if apex is not None and 0 < top < len(pts) - 1:
+            # One ease-out (launch fastest), its clock stretched so the drawn apex is
+            # reached at the requested time.
+            lo, hi = trajectory.APEX_FRACTION
+            T = self.end
+            ta = float(np.clip(apex, lo * T, hi * T))
+            tau_a = T * (1.0 - (1.0 - arc[top]) ** (1 / 1.6))  # when the plain ease reaches it
+            tau = np.where(self.times <= ta, self.times * tau_a / ta,
+                           tau_a + (self.times - ta) * (T - tau_a) / (T - ta))
+            u = 1.0 - (1.0 - tau / T) ** 1.6
         self.points = np.stack([np.interp(u, arc, pts[:, 0]), np.interp(u, arc, pts[:, 1])], 1)
         self.depth = np.ones(len(self.times))
 
     @property
     def apex_time(self) -> float:
+        """Apex on the drawing timeline (seconds after impact, speed applied)."""
         return float(self.times[self.apex_index])
 
     def point_at(self, t: float) -> np.ndarray:
