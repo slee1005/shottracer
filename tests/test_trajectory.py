@@ -62,7 +62,7 @@ def test_landing_point_is_honoured():
     fit = tj.fit(obs, START, FPS, (10.0, 10.95), tj.SHOT_TYPES["full"], HORIZON, landing)
     land = fit.at(fit.flight_time)
     assert land[0] == pytest.approx(landing[0], abs=1.0)
-    assert land[1] == pytest.approx(landing[1], abs=15.0)
+    assert land[1] == pytest.approx(landing[1], abs=1.0)
 
 
 def _cands(path, strength=80.0):
@@ -111,3 +111,25 @@ def test_blurred_fast_launch_needs_tolerant_mode():
     assert tj.detect_launch(cands, START, 1, 25, max_jump=288, min_speed=19) is None
     found = tj.detect_launch(cands, START, 12, 30, max_jump=288, min_speed=9.6, max_gap=3, min_ratio=0.15)
     assert found is not None and found[0] == 13 and [c.frame for c in found[1]] == [13, 16, 17]
+
+
+@pytest.mark.parametrize("landing", [(620.0, 300.0), (380.0, 330.0), (700.0, 296.0)])
+@pytest.mark.parametrize("flight_time", [None, 4.0, 6.5])
+def test_dragged_landing_is_hit_exactly(landing, flight_time):
+    # The editor refits the analysed flight when the landing handle is moved.
+    m = truth()
+    obs = observe(m, range(11, 30), noise=0.5)
+    base = tj.fit(obs, START, FPS, (10.0, 10.95), tj.SHOT_TYPES["full"], HORIZON)
+    out = tj.refit(base, obs, FPS, tj.SHOT_TYPES["full"], landing=landing, flight_time=flight_time)
+    np.testing.assert_allclose(out.at(out.flight_time), landing, atol=0.5)
+    if flight_time:
+        assert out.flight_time == pytest.approx(flight_time)
+    _assert_follows(out, m, range(11, 30), tol=12.0)  # still follows the tracked ball
+    ap = tj.with_apex(out, obs, FPS, 0.55 * out.flight_time)  # a user apex keeps the landing
+    np.testing.assert_allclose(ap.at(ap.flight_time), landing, atol=0.5)
+
+
+def test_unreachable_landing_keeps_closest_fit():
+    obs = observe(truth(), range(11, 17))
+    out = tj.fit(obs, START, FPS, (10.0, 10.95), tj.SHOT_TYPES["full"], HORIZON, (620.0, HORIZON - 50))
+    assert np.isfinite(out.at(out.flight_time)).all()

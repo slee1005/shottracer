@@ -187,6 +187,9 @@ After [installing](#installation-developer-version), start the editor with `uv r
    (a few seconds for a short clip)
 4. In the preview, drag the **Landing** handle to set direction, curve and distance, and the
    **Apex** handle up or down to set the height
+   (the line ends exactly where you drop the landing handle, and the flight time, time to apex
+   and landing frame in **Analysis** update with it; to fix the landing time too, move to the frame
+   where the ball comes down, press **Land on this frame**, then drag the handle onto the ball)
 5. Choose style, pop-ups, swing and logo, then **Render this video** or **Render all** (batch)
 
 Shortcuts: `←/→` step frames (`Shift` for 10), `Space` play, `B` pick ball, `L` landing spot,

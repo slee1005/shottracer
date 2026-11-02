@@ -76,6 +76,11 @@ class Model:
     flight_time: float  # seconds
     height: float = 1.0  # user height scale applied on top of the fitted flight
     lift: float = 0.0  # cubic lift term set by a user apex time (0 = fitted flight)
+    # Image offset that puts a user landing point exactly at the flight end: zero up to
+    # `dv_from` seconds (the tracked part), growing to (du, dv) at landing.
+    dv: float = 0.0
+    dv_from: float = 0.0
+    du: float = 0.0
 
     def rise(self, t: np.ndarray | float) -> np.ndarray:
         """Height above the launch point (image units before perspective, unscaled)."""
@@ -88,6 +93,10 @@ class Model:
         den = 1.0 + self.w * s
         u = self.u0 + (self.a * s + self.c * t * t) / den
         v = self.vh + (self.v0 - self.vh - self.height * self.rise(t)) / den
+        if self.du or self.dv:
+            span = max(self.flight_time - self.dv_from, 1e-6)
+            x = np.clip((t - self.dv_from) / span, 0.0, 1.0) ** 2
+            u, v = u + self.du * x, v + self.dv * x
         return np.stack([u, v], axis=-1)
 
     def apex_time(self) -> float:
@@ -261,7 +270,7 @@ def with_apex(model: Model, points: list[tuple[float, float, float]], fps: float
     if b <= 0:  # observations cannot carry the shape; keep the launch speed
         b = model.b
     return Model(model.u0, model.v0, model.vh, model.t0, model.a, model.c, b, gu * b, model.w, model.k,
-                 T, model.height, lu * b)
+                 T, model.height, lu * b, model.dv, model.dv_from, model.du)
 
 
 def _solve(points, start, fps, t0, w, limits, horizon, landing, flight_time) -> tuple[float, Model] | None:
@@ -293,19 +302,16 @@ def _constrain(
     s = _s(t, m.k)
     den = 1.0 + m.w * s
     if landing is not None:
-        # Choose the flight time whose landing point best matches the user's point
-        # (or use the explicit one), then bend laterally to hit the landing x exactly.
+        # Choose the flight time whose landing row best matches the user's point (or use
+        # the explicit one), then end exactly on the point.
         times = [flight_time] if flight_time else np.linspace(limits.min_time, limits.max_time, 41)
         best = None
         for T in times:
             mm = _tie_gravity(m, float(T), s, t, den, vs)
-            sT = _s(T, m.k)
-            denT = 1.0 + mm.w * sT
-            mm.c = float(((landing[0] - mm.u0) * denT - mm.a * sT) / (T * T))
             e = abs(mm.at(T)[1] - landing[1])
             if best is None or e < best[0]:
                 best = (e, mm)
-        return best[1]
+        return _land_on(best[1], float(t.max()), landing)
     if flight_time:
         return _tie_gravity(m, float(flight_time), s, t, den, vs)
     T = _landing_time(m.b, m.g, m.k)
@@ -316,6 +322,18 @@ def _constrain(
         return m
     T = float(np.clip(T, limits.min_time, limits.max_time))
     return _tie_gravity(m, T, s, t, den, vs)
+
+
+def _land_on(m: Model, tracked: float, landing) -> Model:
+    """End the flight exactly on the user's landing point. The flight time chosen above
+    only approximates the landing row, so the rest is eased in after the tracked part
+    (the line keeps following the ball where it was seen). The height there is zero, so
+    a user apex or height scale keeps the same landing point."""
+    T = m.flight_time
+    m.dv_from = float(np.clip(tracked, 0.0, 0.6 * T))
+    end = m.at(T)
+    m.du, m.dv = float(landing[0] - end[0]), float(landing[1] - end[1])
+    return m
 
 
 def _tie_gravity(m: Model, T: float, s, t, den, vs) -> Model:

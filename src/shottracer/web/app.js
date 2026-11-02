@@ -835,6 +835,16 @@ function renderShot(body) {
       row.appendChild(b);
     }
     e.appendChild(row);
+    // Landing time from the frame on screen: scrub to where the ball comes down, press,
+    // then drag the landing handle onto the ball in that frame.
+    const lb = el(`<button class="btn small">${t("edit.landHere")}</button>`);
+    lb.onclick = () => {
+      const lt = (S.frame - p.result.impact) / S.cur.info.fps;
+      if (lt < 0.5 || lt > 9) { toast(t("toast.landRange")); return; }
+      patchTrace({ shot: { flight_time: +lt.toFixed(2) } }, true); renderPanel();
+      toast(t("toast.landTime", { f: S.frame, s: lt.toFixed(2) }));
+    };
+    e.appendChild(lb);
     e.appendChild(el(`<p class="note">${t("edit.help")}</p>`));
   }
 
@@ -901,7 +911,9 @@ function renderStats() {
     <div><b>${r.impact.toFixed(1)}</b><span>${t("stats.impact", { s: (r.impact / fps).toFixed(2) })}</span></div>
     <div><b>${r.tracked}</b><span>${t("stats.tracked")}</span></div>
     <div><b>${r.duration.toFixed(1)}s</b><span>${r.mode === "putt" ? t("stats.roll") : t("stats.flight")}</span></div>
-    <div><b>${r.mode === "putt" ? "—" : r.apex_time.toFixed(1) + "s"}</b><span>${t("stats.apex")}${r.mode === "putt" ? "" : ` (${Math.round((100 * r.apex_time) / r.duration)}%)`}</span></div></div>`;
+    <div><b>${r.mode === "putt" ? "—" : r.apex_time.toFixed(1) + "s"}</b><span>${t("stats.apex")}${r.mode === "putt" ? "" : ` (${Math.round((100 * r.apex_time) / r.duration)}%)`}</span></div>
+    <div><b>${Math.round(r.landing_frame)}</b><span>${t(r.mode === "putt" ? "stats.stopFrame" : "stats.landingFrame", { s: (r.landing_frame / fps).toFixed(2) })}</span></div>
+    <div><b>${r.landing_set ? t("stats.manual") : t("shot.auto")}</b><span>${t("stats.landingSpot")}</span></div></div>`;
 }
 
 const PRESETS = ["classic", "tv", "neon", "comet", "minimal"];

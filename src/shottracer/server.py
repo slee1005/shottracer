@@ -167,6 +167,9 @@ def _summary(p: Project) -> dict:
                 # Apex times the editor accepts for this hang time (seconds).
                 "apex_range": [f * path.flight for f in trajectory.APEX_FRACTION],
                 "draw_time": float(path.end),
+                # Where/when the ball comes down (video frame, preview px of that frame).
+                "landing_frame": float(tr.analysis["impact"]) + path.flight * float(p.info["fps"]),
+                "landing_set": bool(tr.shot.landing) if path.mode == "flight" else bool(tr.shot.manual),
                 "distance_time": engine.distance_time(tr),
             }
     return d
