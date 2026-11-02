@@ -226,7 +226,7 @@ The server only listens on `127.0.0.1`.
 
 | Tab | What you can do |
 | --- | --- |
-| Shot | Ball flight or putt/chip mode, shot type (bounds the flight time), manual impact frame, edit flight time, height and landing spot |
+| Shot | Ball flight or putt/chip mode, shot type (bounds the flight time), manual impact frame, edit flight time, time to apex, height and landing spot, tracer drawing speed (×0.5–×4) |
 | Style | Presets (Classic, TV, Neon, Comet, Minimal), color, width, glow, comet tail, **human cut-out**, ball head, landing effect, hold time after landing, slow motion |
 | Pop-ups | Distance, carry, ball speed, apex height, hang time, club, player and text cards that follow the landing spot / apex / start or stay in a corner, with delay, duration and colors |
 | Swing | Club-head or hands swing path with color, width and gradient |
@@ -234,6 +234,16 @@ The server only listens on `127.0.0.1`.
 
 Distance and speed cannot be measured from a single video, so you type them in. Hang time is
 filled in from the analysis when left empty.
+
+**Time to apex:** the ball is fastest right after launch, then slows and drops. Leave *Auto time to
+apex* on, or set it yourself (35–62% of the flight time): a later apex keeps the ball up longer and
+brings it down more steeply, still landing at the same time and spot. Stats, pop-ups and the tracer
+follow it.
+
+**Tracer speed:** draw the line faster than the real ball (e.g. ×2 lands in half the hang time).
+Measured stats and the hang-time pop-up keep the real flight time.
+
+**Video list:** **Delete all videos** clears the list at once; the original files are not deleted.
 
 **Watermark:** previews and exported videos carry a small *Create by AJC_shottracer* line at the
 bottom. Removing it (Export tab → **Remove watermark…**) needs a password; it then stays off for every
@@ -245,7 +255,7 @@ Analyse and render in one step:
 
 ```bash
 uv run shottracer swing.mp4 --ball 984,994 --ball-frame 20 \
-    [--landing 1400,600] [--shot drive] [--putt] \
+    [--landing 1400,600] [--shot drive] [--putt] [--apex-time 2.4] [--trace-speed 2] \
     [--style neon] [--color FF2D2D] [--swing clubhead] [--slowmo 3] [-o out.mp4]
 ```
 
