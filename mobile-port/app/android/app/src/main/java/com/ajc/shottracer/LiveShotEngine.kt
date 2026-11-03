@@ -31,7 +31,7 @@ internal class LiveShotEngine(context: Context, private val listener: Listener) 
         fun frame(bitmap: Bitmap)
         fun message(resource: Int)
         fun recording(active: Boolean, finishing: Boolean, audio: Boolean)
-        fun saved(file: File, points: Int)
+        fun saved(file: File, points: Int, albumSaved: Boolean)
     }
     private val context = context.applicationContext
     private val manager = this.context.getSystemService(CameraManager::class.java)
@@ -236,9 +236,10 @@ internal class LiveShotEngine(context: Context, private val listener: Listener) 
             saved = recording.file.renameTo(complete)
             if (!saved) recording.file.delete()
         }
+        val albumSaved=if(saved) try { PhotoAlbum.save(context,complete); true } catch (_: Exception) { false } else false
         ui {
             listener.recording(false, false, false)
-            if (saved) listener.saved(complete, points) else listener.message(R.string.live_failed)
+            if (saved) listener.saved(complete, points, albumSaved) else listener.message(R.string.live_failed)
         }
     }
 

@@ -3,6 +3,7 @@ import Combine
 import CoreImage
 import CoreTransferable
 import PhotosUI
+import Photos
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -37,6 +38,8 @@ final class EditorModel: ObservableObject {
     @Published var duration = 0.0
     @Published var busy = false
     @Published var playing = false
+    @Published var editingTimeline=false
+    private var timeUndo: EditorScene?
     @Published var tool = "ball"
     @Published var status = NSLocalizedString("hint.import", comment: "")
     @Published var output: URL?
@@ -61,6 +64,24 @@ final class EditorModel: ObservableObject {
     func jumpToEvent(_ event: ShotEvent) {
         guard !busy,event.inClip else { return }
         pause(); chooseTool(event.key); seek(event.frame)
+    }
+    func beginTimeEdit() {
+        guard !busy,!editingTimeline else { return }
+        pause(); timeUndo=scene; editingTimeline=true; pending=nil
+    }
+    func dragTime(_ key: String,_ frame: Int) {
+        guard editingTimeline,!busy else { return }
+        guard let target=retimeShot(&scene.shot,key,frame,times) else { return }
+        tool=key; commitEdits(save:false)
+        if target != frameIndex { seek(target) }
+    }
+    func endTimeEdit(cancel: Bool = false) {
+        guard let before=timeUndo else { return }
+        if cancel { scene=before; commitEdits(save:false) }
+        else if before.shot.start != scene.shot.start || before.shot.flight != scene.shot.flight || before.shot.landing != scene.shot.landing || before.shot.timingLandingEstimated != scene.shot.timingLandingEstimated {
+            undo.append(before); if undo.count>50 { undo.removeFirst() }; redo=[]; persist()
+        }
+        timeUndo=nil; editingTimeline=false
     }
     var handles: [(String, EditPoint)] {
         let shot = scene.shot, m = interpolated(shot.camera, displayedTime)
@@ -100,7 +121,7 @@ final class EditorModel: ObservableObject {
     func deleteShape() { if !scene.shapes.isEmpty { checkpoint(); scene.shapes.removeLast(); commitEdits() } else { deleteShot() } }
     func landOnFrame() { guard scene.shot.ball != nil, displayedTime > scene.shot.start else { return }; checkpoint(); scene.shot.landing = scene.shot.endpoint; scene.shot.flight = min(15, max(0.2, displayedTime - scene.shot.start)); chooseTool("landing"); commitEdits() }
     func reset() {
-        guard !busy, hasVideo else { return }
+        guard !busy,!editingTimeline, hasVideo else { return }
         pause(); checkpoint(); let w = scene.width, h = scene.height
         scene = EditorScene(); scene.width = w; scene.height = h; chooseTool("ball"); commitEdits(); seek(0)
     }
@@ -125,13 +146,13 @@ final class EditorModel: ObservableObject {
             status = deleted.count == folders.count ? String(format: NSLocalizedString("editor.projectsDeleted", comment: ""), deleted.count) : NSLocalizedString("editor.deleteFailed", comment: "")
         }
     }
-    func selectShot(_ index: Int) { scene.selected = index; persist() }
+    func selectShot(_ index: Int) { guard !editingTimeline, !busy, scene.shots.indices.contains(index) else { return }; scene.selected = index; persist() }
     private func reference(_ p: EditPoint) -> EditPoint { let m = interpolated(scene.shot.camera, displayedTime); return EditPoint(p.x - m.x, p.y - m.y) }
     func moveHandle(_ key: String, _ p: EditPoint) {
         let ref = reference(p)
         switch key {
         case "ball": scene.shot.ball = ref; scene.shot.manual = true
-        case "landing": scene.shot.landing = ref
+        case "landing": scene.shot.landing = ref; scene.shot.timingLandingEstimated=false
         case "apex": scene.shot.apex = ref
         default:
             let parts = key.split(separator: ":")
@@ -145,7 +166,7 @@ final class EditorModel: ObservableObject {
         guard !busy, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits()
+        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits()
         case "landing", "apex":
             checkpoint(); if scene.shot.ball == nil { scene.shot.ball = EditPoint(0.2, 0.8); scene.shot.start = displayedTime }
             moveHandle(tool, p); persist()
@@ -168,7 +189,7 @@ final class EditorModel: ObservableObject {
         } catch { status = error.localizedDescription } }
     }
     private func beginImport() -> Bool {
-        guard !busy else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1
+        guard !busy,!editingTimeline else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1
         busy = true; status = NSLocalizedString("status.importing", comment: ""); return true
     }
     private func copyVideo(_ incoming: URL) async throws {
@@ -234,11 +255,11 @@ final class EditorModel: ObservableObject {
     func setTrackingMode(_ mode: String) {
         guard !busy, (scene.shot.trackingMode ?? "flight") != mode else { return }
         checkpoint(); scene.shot.trackingMode=mode; scene.shot.base=[]; scene.shot.baseModel=nil
-        scene.shot.landing=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
+        scene.shot.landing=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
         chooseTool("ball"); commitEdits(); status=NSLocalizedString("editor.modeChanged",comment:"")
     }
     func analyze() {
-        guard !busy, let source, let ball = scene.shot.ball else { return }
+        guard !busy,!editingTimeline, let source, let ball = scene.shot.ball else { return }
         pause(); busy=true; output=nil
         let start=scene.shot.start, end=min(duration,start+15), width=scene.width, height=scene.height, id=scene.shot.id, rows=times
         let putt=scene.shot.trackingMode == "putt"
@@ -279,13 +300,23 @@ final class EditorModel: ObservableObject {
             if data.5 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
         } catch { status=error.localizedDescription } }
     }
+    func saveToAlbum() {
+        guard !busy,!editingTimeline,let output else { return }
+        pause(); busy=true
+        task=Task { defer { busy=false }; await storeInAlbum(output) }
+    }
+    private func storeInAlbum(_ url: URL) async {
+        status=NSLocalizedString("editor.albumSaving",comment:"")
+        do { try await PhotoAlbum.shared.save(url); status=NSLocalizedString("editor.albumSaved",comment:"") }
+        catch { status=(error as? PhotoAlbumError)?.localizedDescription ?? NSLocalizedString("editor.albumFailed",comment:"") }
+    }
     func export() {
-        guard !busy, let source else { return }; pause(); persist(); busy = true; output = nil
+        guard !busy,!editingTimeline, let source else { return }; pause(); persist(); busy = true; output = nil
         status = NSLocalizedString("status.exporting", comment: "")
         let snapshot = scene, seconds = duration
         task = Task { defer { busy = false }; do {
             output = try await Self.renderProject(source, snapshot, seconds)
-            status = NSLocalizedString("status.saved", comment: "")
+            if let output { await storeInAlbum(output) }
         } catch { status = error.localizedDescription } }
     }
     func exportAll() {
@@ -296,8 +327,8 @@ final class EditorModel: ObservableObject {
                 try await prepare(file)
                 status = String(format: NSLocalizedString("editor.batchProgress", comment: ""), i + 1, queue.count)
                 output = try await Self.renderProject(file, scene, duration)
+                if let output { await storeInAlbum(output) }
             }
-            status = NSLocalizedString("status.saved", comment: "")
         } catch { status = error.localizedDescription } }
     }
     nonisolated private static func renderProject(_ source: URL, _ snapshot: EditorScene, _ duration: Double) async throws -> URL {
@@ -377,7 +408,70 @@ func makeShotEvents(_ shot: EditShot, _ times: [Double], _ duration: Double) -> 
     }
     var result=[event("ball",shot.start)]
     if shot.landing != nil || shot.manual || shot.baseModel != nil || (shot.trackingMode == "putt" && shot.base.count >= 2) {
-        result.append(event("landing",shot.start+shot.flight,shot.landing == nil && shot.trackingMode != "putt"))
+        result.append(event("landing",shot.start+shot.flight,shot.timingLandingEstimated ?? (shot.landing == nil && shot.trackingMode != "putt")))
     }
     return result
+}
+
+/// Apply timing edits without changing automatic observations or base-model time.
+func retimeShot(_ shot: inout EditShot,_ key: String,_ frame: Int,_ times: [Double]) -> Int? {
+    guard shot.ball != nil,!times.isEmpty,["ball","landing"].contains(key) else { return nil }
+    let known=shot.landing != nil || shot.manual || shot.baseModel != nil || shot.base.count>=2
+    if key == "landing" && !known { return nil }
+    let observed=shot.baseModel == nil && !shot.manual && shot.landing == nil && shot.base.count>=2
+    let end=shot.start + (observed ? shot.base.last!.time-shot.base.first!.time : shot.flight)
+    let lo=key == "ball" ? (known ? max(times[0],end-15) : times[0]) : shot.start+0.2
+    let hi=key == "ball" ? (known ? min(times.last!,end-0.2) : times.last!) : min(times.last!,shot.start+15)
+    func bound(_ target: Double,_ after: Bool) -> Int {
+        var left=0,right=times.count
+        while left<right { let mid=(left+right)/2; if times[mid]<target || (after && times[mid]==target) { left=mid+1 } else { right=mid } }
+        return left
+    }
+    let first=bound(lo-0.000001,false),last=bound(hi+0.000001,true)-1
+    guard first<times.count,last>=first else { return nil }
+    let selected=min(max(frame,first),last), time=times[selected]
+    if known {
+        let estimated=shot.timingLandingEstimated ?? (shot.landing == nil && shot.trackingMode != "putt")
+        let point=shot.endpoint; shot.landing=point; shot.timingLandingEstimated=estimated
+    }
+    if key == "ball" { shot.start=time; if known { shot.flight=min(15,max(0.2,end-time)) } }
+    else { shot.flight=min(15,max(0.2,time-shot.start)) }
+    return selected
+}
+
+private final class PhotoCreationState: @unchecked Sendable {
+    private let lock=NSLock()
+    private var made=false
+    func set(_ value: Bool) { lock.lock(); made=value; lock.unlock() }
+    func get() -> Bool { lock.lock(); defer { lock.unlock() }; return made }
+}
+
+enum PhotoAlbumError: LocalizedError {
+    case denied, failed
+    var errorDescription: String? { NSLocalizedString(self == .denied ? "editor.albumDenied" : "editor.albumFailed",comment:"") }
+}
+
+/// Add-only authorization never grants this app access to existing library items.
+/// Remember successful output URLs to avoid repeated saves of the same completed file.
+actor PhotoAlbum {
+    static let shared=PhotoAlbum()
+    private var pending: [URL:Task<Void,Error>]=[:]
+    func save(_ url: URL) async throws {
+        if let task=pending[url] { return try await task.value }
+        if UserDefaults.standard.bool(forKey:"album:"+url.path) { return }
+        let task=Task<Void,Error> {
+            let authorization=await PHPhotoLibrary.requestAuthorization(for:.addOnly)
+            guard authorization == .authorized || authorization == .limited else { throw PhotoAlbumError.denied }
+            guard FileManager.default.fileExists(atPath:url.path) else { throw PhotoAlbumError.failed }
+            let state=PhotoCreationState()
+            try await PHPhotoLibrary.shared().performChanges {
+                state.set(PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL:url) != nil)
+            }
+            guard state.get() else { throw PhotoAlbumError.failed }
+            UserDefaults.standard.set(true,forKey:"album:"+url.path)
+        }
+        pending[url]=task
+        do { try await task.value; pending[url]=nil }
+        catch { pending[url]=nil; throw error }
+    }
 }

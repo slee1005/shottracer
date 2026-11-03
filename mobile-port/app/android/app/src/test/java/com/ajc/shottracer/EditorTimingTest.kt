@@ -65,4 +65,41 @@ class EditorTimingTest {
         assertFalse(landing.estimated)
         assertEquals(3,landing.frame)
     }
+    @Test fun draggingStartHoldsLandingTimeLocationAndAutomaticData() {
+        val base=listOf(TimedPoint(1.0,.1,.8),TimedPoint(2.0,.4,.7),TimedPoint(3.0,.8,.7))
+        val model=DoubleArray(16) { it.toDouble() }
+        val shot=EditShot(start=1.0,ball=EditPoint(.1,.8),landing=EditPoint(.8,.7),flight=2.0,base=base,baseModel=model)
+        val times=doubleArrayOf(0.0,.2,.5,1.0,1.25,1.7,2.8,3.0,3.5)
+        assertEquals(4,retimeShot(shot,"ball",4,times))
+        assertEquals(1.25,shot.start,1e-10)
+        assertEquals(3.0,shot.start+shot.flight,1e-10)
+        assertEquals(EditPoint(.8,.7),shot.landing)
+        assertSame(base,shot.base); assertSame(model,shot.baseModel)
+        retimeShot(shot,"ball",8,times)
+        assertEquals(2.8,shot.start,1e-10)
+        assertEquals(.2,shot.flight,1e-10)
+    }
+    @Test fun draggingLandingClampsToLegalFramesAndCanRecoverOutsideClip() {
+        val shot=EditShot(start=.2,ball=EditPoint(.1,.8),landing=EditPoint(.8,.7),flight=4.0,manual=true)
+        val times=doubleArrayOf(0.0,.1,.2,.45,.9,1.2)
+        assertEquals(3,retimeShot(shot,"landing",0,times))
+        assertEquals(.2,shot.start,1e-10); assertEquals(.25,shot.flight,1e-10)
+        retimeShot(shot,"landing",5,times)
+        assertEquals(1.2,shot.start+shot.flight,1e-10)
+        assertTrue(shotEvents(shot,times,1.3).last().inClip)
+        val short=EditShot(start=1.2,ball=EditPoint(.1,.8),landing=EditPoint(.8,.7),manual=true)
+        assertNull(retimeShot(short,"landing",0,times))
+        assertEquals(4.0,short.flight,1e-10)
+    }
+    @Test fun puttStartRetimeUsesOriginalObservationsAndKeepsPredictionLabel() {
+        val original=listOf(TimedPoint(1.0,.1,.8),TimedPoint(2.0,.3,.8),TimedPoint(3.0,.5,.8))
+        val shot=EditShot(start=1.0,ball=EditPoint(.1,.8),flight=2.0,trackingMode="putt",base=original)
+        retimeShot(shot,"ball",1,doubleArrayOf(0.0,.5,1.0,1.5,2.0,2.5,3.0))
+        assertEquals(.3,shot.ground(1.25).x,1e-10)
+        assertEquals(.5,shot.ground(2.5).x,1e-10)
+        assertSame(original,shot.base)
+        val predicted=EditShot(start=0.0,ball=EditPoint(.1,.8),manual=true,flight=1.0)
+        retimeShot(predicted,"landing",3,doubleArrayOf(0.0,.2,.5,.9,1.2))
+        assertTrue(shotEvents(predicted,doubleArrayOf(0.0,.2,.5,.9,1.2),1.3).last().estimated)
+    }
 }

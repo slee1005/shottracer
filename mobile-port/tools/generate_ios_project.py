@@ -47,6 +47,7 @@ def main() -> None:
         GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = ShotTracer;
         INFOPLIST_KEY_NSCameraUsageDescription = "Record golf shots for on-device ball tracking.";
         INFOPLIST_KEY_NSMicrophoneUsageDescription = "Record golf shot audio with the video.";
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save finished golf videos to your photo album.";
         INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.sports";
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
         INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -23,9 +23,11 @@ struct EditorView: View {
     @State private var pinching = false
     @State private var transformedGesture = false
     @State private var resetConfirm = false
+    @State private var draggingTime: String?
+    @Environment(\.scenePhase) private var editorPhase
     private func icon(_ key: String, _ symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) }
-            .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key))).disabled(disabled || model.busy)
+            .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key))).disabled(disabled || model.busy || model.editingTimeline)
     }
     var body: some View {
         NavigationStack {
@@ -48,7 +50,8 @@ struct EditorView: View {
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
             .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in if case .success(let url) = result { model.importVideo(url) } }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
-            .onDisappear { model.pause() }
+            .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil }
+            .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil } }
         }
     }
     private var header: some View {
@@ -152,29 +155,44 @@ struct EditorView: View {
             GeometryReader { area in
                 ForEach(model.timelineEvents) { event in
                     let x = 16 + max(0,area.size.width-32)*Double(event.frame)/Double(max(1,model.frameCount-1))
-                    Button { jump(event) } label: {
-                        VStack(spacing:0) {
-                            Image(systemName:event.key == "ball" ? "circle.fill" : "flag.fill").font(.system(size:10))
-                            Rectangle().frame(width:1,height:event.key == "ball" ? 10 : 3)
-                        }.frame(width:28,height:22,alignment:event.key == "ball" ? .top : .bottom).contentShape(Rectangle())
-                    }.buttonStyle(.plain).foregroundStyle(event.key == "ball" ? Color.yellow : Color.green)
-                        .opacity(event.inClip ? 1 : 0.4).disabled(!event.inClip || model.busy).position(x:x,y:11)
-                        .accessibilityLabel(eventLabel(event))
+                    VStack(spacing:0) {
+                        Image(systemName:event.key == "ball" ? "circle.fill" : "flag.fill").font(.system(size:10))
+                        Rectangle().frame(width:1,height:event.key == "ball" ? 10 : 3)
+                    }.frame(width:36,height:22,alignment:event.key == "ball" ? .top : .bottom).contentShape(Rectangle())
+                        .foregroundStyle(event.key == "ball" ? Color.yellow : Color.green).opacity(event.inClip ? 1 : 0.4).position(x:x,y:event.key == "ball" ? 11 : 33)
+                        .gesture(DragGesture(minimumDistance:0,coordinateSpace:.named("shotTimeline")).onChanged { value in
+                            guard !model.busy else { return }
+                            if draggingTime == nil && abs(value.translation.width)>3 {
+                                draggingTime=event.key; model.beginTimeEdit(); zoom=1; lastZoom=1; pan = .zero; lastPan = .zero
+                            }
+                            if draggingTime == event.key {
+                                let fraction=min(1,max(0,(value.location.x-16)/max(1,area.size.width-32)))
+                                model.dragTime(event.key,Int((fraction*Double(max(0,model.frameCount-1))).rounded()))
+                            }
+                        }.onEnded { _ in
+                            if draggingTime != nil { model.endTimeEdit(); draggingTime=nil } else { jump(event) }
+                        })
+                        .accessibilityElement().accessibilityLabel(eventLabel(event)).accessibilityHint(Text("editor.timelineDrag"))
+                        .accessibilityAdjustableAction { direction in
+                            guard !model.busy else { return }
+                            model.beginTimeEdit()
+                            model.dragTime(event.key,event.frame+(direction == .increment ? 1 : -1)); model.endTimeEdit()
+                        }
                 }
-            }.frame(height:22)
-            Slider(value: Binding(get: { Double(model.frameIndex) }, set: { model.pause(); model.seek(Int($0)) }), in: 0...Double(max(1, model.frameCount - 1)), step: 1).disabled(!model.hasVideo || model.busy)
+            }.frame(height:44).coordinateSpace(name:"shotTimeline")
+            Slider(value: Binding(get: { Double(model.frameIndex) }, set: { model.pause(); model.seek(Int($0)) }), in: 0...Double(max(1, model.frameCount - 1)), step: 1).disabled(!model.hasVideo || model.busy || model.editingTimeline)
             HStack(spacing:4) {
                 eventButton("ball"); eventButton("landing")
             }
-            HStack(spacing: 6) {
+            ScrollView(.horizontal,showsIndicators:false) { HStack(spacing: 6) {
                 icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
                 icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
                 icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
                 icon("action.analyze", "sparkle.magnifyingglass", disabled: model.scene.shot.ball == nil) { model.analyze() }
                 icon("action.export", "square.and.arrow.up", disabled: !model.canExport) { model.export() }
                 icon("editor.review", "play.rectangle.fill", disabled: model.output == nil) { reviewing = true }
-                if let output = model.output { ShareLink(item: output) { Image(systemName: "square.and.arrow.down").frame(width: 40, height: 44) }.accessibilityLabel(Text("action.share")) }
-            }
+                if model.output != nil { icon("editor.albumSave","square.and.arrow.down") { model.saveToAlbum() } }
+            } }
         }
     }
     private func jump(_ event: ShotEvent) {
@@ -208,10 +226,11 @@ struct EditorView: View {
 struct ReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer
-    init(url: URL) { _player = State(initialValue: AVPlayer(url: url)) }
+    let url: URL
+    init(url: URL) { self.url=url; _player = State(initialValue: AVPlayer(url: url)) }
     var body: some View {
         NavigationStack { VideoPlayer(player: player).background(.black).navigationTitle(Text("editor.review"))
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("camera.close") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("camera.close") { dismiss() } }; ToolbarItem(placement:.primaryAction) { ShareLink(item:url) { Image(systemName:"square.and.arrow.up") }.accessibilityLabel(Text("action.share")) } }
         }.onAppear { player.defaultRate = 1; player.playImmediately(atRate: 1) }.onDisappear { player.pause() }
     }
 }

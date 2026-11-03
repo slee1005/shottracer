@@ -20,7 +20,7 @@ internal data class EditShot(
     var swing: MutableList<TimedPoint> = mutableListOf(), var popups: MutableList<EditPopup> = mutableListOf(),
     var baseModel: DoubleArray? = null, var trackingMode: String = "flight",
     var autoHands: List<TimedPoint> = emptyList(), var autoClub: List<TimedPoint> = emptyList(),
-    var masks: List<PersonMask> = emptyList()
+    var masks: List<PersonMask> = emptyList(), var timingLandingEstimated: Boolean? = null
 ) {
     fun model(): DoubleArray? {
         val base = baseModel ?: return null
@@ -44,9 +44,10 @@ internal data class EditShot(
         return EditPoint(p[0], p[1])
     }
     fun ground(time: Double): EditPoint {
-        val span = max(.01,(base.lastOrNull()?.time ?: start)-start)
+        val origin=base.firstOrNull()?.time ?: start
+        val span = max(.01,(base.lastOrNull()?.time ?: origin)-origin)
         val f = (time / max(.01,flight)).coerceIn(0.0,1.0)
-        val p = interpolate(base,start+f*span); val end = base.lastOrNull()
+        val p = interpolate(base,origin+f*span); val end = base.lastOrNull()
         val ease = ((f-.6)/.4).coerceIn(0.0,1.0).pow(2)
         return EditPoint(p.x + (landing?.x?.minus(end?.x ?: p.x) ?: 0.0)*ease,
             p.y + (landing?.y?.minus(end?.y ?: p.y) ?: 0.0)*ease)
@@ -86,6 +87,7 @@ internal class EditorScene {
                 put("id", s.id); put("start", s.start); put("ball", point(s.ball)); put("landing", point(s.landing)); put("apex", point(s.apex))
                 put("flight", s.flight); put("apexFraction", s.apexFraction); put("speed", s.speed); put("color", s.color); put("manual", s.manual)
                 put("base", rows(s.base)); put("camera", rows(s.camera)); put("swing", rows(s.swing))
+                put("timingLandingEstimated",s.timingLandingEstimated ?: JSONObject.NULL)
                 put("trackingMode", s.trackingMode); put("autoHands", rows(s.autoHands)); put("autoClub", rows(s.autoClub))
                 put("masks", JSONArray(s.masks.map { JSONObject().put("time", it.time).put("path", it.path) }))
                 put("baseModel", s.baseModel?.let { JSONArray(it.toList()) } ?: JSONObject.NULL)
@@ -125,6 +127,7 @@ internal class EditorScene {
                                 v.optString("value"), v.optString("anchor", "landing"), v.optDouble("delay"),
                                 v.optString("hide", if (v.has("duration")) "time" else "after_shot"), v.optDouble("duration", 3.0)))
                         } }
+                        shot.timingLandingEstimated=if(s.isNull("timingLandingEstimated")) null else s.optBoolean("timingLandingEstimated")
                         shot.trackingMode = s.optString("trackingMode","flight")
                         shot.autoHands = rows(s.optJSONArray("autoHands")); shot.autoClub = rows(s.optJSONArray("autoClub"))
                         s.optJSONArray("masks")?.let { a -> shot.masks = (0 until a.length()).map { i -> a.getJSONObject(i).let { PersonMask(it.getDouble("time"),it.getString("path")) } }.sortedBy { it.time } }
@@ -167,7 +170,7 @@ internal class EditorRenderer(private val scene: EditorScene) {
         for (s in scene.shots) {
             val motion = s.motion(time)
             val model = models[s.id]
-            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt") s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
+            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt" || (model==null && !s.manual && s.apex==null && s.base.isNotEmpty())) s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
             val duration = if (s.edited() || s.trackingMode == "putt") s.flight else max(.01, (s.base.lastOrNull()?.time ?: s.start) - s.start)
             val elapsed = (time - s.start) * s.speed
             val visible = time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)

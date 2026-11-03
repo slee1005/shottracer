@@ -55,7 +55,7 @@
     <string name="editor_play">재생 / 일시 정지</string>
     <string name="editor_analyze">선택한 샷 분석</string>
     <string name="editor_export">영상 내보내기</string>
-    <string name="editor_save">영상 저장</string>
+    <string name="editor_save">사진 앨범에 저장</string>
     <string name="editor_ball">시작 공 지정</string>
     <string name="editor_landing">착지점 변경</string>
     <string name="editor_apex">정점 변경</string>
@@ -160,4 +160,10 @@
     <string name="editor_timeline_landing_unset">착지 미지정</string>
     <string name="editor_timeline_event">%1$s · %2$.3f초\n%3$d프레임</string>
     <string name="editor_timeline_outside">%1$s · %2$.3f초\n영상 밖</string>
+    <string name="editor_album_save">사진 앨범에 저장</string>
+    <string name="editor_album_saving">사진 앨범에 저장 중…</string>
+    <string name="editor_album_saved">사진 앨범에 저장했습니다.</string>
+    <string name="editor_album_failed">영상은 앱에 보관했습니다. 앨범 저장에 실패했으니 저장 버튼으로 다시 시도하세요.</string>
+    <string name="editor_album_denied">영상은 앱에 보관했습니다. 설정에서 사진 추가를 허용한 뒤 저장 버튼을 다시 누르세요.</string>
+    <string name="editor_timeline_drag">드래그해 시간을 변경합니다. 시작을 옮겨도 착지 시각은 유지하고, 착지를 옮겨도 시작 시각은 유지합니다.</string>
 </resources>

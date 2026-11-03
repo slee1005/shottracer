@@ -15,7 +15,18 @@ final class LiveCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputSamp
     @Published private(set) var soundEnabled = false
     @Published private(set) var status = NSLocalizedString("camera.preparing", comment: "")
     @Published private(set) var output: URL?
+    @Published private(set) var albumSaving=false
+    @Published private(set) var albumStatus=""
 
+    @MainActor func saveToAlbum(_ url: URL) {
+        guard !albumSaving else { return }
+        albumSaving=true; albumStatus=NSLocalizedString("editor.albumSaving",comment:"")
+        Task { @MainActor in
+            do { try await PhotoAlbum.shared.save(url); albumStatus=NSLocalizedString("editor.albumSaved",comment:"") }
+            catch { albumStatus=(error as? PhotoAlbumError)?.localizedDescription ?? NSLocalizedString("editor.albumFailed",comment:"") }
+            albumSaving=false
+        }
+    }
     private let queue = DispatchQueue(label: "shottracer.camera", qos: .userInitiated)
     private let session = AVCaptureSession()
     private let videoOutput = AVCaptureVideoDataOutput()
@@ -283,6 +294,7 @@ final class LiveCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputSamp
                     self.finishing = false
                     self.output = saved ? url : nil
                     self.status = NSLocalizedString(saved ? (count >= 4 ? "camera.saved" : "camera.noTrack") : "camera.failed", comment: "")
+                    if saved,let url { self.saveToAlbum(url) }
                 }
             }
         }
@@ -316,18 +328,19 @@ struct LiveCameraView: View {
                     } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
                 }.background(.black).clipShape(RoundedRectangle(cornerRadius:22))
                 Text(camera.status).font(.caption).lineLimit(2)
+                if !camera.albumStatus.isEmpty { Text(camera.albumStatus).font(.caption2).foregroundStyle(.secondary) }
                 Text(camera.soundEnabled ? "camera.audioOn" : "camera.audioOff").font(.caption2).foregroundStyle(.secondary)
                 HStack(spacing: 30) {
                     if camera.recording {
                         Button { camera.stopRecording() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.stop"))
                     } else {
                         Button { camera.record() } label: { Image(systemName: "record.circle").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.record"))
-                            .disabled(camera.selected == nil || camera.image == nil || camera.finishing)
+                            .disabled(camera.selected == nil || camera.image == nil || camera.finishing || camera.albumSaving)
                     }
                     if camera.finishing { ProgressView() }
                     if let output = camera.output {
                         Button { reviewing = true } label: { Image(systemName: "play.rectangle.fill").font(.system(size: 28)) }.accessibilityLabel(Text("editor.review"))
-                        ShareLink(item: output) { Image(systemName: "square.and.arrow.down").font(.system(size: 28)) }.accessibilityLabel(Text("action.share"))
+                        Button { camera.saveToAlbum(output) } label: { Image(systemName:"square.and.arrow.down").font(.system(size:28)) }.accessibilityLabel(Text("editor.albumSave")).disabled(camera.albumSaving)
                     }
                 }.padding(.horizontal,20).frame(height:60).glassEffect(.regular,in:Capsule())
             }.padding(.horizontal, 8).background(Color(red:0.03,green:0.05,blue:0.08)).preferredColorScheme(.dark).tint(.mint)
@@ -339,4 +352,5 @@ struct LiveCameraView: View {
         .onAppear { camera.start() }.onDisappear { camera.stop() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { camera.start() } else if phase == .background { camera.stop() } }
     }
+
 }

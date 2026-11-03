@@ -55,7 +55,7 @@
     <string name="editor_play">Play / pause</string>
     <string name="editor_analyze">Analyze selected shot</string>
     <string name="editor_export">Export video</string>
-    <string name="editor_save">Save video</string>
+    <string name="editor_save">Save to photo album</string>
     <string name="editor_ball">Starting ball</string>
     <string name="editor_landing">Landing point</string>
     <string name="editor_apex">Apex</string>
@@ -160,4 +160,10 @@
     <string name="editor_timeline_landing_unset">Landing not set</string>
     <string name="editor_timeline_event">%1$s · %2$.3fs\nF%3$d</string>
     <string name="editor_timeline_outside">%1$s · %2$.3fs\nOutside clip</string>
+    <string name="editor_album_save">Save to photo album</string>
+    <string name="editor_album_saving">Saving to photo album…</string>
+    <string name="editor_album_saved">Saved to photo album.</string>
+    <string name="editor_album_failed">Video kept in the app. Photo album save failed; tap Save to retry.</string>
+    <string name="editor_album_denied">Video kept in the app. Allow adding photos in Settings, then tap Save again.</string>
+    <string name="editor_timeline_drag">Drag to change time. Start holds landing time; landing holds start time.</string>
 </resources>

@@ -130,6 +130,7 @@ struct EditShot: Codable, Identifiable, Sendable {
     var ball: EditPoint?, landing: EditPoint?, apex: EditPoint?
     var flight = 4.0, apexFraction = 0.5, speed = 1.0, color = "#FF2D2D", manual = false
     var base: [EditSample] = [], camera: [EditSample] = [], swing: [EditSample] = []
+    var timingLandingEstimated: Bool?
     var trackingMode: String?
     var autoHands: [EditSample]?, autoClub: [EditSample]?, masks: [PersonMask]?
     var baseModel: [Double]?
@@ -143,8 +144,9 @@ struct EditShot: Codable, Identifiable, Sendable {
     var endpoint: EditPoint { landing ?? model.flatMap { NativeFlight.at($0, flight) } ?? base.last.map { EditPoint($0.x, $0.y) } ?? EditPoint(0.75, 0.65) }
     var peak: EditPoint { let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
     func ground(_ time: Double) -> EditPoint {
-        let span = max(0.01, (base.last?.time ?? start)-start), f = min(1,max(0,time/max(0.01,flight)))
-        let p = interpolated(base,start+f*span), end = base.last
+        let origin=base.first?.time ?? start
+        let span = max(0.01, (base.last?.time ?? origin)-origin), f = min(1,max(0,time/max(0.01,flight)))
+        let p = interpolated(base,origin+f*span), end = base.last
         let ease = pow(min(1,max(0,(f-0.6)/0.4)),2)
         return EditPoint(p.x + ((landing?.x ?? end?.x ?? p.x)-(end?.x ?? p.x))*ease,
                          p.y + ((landing?.y ?? end?.y ?? p.y)-(end?.y ?? p.y))*ease)
@@ -199,7 +201,7 @@ final class EditorRenderer: @unchecked Sendable {
             func pos(_ p: EditPoint, _ motion: EditPoint = EditPoint(0, 0)) -> CGPoint { CGPoint(x: (p.x + motion.x) * w, y: (p.y + motion.y) * h) }
             ctx.setLineCap(.round); ctx.setLineJoin(.round)
             for s in scene.shots {
-                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
+                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" || (models[s.id] == nil && !s.manual && s.apex == nil && !s.base.isEmpty) { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
                 let motion = interpolated(s.camera, time)
                 let duration = (s.edited || s.trackingMode == "putt") ? s.flight : max(0.01, (s.base.last?.time ?? s.start) - s.start)
                 let elapsed = (time - s.start) * s.speed

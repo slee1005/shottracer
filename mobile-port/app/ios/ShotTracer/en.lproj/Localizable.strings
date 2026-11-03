@@ -168,3 +168,10 @@
 "editor.timelineLandingUnset" = "Landing not set";
 "editor.timelineEvent" = "%@ · %.3fs\nF%d";
 "editor.timelineOutside" = "%@ · %.3fs\nOutside clip";
+
+"editor.albumSave" = "Save to photo album";
+"editor.albumSaving" = "Saving to photo album…";
+"editor.albumSaved" = "Saved to photo album.";
+"editor.albumFailed" = "Video kept in the app. Photo album save failed; tap Save to retry.";
+"editor.albumDenied" = "Video kept in the app. Allow adding photos in Settings, then tap Save again.";
+"editor.timelineDrag" = "Drag to change time. Start holds landing time; landing holds start time.";

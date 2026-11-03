@@ -77,12 +77,7 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
         reviewButton = button(R.string.editor_review, "review") {
             output?.let { startActivity(Intent(this, ReviewActivity::class.java).putExtra("path", it.path)) }
         }
-        saveButton = button(R.string.action_save, "save") {
-            startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                type = "video/mp4"; addCategory(Intent.CATEGORY_OPENABLE)
-                putExtra(Intent.EXTRA_TITLE, "ShotTracer-live.mp4")
-            }, 2)
-        }
+        saveButton = button(R.string.editor_album_save,"save") { output?.let { saveAlbum(it) } }
         status = TextView(this).apply { setText(R.string.live_preparing) }; layout.addView(status)
         sound = TextView(this).apply { setText(R.string.live_audio_hint) }; layout.addView(sound)
         output = File(filesDir, "captures").listFiles()?.filter { it.name.endsWith(".mp4") && !it.name.endsWith(".partial.mp4") }
@@ -147,11 +142,24 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
         controls()
     }
 
-    override fun saved(file: File, points: Int) {
+    override fun saved(file: File, points: Int, albumSaved: Boolean) {
         if (isDestroyed) return
         output = file
-        status.setText(if (points >= 4) R.string.live_saved else R.string.live_no_track)
+        status.text=getString(if(albumSaved) R.string.editor_album_saved else R.string.editor_album_failed) +
+            (if(points<4) "\n"+getString(R.string.live_no_track) else "")
         controls()
+    }
+
+    private fun saveAlbum(file: File, points: Int? = null) {
+        if(saving) return
+        saving=true; controls(); status.setText(R.string.editor_album_saving)
+        fileWorker.execute {
+            val success=try { PhotoAlbum.save(this,file); true } catch (_: Exception) { false }
+            runOnUiThread { if(!isDestroyed) {
+                saving=false; controls(); status.text=getString(if(success) R.string.editor_album_saved else R.string.editor_album_failed) +
+                    (if(points!=null && points<4) "\n"+getString(R.string.live_no_track) else "")
+            } }
+        }
     }
 
     @Deprecated("Platform callback retained for dependency-free document saving")
