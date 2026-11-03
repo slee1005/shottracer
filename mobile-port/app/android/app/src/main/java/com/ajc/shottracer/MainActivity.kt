@@ -37,6 +37,9 @@ class MainActivity : Activity() {
     private lateinit var slider: SeekBar
     private lateinit var status: TextView
     private lateinit var counter: TextView
+    private lateinit var timeline: ShotTimelineView
+    private lateinit var startTimeButton: Button
+    private lateinit var landingTimeButton: Button
     private lateinit var shotBar: LinearLayout
     private lateinit var tools: HorizontalScrollView
     private lateinit var top: HorizontalScrollView
@@ -128,7 +131,20 @@ class MainActivity : Activity() {
         counter = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 11f; gravity = android.view.Gravity.CENTER }
         root.addView(counter)
         slider = SeekBar(this).apply { max = 1 }
-        root.addView(slider, LinearLayout.LayoutParams(-1, dp(30)))
+        slider.setPadding(dp(16),0,dp(16),0)
+        val scrubber = FrameLayout(this)
+        root.addView(scrubber,LinearLayout.LayoutParams(-1,dp(52)))
+        scrubber.addView(slider,FrameLayout.LayoutParams(-1,dp(30),android.view.Gravity.BOTTOM))
+        timeline=ShotTimelineView(this).apply { onEvent={ jumpToEvent(it) } }
+        scrubber.addView(timeline,FrameLayout.LayoutParams(-1,dp(22),android.view.Gravity.TOP))
+        val eventRow=row(); root.addView(eventRow,LinearLayout.LayoutParams(-1,dp(44)))
+        fun eventButton()=Button(this).apply {
+            isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
+            background=GradientDrawable().apply { setColor(Color.rgb(23,32,43)); cornerRadius=dp(12).toFloat() }
+            eventRow.addView(this,LinearLayout.LayoutParams(0,-1,1f).apply { setMargins(dp(2),0,dp(2),0) })
+        }
+        startTimeButton=eventButton().apply { setTextColor(Color.YELLOW); setOnClickListener { timeline.events.firstOrNull { it.key=="ball" }?.let { jumpToEvent(it) } } }
+        landingTimeButton=eventButton().apply { setTextColor(Color.GREEN); setOnClickListener { timeline.events.firstOrNull { it.key=="landing" }?.let { jumpToEvent(it) } } }
         slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) { if (fromUser) { stopPlay(); refresh(value) } }
             override fun onStartTrackingTouch(bar: SeekBar) { stopPlay() }
@@ -166,6 +182,7 @@ class MainActivity : Activity() {
             button.imageTintList = android.content.res.ColorStateList.valueOf(if (key == tool) Color.rgb(45,212,191) else Color.WHITE)
             if (key == "play") button.setImageDrawable(ToolIcon(if (playing) "pause" else "play"))
         }
+        updateTimeline()
         slider.isEnabled = !busy && source != null
         preview.isEnabled = !busy && !decoding
         fun tone(button: Button, active: Boolean) {
@@ -179,6 +196,23 @@ class MainActivity : Activity() {
         resetButton.isEnabled = !busy && source != null
         tone(startButton,scene.shot.ball != null); tone(analyzeButton,true); tone(resetButton,false)
         for (i in 0 until shotBar.childCount) shotBar.getChildAt(i).isEnabled = !busy && source != null && (i < scene.shots.size || scene.shots.size < 4)
+    }
+    private fun updateTimeline() {
+        val events=if(source != null) shotEvents(scene.shot,times,duration) else emptyList()
+        timeline.events=events; timeline.frames=times.size; timeline.isEnabled=!busy; timeline.invalidate()
+        for ((button,key) in listOf(startTimeButton to "ball",landingTimeButton to "landing")) {
+            val event=events.firstOrNull { it.key==key }
+            val name=text(if(key=="ball") "timeline_start" else if(event?.estimated==true) "timeline_estimated" else "timeline_landing")
+            button.text=if(event==null) text(if(key=="ball") "timeline_start_unset" else "timeline_landing_unset")
+                else if(event.inClip) getString(R.string.editor_timeline_event,name,event.time,event.frame+1)
+                else getString(R.string.editor_timeline_outside,name,event.time)
+            button.isEnabled=!busy && event?.inClip==true; button.alpha=if(button.isEnabled) 1f else .5f
+        }
+    }
+    private fun jumpToEvent(event: ShotEvent) {
+        if(busy || !event.inClip) return
+        stopPlay(); tool=event.key; pending=null; preview.panEnabled=false; preview.resetViewport()
+        refresh(event.frame); status.text=text(if(event.key=="ball") "hint_ball" else "hint_landing"); controls()
     }
     private fun renderShots() {
         shotBar.removeAllViews()
@@ -226,7 +260,7 @@ class MainActivity : Activity() {
     }
     private fun handles() {
         val s = scene.shot; val m = s.motion(currentTime)
-        fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()))
+        fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()),if(key=="ball") text("timeline_start") else if(key=="landing") text("timeline_landing") else "")
         val points = mutableListOf<EditorHandle>()
         s.ball?.let { points.add(handle("ball", it)) }
         if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt") points.add(handle("apex", s.peak())) }

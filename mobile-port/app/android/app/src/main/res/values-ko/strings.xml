@@ -153,4 +153,11 @@
     <string name="editor_workspace">샷의 흐름을 한눈에</string>
     <string name="editor_mode_changed">모드가 변경되었습니다. 다시 분석해 주세요.</string>
     <string name="editor_auto_note">청록색: 손목 · 금색: 클럽. 검출되지 않은 구간은 표시하지 않습니다.</string>
+    <string name="editor_timeline_start">시작</string>
+    <string name="editor_timeline_landing">착지</string>
+    <string name="editor_timeline_estimated">착지(예상)</string>
+    <string name="editor_timeline_start_unset">시작점 미지정</string>
+    <string name="editor_timeline_landing_unset">착지 미지정</string>
+    <string name="editor_timeline_event">%1$s · %2$.3f초\n%3$d프레임</string>
+    <string name="editor_timeline_outside">%1$s · %2$.3f초\n영상 밖</string>
 </resources>

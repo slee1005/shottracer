@@ -160,3 +160,11 @@
 "editor.workspace" = "Your shot, in focus.";
 "editor.modeChanged" = "Mode changed. Analyze again to track this shot.";
 "editor.autoNote" = "Teal: wrists · Gold: club. Missing detections are left blank.";
+
+"editor.timelineStart" = "Start";
+"editor.timelineLanding" = "Landing";
+"editor.timelineEstimated" = "Landing (est.)";
+"editor.timelineStartUnset" = "Start not set";
+"editor.timelineLandingUnset" = "Landing not set";
+"editor.timelineEvent" = "%@ · %.3fs\nF%d";
+"editor.timelineOutside" = "%@ · %.3fs\nOutside clip";

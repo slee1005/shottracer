@@ -160,3 +160,11 @@
 "editor.workspace" = "샷의 흐름을 한눈에";
 "editor.modeChanged" = "모드가 변경되었습니다. 다시 분석해 주세요.";
 "editor.autoNote" = "청록색: 손목 · 금색: 클럽. 검출되지 않은 구간은 표시하지 않습니다.";
+
+"editor.timelineStart" = "시작";
+"editor.timelineLanding" = "착지";
+"editor.timelineEstimated" = "착지(예상)";
+"editor.timelineStartUnset" = "시작점 미지정";
+"editor.timelineLandingUnset" = "착지 미지정";
+"editor.timelineEvent" = "%@ · %.3f초\n%d프레임";
+"editor.timelineOutside" = "%@ · %.3f초\n영상 밖";

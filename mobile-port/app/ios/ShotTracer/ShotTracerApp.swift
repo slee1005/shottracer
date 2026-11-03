@@ -109,7 +109,15 @@ struct EditorView: View {
                         if let overlay = model.overlay { Image(uiImage: overlay).resizable() }
                         ForEach(model.handles, id: \.0) { key, point in
                             Circle().stroke(key == "landing" ? Color.green : key == "apex" ? Color.cyan : Color.yellow, lineWidth: 2 / zoom)
-                                .frame(width: 18 / zoom, height: 18 / zoom).position(x: point.x * width, y: point.y * height)
+                                .frame(width: 18 / zoom, height: 18 / zoom)
+                                .overlay(alignment:point.x > 0.7 ? .topTrailing : .topLeading) {
+                                    if key == "ball" || key == "landing" {
+                                        Text(LocalizedStringKey(key == "ball" ? "editor.timelineStart" : "editor.timelineLanding"))
+                                            .font(.system(size:10/zoom,weight:.bold)).foregroundStyle(key == "ball" ? Color.yellow : Color.green)
+                                            .padding(3/zoom).background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:3/zoom)).fixedSize()
+                                            .offset(x:(point.x > 0.7 ? -20 : 20)/zoom,y:(point.y < 0.08 ? 20 : -14)/zoom)
+                                    }
+                                }.position(x: point.x * width, y: point.y * height)
                         }
                     }
                     .frame(width: width, height: height).contentShape(Rectangle())
@@ -141,7 +149,23 @@ struct EditorView: View {
     private var timeline: some View {
         VStack(spacing: 2) {
             Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time)).font(.caption2).monospacedDigit()
+            GeometryReader { area in
+                ForEach(model.timelineEvents) { event in
+                    let x = 16 + max(0,area.size.width-32)*Double(event.frame)/Double(max(1,model.frameCount-1))
+                    Button { jump(event) } label: {
+                        VStack(spacing:0) {
+                            Image(systemName:event.key == "ball" ? "circle.fill" : "flag.fill").font(.system(size:10))
+                            Rectangle().frame(width:1,height:event.key == "ball" ? 10 : 3)
+                        }.frame(width:28,height:22,alignment:event.key == "ball" ? .top : .bottom).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(event.key == "ball" ? Color.yellow : Color.green)
+                        .opacity(event.inClip ? 1 : 0.4).disabled(!event.inClip || model.busy).position(x:x,y:11)
+                        .accessibilityLabel(eventLabel(event))
+                }
+            }.frame(height:22)
             Slider(value: Binding(get: { Double(model.frameIndex) }, set: { model.pause(); model.seek(Int($0)) }), in: 0...Double(max(1, model.frameCount - 1)), step: 1).disabled(!model.hasVideo || model.busy)
+            HStack(spacing:4) {
+                eventButton("ball"); eventButton("landing")
+            }
             HStack(spacing: 6) {
                 icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
                 icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
@@ -152,6 +176,23 @@ struct EditorView: View {
                 if let output = model.output { ShareLink(item: output) { Image(systemName: "square.and.arrow.down").frame(width: 40, height: 44) }.accessibilityLabel(Text("action.share")) }
             }
         }
+    }
+    private func jump(_ event: ShotEvent) {
+        zoom=1; lastZoom=1; pan = .zero; lastPan = .zero
+        model.jumpToEvent(event)
+    }
+    private func eventLabel(_ event: ShotEvent) -> String {
+        let name=NSLocalizedString(event.key == "ball" ? "editor.timelineStart" : event.estimated ? "editor.timelineEstimated" : "editor.timelineLanding",comment:"")
+        return event.inClip ? String(format:NSLocalizedString("editor.timelineEvent",comment:""),name,event.time,event.frame+1)
+            : String(format:NSLocalizedString("editor.timelineOutside",comment:""),name,event.time)
+    }
+    private func eventButton(_ key: String) -> some View {
+        let event=model.timelineEvents.first { $0.key == key }
+        return Button { if let event { jump(event) } } label: {
+            Text(event.map { eventLabel($0) } ?? NSLocalizedString(key == "ball" ? "editor.timelineStartUnset" : "editor.timelineLandingUnset",comment:""))
+                .font(.system(size:10,weight:.medium)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.75)
+                .frame(maxWidth:.infinity,minHeight:40).background(.white.opacity(0.06),in:RoundedRectangle(cornerRadius:12))
+        }.buttonStyle(.plain).foregroundStyle(key == "ball" ? Color.yellow : Color.green).disabled(model.busy || event?.inClip != true)
     }
     private var tools: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {

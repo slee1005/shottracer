@@ -8,7 +8,7 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import kotlin.math.hypot
 
-internal data class EditorHandle(val key: String, val point: PointF)
+internal data class EditorHandle(val key: String, val point: PointF, val label: String = "")
 internal class PreviewView(context: Context) : View(context) {
     var image: Bitmap? = null
     var overlay: Bitmap? = null
@@ -39,6 +39,7 @@ internal class PreviewView(context: Context) : View(context) {
         }
     })
     init { contentDescription = context.getString(R.string.preview_label); isClickable = true; setBackgroundColor(Color.BLACK) }
+    fun resetViewport() { zoom=1f; panX=0f; panY=0f; invalidate() }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bitmap = image ?: return
@@ -55,6 +56,14 @@ internal class PreviewView(context: Context) : View(context) {
             paint.color = if (it.key == "landing") Color.GREEN else if (it.key == "apex") Color.CYAN else Color.YELLOW
             canvas.drawCircle(x, y, 8 * resources.displayMetrics.density, paint)
             canvas.drawLine(x - 4, y, x + 4, y, paint); canvas.drawLine(x, y - 4, x, y + 4, paint)
+            if(it.label.isNotEmpty() && x in 0f..width.toFloat() && y in 0f..height.toFloat()) {
+                val ink=paint.color; val density=resources.displayMetrics.density
+                paint.style=Paint.Style.FILL; paint.textSize=10*density; paint.typeface=Typeface.DEFAULT_BOLD
+                val tw=paint.measureText(it.label); val tx=(x+12*density).coerceIn(4*density,maxOf(4*density,width-tw-8*density))
+                val ty=(y-10*density).coerceIn(16*density,maxOf(16*density,height-4*density))
+                paint.color=Color.argb(215,7,15,23); canvas.drawRoundRect(tx-3*density,ty-12*density,tx+tw+3*density,ty+3*density,3*density,3*density,paint)
+                paint.color=ink; canvas.drawText(it.label,tx,ty,paint); paint.style=Paint.Style.STROKE
+            }
         }
         paint.style = Paint.Style.FILL; canvas.restore()
     }

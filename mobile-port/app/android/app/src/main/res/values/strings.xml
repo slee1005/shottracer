@@ -153,4 +153,11 @@
     <string name="editor_workspace">Your shot, in focus.</string>
     <string name="editor_mode_changed">Mode changed. Analyze again to track this shot.</string>
     <string name="editor_auto_note">Teal: wrists · Gold: club. Missing detections are left blank.</string>
+    <string name="editor_timeline_start">Start</string>
+    <string name="editor_timeline_landing">Landing</string>
+    <string name="editor_timeline_estimated">Landing (est.)</string>
+    <string name="editor_timeline_start_unset">Start not set</string>
+    <string name="editor_timeline_landing_unset">Landing not set</string>
+    <string name="editor_timeline_event">%1$s · %2$.3fs\nF%3$d</string>
+    <string name="editor_timeline_outside">%1$s · %2$.3fs\nOutside clip</string>
 </resources>

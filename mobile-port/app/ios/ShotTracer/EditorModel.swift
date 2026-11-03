@@ -57,6 +57,11 @@ final class EditorModel: ObservableObject {
     var canUndo: Bool { !undo.isEmpty }
     var canRedo: Bool { !redo.isEmpty }
     var frameCount: Int { times.count }
+    var timelineEvents: [ShotEvent] { hasVideo ? makeShotEvents(scene.shot,times,duration) : [] }
+    func jumpToEvent(_ event: ShotEvent) {
+        guard !busy,event.inClip else { return }
+        pause(); chooseTool(event.key); seek(event.frame)
+    }
     var handles: [(String, EditPoint)] {
         let shot = scene.shot, m = interpolated(shot.camera, displayedTime)
         func point(_ p: EditPoint) -> EditPoint { EditPoint(p.x + m.x, p.y + m.y) }
@@ -352,4 +357,27 @@ func sourceTime(_ output: Double, _ windows: [(Double, Double)], _ factor: Doubl
     for (a, b) in windows { if output <= clock + a - source { return source + output - clock }; clock += a - source
         if output <= clock + (b - a) * factor { return a + (output - clock) / factor }; clock += (b - a) * factor; source = b }
     return source + output - clock
+}
+
+struct ShotEvent: Identifiable {
+    let key: String, time: Double, frame: Int, inClip: Bool, estimated: Bool
+    var id: String { key }
+}
+
+/// Match event markers to the source-frame slider, without changing the physical
+/// event clock when tracer drawing speed or export slow motion changes.
+func makeShotEvents(_ shot: EditShot, _ times: [Double], _ duration: Double) -> [ShotEvent] {
+    guard shot.ball != nil,!times.isEmpty else { return [] }
+    func event(_ key: String,_ time: Double,_ estimated: Bool = false) -> ShotEvent {
+        var low=0,high=times.count
+        while low < high { let mid=(low+high)/2; if times[mid] < time { low=mid+1 } else { high=mid } }
+        var frame=min(low,times.count-1)
+        if frame>0 && time-times[frame-1] < times[frame]-time { frame-=1 }
+        return ShotEvent(key:key,time:time,frame:frame,inClip:time >= times[0]-0.000001 && time <= duration+0.000001,estimated:estimated)
+    }
+    var result=[event("ball",shot.start)]
+    if shot.landing != nil || shot.manual || shot.baseModel != nil || (shot.trackingMode == "putt" && shot.base.count >= 2) {
+        result.append(event("landing",shot.start+shot.flight,shot.landing == nil && shot.trackingMode != "putt"))
+    }
+    return result
 }
