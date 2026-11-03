@@ -14,6 +14,9 @@ double travel(double t, double k) { return -std::expm1(-k * t) / k; }
 
 struct STTracker {
     int width, height;
+    int mode = 0, half = 7;
+    double putt_x = 0, putt_y = 0, vx = 0, vy = 0, still_since = -1;
+    std::vector<double> patch;
     double seed_x, seed_y, last_time = -1, camera_x = 0, camera_y = 0;
     double pending_start_time = 0;
     bool launched = false, ended = false;
@@ -34,6 +37,11 @@ extern "C" STTracker *st_create(int w, int h, double x, double y) {
 }
 extern "C" void st_destroy(STTracker *t) { delete t; }
 
+extern "C" int st_set_mode(STTracker *t, int mode) {
+    if (!t || t->last_time >= 0 || (mode != 0 && mode != 1)) return -1;
+    t->mode = mode; return 0;
+}
+
 namespace {
 /* Translation-only prototype. This is deliberately distinct from the desktop
    LK/RANSAC similarity estimator. Deterministic tie breaking avoids flat-field drift. */
@@ -45,6 +53,7 @@ std::pair<int, int> translation(const STTracker &t, const uint8_t *gray, int str
         int n = 0;
         for (int y = 8; y < t.height - 8; y += 9) for (int x = 8; x < t.width - 8; x += 9) {
             if (length(x - t.seed_x - t.camera_x, y - t.seed_y - t.camera_y) < 24) continue;
+            if (t.mode == 1 && length(x - t.putt_x - t.camera_x, y - t.putt_y - t.camera_y) < 24) continue;
             if (gray[y * stride + x] >= 140 || t.previous[(y - dy) * t.width + x - dx] >= 140) continue;
             sum += std::abs(int(gray[y * stride + x]) - int(t.previous[(y - dy) * t.width + x - dx]));
             ++n;
@@ -89,6 +98,54 @@ std::vector<Candidate> candidates(const STTracker &t, const uint8_t *gray, int s
     return result;
 }
 
+/* Normalized cross-correlation preserves dim or non-white rolling balls.
+   Velocity is measured per second, so VFR sampling does not change the gate. */
+void putt_step(STTracker &t, const uint8_t *gray, int stride, double time) {
+    const int w = t.width, h = t.height;
+    if (t.patch.empty()) {
+        t.half = std::min({7, int(t.seed_x) - 1, int(t.seed_y) - 1, w - int(t.seed_x) - 2, h - int(t.seed_y) - 2});
+        t.putt_x = t.seed_x; t.putt_y = t.seed_y;
+        for (int y = -t.half; y <= t.half; ++y) for (int x = -t.half; x <= t.half; ++x)
+            t.patch.push_back(gray[(int(std::round(t.seed_y)) + y) * stride + int(std::round(t.seed_x)) + x]);
+        return;
+    }
+    if (t.ended) return;
+    const double dt = time - t.last_time;
+    const double px = t.putt_x + t.vx * dt + t.camera_x, py = t.putt_y + t.vy * dt + t.camera_y;
+    const int reach = int(std::clamp(1.5 * length(t.vx, t.vy) * dt + 6, 15.0, 64.0));
+    double mean = 0, variance = 0;
+    for (double v : t.patch) mean += v;
+    mean /= t.patch.size(); for (double v : t.patch) variance += (v - mean) * (v - mean);
+    double best = -1, best_distance = 1e30; int bx = 0, by = 0;
+    const int n = int(t.patch.size());
+    for (int cy = std::max(t.half, int(std::round(py)) - reach); cy <= std::min(h - t.half - 1, int(std::round(py)) + reach); ++cy)
+        for (int cx = std::max(t.half, int(std::round(px)) - reach); cx <= std::min(w - t.half - 1, int(std::round(px)) + reach); ++cx) {
+            double sum = 0, sq = 0, cross = 0; int i = 0;
+            for (int y = -t.half; y <= t.half; ++y) for (int x = -t.half; x <= t.half; ++x) {
+                const double v = gray[(cy + y) * stride + cx + x]; sum += v; sq += v * v; cross += (t.patch[i++] - mean) * v;
+            }
+            const double score = cross / std::sqrt(std::max(1e-12, variance * (sq - sum * sum / n)));
+            const double distance = length(cx - px, cy - py);
+            if (score > best + 1e-8 || (std::abs(score - best) < 1e-8 && distance < best_distance)) { best = score; bx = cx; by = cy; best_distance = distance; }
+        }
+    if (best < .45) {
+        if (t.launched && time - t.points.back().time > .25) t.ended = true;
+        return;
+    }
+    const double x = bx - t.camera_x, y = by - t.camera_y;
+    if (!t.launched && length(x - t.seed_x, y - t.seed_y) > 3) {
+        t.launched = true; t.points.push_back({t.last_time, t.seed_x, t.seed_y, 1});
+    }
+    if (t.launched) {
+        const double distance = length(x - t.putt_x, y - t.putt_y);
+        t.vx = .6 * t.vx + .4 * (x - t.putt_x) / dt; t.vy = .6 * t.vy + .4 * (y - t.putt_y) / dt;
+        t.points.push_back({time, x, y, best});
+        if (distance < .15) { if (t.still_since < 0) t.still_since = time; else if (time - t.still_since > .5) t.ended = true; } else t.still_since = -1;
+        if (best > .7) { int i = 0; for (int yy = -t.half; yy <= t.half; ++yy) for (int xx = -t.half; xx <= t.half; ++xx) { t.patch[i] = .85 * t.patch[i] + .15 * gray[(by + yy) * stride + bx + xx]; ++i; } }
+    }
+    t.putt_x = x; t.putt_y = y;
+}
+
 bool direction(double ax, double ay, double bx, double by) {
     const double a = length(ax, ay), b = length(bx, by);
     return a > 0 && b > 0 && (ax * bx + ay * by) / (a * b) > 0.866;
@@ -114,7 +171,8 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
         if (!first) {
             const auto [dx, dy] = translation(*t, gray, stride);
             t->camera_x += dx; t->camera_y += dy;
-            if (!t->ended) {
+            if (t->mode == 1) putt_step(*t, gray, stride, time);
+            else if (!t->ended) {
                 auto options = candidates(*t, gray, stride, dx, dy);
                 if (!t->launched) {
                     /* Require the address ball to disappear before accepting a launch. */
@@ -168,6 +226,7 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
                 }
             }
         }
+        if (first && t->mode == 1) putt_step(*t, gray, stride, time);
         t->cameras.push_back({time, t->camera_x, t->camera_y});
         t->previous.resize(t->width * t->height);
         for (int y = 0; y < t->height; ++y)
@@ -359,4 +418,40 @@ extern "C" int st_with_apex(const STModel *base, const double *p, int count, dou
     const double launch = ar / std::max(aa, 1e-12);
     *out = *base; out->b = launch > 0 ? launch : base->b; out->g = gu * out->b; out->lift = lu * out->b;
     return 0;
+}
+
+extern "C" int st_club_point(const uint8_t *prev, const uint8_t *cur, const uint8_t *next,
+    const uint8_t *body, int w, int h, double hx, double hy, double ph,
+    double pdx, double pdy, double ndx, double ndy, STPoint *point) {
+    if (!prev || !cur || !next || !point || w < 16 || h < 16 || w > 960 || h > 960 ||
+        !std::isfinite(hx) || !std::isfinite(hy) || !std::isfinite(ph) || ph < 8 ||
+        !std::isfinite(pdx) || !std::isfinite(pdy) || !std::isfinite(ndx) || !std::isfinite(ndy)) return -1;
+    std::vector<uint8_t> mask(w * h), dilated(w * h), visited(w * h);
+    for (int y = 3; y < h - 3; ++y) for (int x = 3; x < w - 3; ++x) {
+        const int px = int(std::round(x + pdx)), py = int(std::round(y + pdy));
+        const int nx = int(std::round(x + ndx)), ny = int(std::round(y + ndy));
+        if (px < 0 || px >= w || py < 0 || py >= h || nx < 0 || nx >= w || ny < 0 || ny >= h || length(x - hx, y - hy) > .95 * ph) continue;
+        if (std::abs(int(cur[y*w+x]) - prev[py*w+px]) < 18 || std::abs(int(cur[y*w+x]) - next[ny*w+nx]) < 18) continue;
+        bool person = false;
+        if (body) for (int dy = -3; dy <= 3 && !person; ++dy) for (int dx = -3; dx <= 3; ++dx)
+            if (dx*dx+dy*dy <= 10 && body[(y+dy)*w+x+dx] > 128) { person = true; break; }
+        if (person) continue;
+        mask[y*w+x] = 1;
+        for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx) if (dx*dx+dy*dy <= 5) dilated[(y+dy)*w+x+dx] = 1;
+    }
+    double best = .3 * ph; bool found = false; std::vector<int> todo;
+    for (int i = 0; i < w*h; ++i) if (dilated[i] && !visited[i]) {
+        todo.clear(); todo.push_back(i); visited[i] = 1;
+        double near = 1e30, far = 0; int far_i = i, count = 0;
+        for (size_t j = 0; j < todo.size(); ++j) {
+            const int p = todo[j], x = p%w, y = p/w;
+            if (mask[p]) { ++count; const double d = length(x-hx, y-hy); near = std::min(near,d); if (d > far) { far=d; far_i=p; } }
+            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                const int xx=x+dx, yy=y+dy, q=yy*w+xx;
+                if (xx >= 0 && xx < w && yy >= 0 && yy < h && dilated[q] && !visited[q]) { visited[q]=1; todo.push_back(q); }
+            }
+        }
+        if (count >= 3 && near <= .35*ph && far > best) { best=far; *point={0,double(far_i%w),double(far_i/w),std::min(1.0,count/20.0)}; found=true; }
+    }
+    return found ? 1 : 0;
 }

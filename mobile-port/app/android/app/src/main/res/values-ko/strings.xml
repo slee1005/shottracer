@@ -90,7 +90,7 @@
     <string name="editor_hold">착지 후 유지 시간 (초, -1은 끝까지)</string>
     <string name="editor_head">공 머리 표시</string>
     <string name="editor_marker">착지 표시</string>
-    <string name="editor_swing_enabled">수동 스윙 경로 표시</string>
+    <string name="editor_swing_enabled">스윙 경로 표시</string>
     <string name="editor_slowmo">슬로모션 (내보내기 시 무음)</string>
     <string name="editor_slow_factor">슬로모션 배율</string>
     <string name="editor_slow_before">타격 전 시간 (초)</string>
@@ -137,4 +137,20 @@
     <string name="editor_delete_projects_confirm">선택한 프로젝트와 앱 내부 영상 사본·편집 정보·출력 영상을 삭제할까요? Photos·파일 앱의 원본은 유지됩니다. 삭제는 되돌릴 수 없습니다.</string>
     <string name="editor_projects_deleted">프로젝트 %1$d개를 삭제했습니다.</string>
     <string name="editor_delete_failed">일부 프로젝트를 삭제하지 못했습니다. 목록을 확인한 후 다시 시도하세요.</string>
+    <string name="editor_tracking_mode">샷 모드</string>
+    <string name="editor_mode_flight">비행 샷</string>
+    <string name="editor_putt">퍼트</string>
+    <string name="editor_person_occlusion">인물 뒤로 궤적 표시</string>
+    <string name="editor_auto_swing">자동 스윙 경로</string>
+    <string name="editor_both">손목 + 클럽</string>
+    <string name="editor_hands">손목</string>
+    <string name="editor_club">클럽 헤드</string>
+    <string name="editor_off">끄기</string>
+    <string name="editor_person_failed">인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.</string>
+    <string name="editor_analysis_progress">기기에서 분석 중 · %1$d%%</string>
+    <string name="editor_analysis_result">공 %1$d · 손목 %2$d · 클럽 %3$d</string>
+    <string name="editor_on_device">기기 내 처리</string>
+    <string name="editor_workspace">샷의 흐름을 한눈에</string>
+    <string name="editor_mode_changed">모드가 변경되었습니다. 다시 분석해 주세요.</string>
+    <string name="editor_auto_note">청록색: 손목 · 금색: 클럽. 검출되지 않은 구간은 표시하지 않습니다.</string>
 </resources>

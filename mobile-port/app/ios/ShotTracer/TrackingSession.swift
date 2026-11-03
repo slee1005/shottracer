@@ -1,5 +1,7 @@
 import Foundation
 import UIKit
+import Vision
+import CoreImage
 
 /// Owns the C handle. Export callbacks and preview can run on different queues.
 final class TrackingSession: @unchecked Sendable {
@@ -8,13 +10,14 @@ final class TrackingSession: @unchecked Sendable {
     private let handle: OpaquePointer
     private let lock = NSLock()
 
-    init(width: Int, height: Int, ball: CGPoint) throws {
+    init(width: Int, height: Int, ball: CGPoint, putt: Bool = false) throws {
         guard let handle = st_create(Int32(width), Int32(height), ball.x, ball.y) else {
             throw MobileError.invalidBall
         }
         self.width = width
         self.height = height
         self.handle = handle
+        _ = st_set_mode(handle, putt ? 1 : 0)
     }
 
     deinit { st_destroy(handle) }
@@ -127,16 +130,25 @@ struct EditShot: Codable, Identifiable, Sendable {
     var ball: EditPoint?, landing: EditPoint?, apex: EditPoint?
     var flight = 4.0, apexFraction = 0.5, speed = 1.0, color = "#FF2D2D", manual = false
     var base: [EditSample] = [], camera: [EditSample] = [], swing: [EditSample] = []
+    var trackingMode: String?
+    var autoHands: [EditSample]?, autoClub: [EditSample]?, masks: [PersonMask]?
     var baseModel: [Double]?
     var popups: [EditPopup] = []
     var edited: Bool { baseModel != nil || manual || landing != nil || apex != nil }
     var model: [Double]? {
-        guard let baseModel, baseModel.count == 16, !manual, apex == nil else { return nil }
+        guard trackingMode != "putt", let baseModel, baseModel.count == 16, !manual, apex == nil else { return nil }
         guard let result = landing == nil && abs(flight - baseModel[10]) < 1e-8 ? baseModel : NativeFlight.refit(baseModel, base, landing, flight) else { return nil }
         return abs(apexFraction - NativeFlight.apex(baseModel) / baseModel[10]) > 0.001 ? NativeFlight.reshape(result, base, flight * apexFraction) ?? result : result
     }
     var endpoint: EditPoint { landing ?? model.flatMap { NativeFlight.at($0, flight) } ?? base.last.map { EditPoint($0.x, $0.y) } ?? EditPoint(0.75, 0.65) }
     var peak: EditPoint { let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
+    func ground(_ time: Double) -> EditPoint {
+        let span = max(0.01, (base.last?.time ?? start)-start), f = min(1,max(0,time/max(0.01,flight)))
+        let p = interpolated(base,start+f*span), end = base.last
+        let ease = pow(min(1,max(0,(f-0.6)/0.4)),2)
+        return EditPoint(p.x + ((landing?.x ?? end?.x ?? p.x)-(end?.x ?? p.x))*ease,
+                         p.y + ((landing?.y ?? end?.y ?? p.y)-(end?.y ?? p.y))*ease)
+    }
     func curve(_ seconds: Double) -> EditPoint {
         let a = ball ?? EditPoint(0.2, 0.8), b = peak, c = endpoint
         let p = [a.x, a.y, b.x, b.y, c.x, c.y]; var x = 0.0, y = 0.0
@@ -149,6 +161,7 @@ struct EditorScene: Codable, Sendable {
     var shots = [EditShot()], shapes: [EditShape] = []
     var preset = "classic", lineWidth = 1.0, glow = 1.0, hold = 1.0
     var head = true, marker = true, swingEnabled = true
+    var personOcclusion: Bool?, autoSwing: String?
     var logo: String?, logoSize = 0.12, logoOpacity = 0.85, logoCorner = "bottom-right"
     var slowmo = false, slowFactor = 3.0, slowBefore = 0.4, slowAfter = 1.2
     var shot: EditShot { get { shots[min(max(0, selected), shots.count - 1)] } set { shots[min(max(0, selected), shots.count - 1)] = newValue } }
@@ -171,6 +184,7 @@ extension TrackingSession {
 final class EditorRenderer: @unchecked Sendable {
     let scene: EditorScene
     private let logo: UIImage?
+    private let maskCache = NSCache<NSString, UIImage>()
     private let models: [String: [Double]]
     init(_ scene: EditorScene) { self.scene = scene; logo = scene.logo.flatMap { UIImage(contentsOfFile: $0) }; models = Dictionary(uniqueKeysWithValues: scene.shots.compactMap { s in s.model.map { (s.id, $0) } }) }
     func overlay(_ time: Double) -> UIImage {
@@ -185,14 +199,14 @@ final class EditorRenderer: @unchecked Sendable {
             func pos(_ p: EditPoint, _ motion: EditPoint = EditPoint(0, 0)) -> CGPoint { CGPoint(x: (p.x + motion.x) * w, y: (p.y + motion.y) * h) }
             ctx.setLineCap(.round); ctx.setLineJoin(.round)
             for s in scene.shots {
-                func curve(_ t: Double) -> EditPoint { models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
+                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
                 let motion = interpolated(s.camera, time)
-                let duration = s.edited ? s.flight : max(0.01, (s.base.last?.time ?? s.start) - s.start)
+                let duration = (s.edited || s.trackingMode == "putt") ? s.flight : max(0.01, (s.base.last?.time ?? s.start) - s.start)
                 let elapsed = (time - s.start) * s.speed
                 var points: [EditPoint] = []
-                if s.ball != nil && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
+                if s.ball != nil && (s.trackingMode != "putt" || s.base.count >= 2) && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
                     let from = scene.preset == "comet" ? max(0, elapsed - 0.7) : 0
-                    if s.edited {
+                    if s.edited || s.trackingMode == "putt" {
                         for i in 0...128 { let t = duration * Double(i) / 128; if t >= from && t <= min(duration, elapsed) { points.append(curve(t)) } }
                         if elapsed >= 0 { points.append(curve(min(duration, elapsed))) }
                     } else if !s.base.isEmpty {
@@ -200,6 +214,7 @@ final class EditorRenderer: @unchecked Sendable {
                         if elapsed >= 0 { points.append(interpolated(s.base, s.start + min(duration, elapsed))) }
                     }
                 }
+                ctx.beginTransparencyLayer(auxiliaryInfo: nil)
                 if points.count >= 2 {
                     let path = CGMutablePath(); path.move(to: pos(points[0], motion)); points.dropFirst().forEach { path.addLine(to: pos($0, motion)) }
                     let width = max(1.5, h / 240) * scene.lineWidth
@@ -220,6 +235,24 @@ final class EditorRenderer: @unchecked Sendable {
                     swing.dropFirst().forEach { path.addLine(to: pos(EditPoint($0.x, $0.y), motion)) }
                     ctx.addPath(path); ctx.setStrokeColor(UIColor.cyan.cgColor); ctx.setLineWidth(max(2, h / 240)); ctx.strokePath()
                 }
+                if scene.swingEnabled {
+                    for (rows,key,ink) in [(s.autoHands ?? [],"hands",UIColor(red: 0.18,green: 0.83,blue: 0.75,alpha: 1)),(s.autoClub ?? [],"club",UIColor(red: 0.98,green: 0.75,blue: 0.14,alpha: 1))] {
+                        guard (scene.autoSwing ?? "both") == "both" || scene.autoSwing == key else { continue }
+                        let path = CGMutablePath(); var last: EditSample?
+                        for p in rows where p.time <= time && p.time >= time-2 {
+                            let q = pos(EditPoint(p.x,p.y),motion)
+                            if last == nil || p.time-last!.time > 0.18 { path.move(to:q) } else { path.addLine(to:q) }; last=p
+                        }
+                        ctx.addPath(path); ctx.setStrokeColor(ink.cgColor); ctx.setLineWidth(max(1.5,h/240)); ctx.strokePath()
+                    }
+                }
+                if scene.personOcclusion != false, let m = s.masks?.min(by: { abs($0.time-time) < abs($1.time-time) }), abs(m.time-time) <= 0.11 {
+                    if let mask = maskCache.object(forKey:m.path as NSString) ?? UIImage(contentsOfFile:m.path) {
+                        maskCache.setObject(mask,forKey:m.path as NSString); maskCache.countLimit=6
+                        mask.draw(in:CGRect(x:0,y:0,width:w,height:h),blendMode:.destinationOut,alpha:1)
+                    }
+                }
+                ctx.endTransparencyLayer()
                 for p in s.popups {
                     let event = p.anchor == "landing" ? s.flight : p.anchor == "apex" ? s.flight * s.apexFraction : 0
                     let begins = s.start + event + p.delay
@@ -291,5 +324,69 @@ enum NativeFlight {
         if let landing { status = [landing.x, landing.y].withUnsafeBufferPointer { st_refit_model(&original, p, Int32(samples.count - 1), $0.baseAddress, flight, &result) } }
         else { status = st_refit_model(&original, p, Int32(samples.count - 1), nil, flight, &result) }
         return status == 0 ? values(result) : nil
+    }
+}
+
+struct PersonMask: Codable, Sendable { var time: Double; var path: String }
+private struct PersonSample {
+    let time: Double, gray: [UInt8], body: [UInt8], hands: EditPoint?, height: Double, motion: EditPoint
+}
+
+/// Vision supplies on-device masks/landmarks. The shared detector observes club motion;
+/// missing or low-confidence wrists do not produce invented swing points.
+final class PersonAnalysis {
+    private let segmentation = VNGeneratePersonSegmentationRequest()
+    private let pose = VNDetectHumanBodyPoseRequest()
+    private let ci = CIContext(options: [.cacheIntermediates:false])
+    private let folder: URL
+    private var before: PersonSample?, previous: PersonSample?
+    var masks: [PersonMask] = [], hands: [EditSample] = [], clubs: [EditSample] = []
+    init(_ folder: URL) throws {
+        self.folder=folder; try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        segmentation.qualityLevel = .balanced; segmentation.outputPixelFormat=kCVPixelFormatType_OneComponent8
+    }
+    private func gray(_ image: CGImage, _ w: Int, _ h: Int) -> [UInt8] {
+        var bytes=[UInt8](repeating:0,count:w*h)
+        bytes.withUnsafeMutableBytes { data in
+            if let c=CGContext(data:data.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) {
+                c.interpolationQuality = .medium; c.draw(image,in:CGRect(x:0,y:0,width:w,height:h))
+            }
+        }; return bytes
+    }
+    func push(_ image: CGImage, _ time: Double, _ motion: EditPoint) throws {
+        let w=image.width, h=image.height
+        try VNImageRequestHandler(cgImage:image,orientation:.up,options:[:]).perform([segmentation,pose])
+        var body=[UInt8](repeating:0,count:w*h)
+        if let buffer=segmentation.results?.first?.pixelBuffer,
+           let mask=ci.createCGImage(CIImage(cvPixelBuffer:buffer),from:CIImage(cvPixelBuffer:buffer).extent,format:.L8,colorSpace:CGColorSpaceCreateDeviceGray()) {
+            body=gray(mask,w,h)
+            let mw=min(256,w), mh=max(1,h*mw/w), values=gray(mask,mw,mh)
+            var rgba=[UInt8](repeating:0,count:mw*mh*4)
+            for i in values.indices { for j in 0..<4 { rgba[i*4+j]=values[i] } }
+            let provider=CGDataProvider(data:Data(rgba) as CFData)!
+            if let cg=CGImage(width:mw,height:mh,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:mw*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedLast.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent), let data=UIImage(cgImage:cg).pngData() {
+                let file=folder.appendingPathComponent("\(Int64((time*1_000_000).rounded())).png")
+                try data.write(to:file,options:.atomic); masks.append(PersonMask(time:time,path:file.path))
+            }
+        }
+        let observation=pose.results?.first
+        func joint(_ key: VNHumanBodyPoseObservation.JointName) -> EditPoint? {
+            guard let p=try? observation?.recognizedPoint(key),p.confidence >= 0.4 else { return nil }
+            return EditPoint(p.location.x,1-p.location.y)
+        }
+        let hand: EditPoint?
+        if let a=joint(.leftWrist),let b=joint(.rightWrist) { hand=EditPoint((a.x+b.x)/2,(a.y+b.y)/2) } else { hand=nil }
+        var height=0.0
+        if let a=joint(.leftShoulder),let b=joint(.rightShoulder),let c=joint(.leftAnkle),let d=joint(.rightAnkle) { height=max(8,(c.y+d.y-a.y-b.y)/2*Double(h)) }
+        if let hand { hands.append(EditSample(time,hand.x-motion.x,hand.y-motion.y)) }
+        let current=PersonSample(time:time,gray:gray(image,w,h),body:body,hands:hand,height:height,motion:motion)
+        if let a=before,let b=previous,let hand=b.hands,b.height >= 8,time-a.time < 0.3 {
+            var tip=STPoint()
+            if st_club_point(a.gray,b.gray,current.gray,b.body,Int32(w),Int32(h),hand.x*Double(w),hand.y*Double(h),b.height,
+                (a.motion.x-b.motion.x)*Double(w),(a.motion.y-b.motion.y)*Double(h),(motion.x-b.motion.x)*Double(w),(motion.y-b.motion.y)*Double(h),&tip) == 1 {
+                clubs.append(EditSample(b.time,tip.x/Double(w)-b.motion.x,tip.y/Double(h)-b.motion.y))
+            }
+        }
+        before=previous; previous=current
     }
 }

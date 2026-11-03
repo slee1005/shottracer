@@ -38,6 +38,8 @@ def core(tmp_path_factory):
     lib = c.CDLL(str(library))
     lib.st_create.argtypes = [c.c_int, c.c_int, c.c_double, c.c_double]
     lib.st_create.restype = c.c_void_p
+    lib.st_set_mode.argtypes = [c.c_void_p,c.c_int]
+    lib.st_club_point.argtypes = [c.c_void_p]*4+[c.c_int]*2+[c.c_double]*7+[c.POINTER(Point)]
     lib.st_destroy.argtypes = [c.c_void_p]
     lib.st_push.argtypes = [c.c_void_p, c.c_void_p, c.c_int, c.c_double]
     lib.st_count.argtypes = [c.c_void_p]
@@ -225,3 +227,48 @@ def test_native_fit_and_landing_refit_match_desktop(core):
         x, y = c.c_double(), c.c_double()
         core.st_model_at(c.byref(reshaped), time, c.byref(x), c.byref(y))
         np.testing.assert_allclose([x.value, y.value], expected_apex.at(time), atol=1e-5)
+
+
+def test_putt_follows_dim_rolling_ball_and_stops(core, tracker):
+    assert core.st_set_mode(tracker, 1) == 0
+    for i in range(40):
+        x = 40 + min(max(0, i-3), 14)*3
+        image = frame(x,150)
+        image[image > 200] = 110  # Below the flight detector's brightness threshold.
+        assert push(core,tracker,image,i/30) >= 0
+    assert core.st_count(tracker) >= 12
+    p = Point(); core.st_point(tracker,core.st_count(tracker)-1,c.byref(p))
+    assert p.x == pytest.approx(82,abs=.5)
+    assert p.y == pytest.approx(150,abs=.5)
+    assert core.st_set_mode(tracker,0) == -1
+    count=core.st_count(tracker)
+    push(core,tracker,frame(110,150),2)
+    assert core.st_count(tracker) == count
+
+
+def test_putt_camera_motion_is_not_ball_motion(core, tracker):
+    core.st_set_mode(tracker,1)
+    background=np.random.default_rng(12).integers(20,70,(180,240),dtype=np.uint8)
+    for i in range(15):
+        image=np.roll(frame(40,150,background),i,axis=1)
+        push(core,tracker,image,i/30)
+    assert core.st_count(tracker) == 0
+    camera=Point(); core.st_camera_point(tracker,14,c.byref(camera))
+    assert camera.x == pytest.approx(14)
+
+
+def test_club_requires_motion_attached_to_hands_and_excludes_body(core):
+    previous=np.full((180,240),30,np.uint8); current=previous.copy(); following=previous.copy()
+    current[79:82,85:161]=240
+    current[20:25,210:215]=255  # Unattached motion must not win.
+    mask=np.zeros_like(current); mask[45:150,45:86]=255
+    out=Point()
+    args=[previous.ctypes.data,current.ctypes.data,following.ctypes.data,mask.ctypes.data,240,180,80,80,100,0,0,0,0,c.byref(out)]
+    assert core.st_club_point(*args) == 1
+    assert out.x == 160
+    assert abs(out.y-80) <= 1
+    mask[:]=255
+    assert core.st_club_point(*args) == 0
+    mask[:]=0
+    args[1]=previous.ctypes.data
+    assert core.st_club_point(*args) == 0

@@ -123,3 +123,21 @@ Java_com_ajc_shottracer_NativeCore_reshape(JNIEnv *env, jobject, jdoubleArray va
     if (st_with_apex(&base, rows.data(), size / 3, apex, &result)) return nullptr;
     std::memcpy(p, &result, sizeof(result)); auto out = env->NewDoubleArray(16); if (out) env->SetDoubleArrayRegion(out, 0, 16, p); return out;
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ajc_shottracer_NativeCore_mode(JNIEnv *, jobject, jlong pointer, jint mode) {
+    auto *h = get(pointer); return h ? st_set_mode(h->tracker, mode) : -1;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_club(JNIEnv *env, jobject, jbyteArray previous, jbyteArray current,
+    jbyteArray next, jbyteArray body, jint w, jint h, jdoubleArray pose, jdoubleArray motion) {
+    const int n = w*h;
+    if (w < 16 || h < 16 || w > 960 || h > 960 || env->GetArrayLength(previous) != n || env->GetArrayLength(current) != n ||
+        env->GetArrayLength(next) != n || env->GetArrayLength(body) != n || env->GetArrayLength(pose) != 3 || env->GetArrayLength(motion) != 4) return nullptr;
+    std::vector<uint8_t> p(n),c(n),q(n),m(n); double a[3],d[4];
+    env->GetByteArrayRegion(previous,0,n,reinterpret_cast<jbyte*>(p.data())); env->GetByteArrayRegion(current,0,n,reinterpret_cast<jbyte*>(c.data()));
+    env->GetByteArrayRegion(next,0,n,reinterpret_cast<jbyte*>(q.data())); env->GetByteArrayRegion(body,0,n,reinterpret_cast<jbyte*>(m.data()));
+    env->GetDoubleArrayRegion(pose,0,3,a); env->GetDoubleArrayRegion(motion,0,4,d); STPoint point{};
+    if (st_club_point(p.data(),c.data(),q.data(),m.data(),w,h,a[0],a[1],a[2],d[0],d[1],d[2],d[3],&point) != 1) return nullptr;
+    const double xy[2] = {point.x/w, point.y/h}; auto out=env->NewDoubleArray(2); if(out) env->SetDoubleArrayRegion(out,0,2,xy); return out;
+}

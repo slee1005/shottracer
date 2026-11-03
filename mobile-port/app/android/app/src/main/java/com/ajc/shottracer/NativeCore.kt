@@ -8,6 +8,8 @@ import android.graphics.Paint
 internal object NativeCore {
     init { System.loadLibrary("shottracer_mobile") }
     external fun create(width: Int, height: Int, x: Double, y: Double): Long
+    external fun mode(handle: Long, mode: Int): Int
+    external fun club(previous: ByteArray, current: ByteArray, next: ByteArray, mask: ByteArray, width: Int, height: Int, pose: DoubleArray, motion: DoubleArray): DoubleArray?
     external fun destroy(handle: Long)
     external fun push(handle: Long, pixels: IntArray, time: Double): Int
     external fun count(handle: Long): Int
@@ -22,9 +24,9 @@ internal object NativeCore {
 }
 
 /** Lock protects the handle from concurrent preview/export callbacks and destruction. */
-internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Double) : AutoCloseable {
+internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Double, putt: Boolean = false) : AutoCloseable {
     private var handle = NativeCore.create(width, height, x, y)
-    init { require(handle != 0L) }
+    init { require(handle != 0L); check(NativeCore.mode(handle, if (putt) 1 else 0) == 0) }
 
     @Synchronized fun push(bitmap: Bitmap, time: Double) {
         check(handle != 0L && bitmap.width == width && bitmap.height == height)

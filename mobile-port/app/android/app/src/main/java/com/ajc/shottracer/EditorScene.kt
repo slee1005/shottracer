@@ -18,11 +18,13 @@ internal data class EditShot(
     var color: String = "#FF2D2D", var manual: Boolean = false,
     var base: List<TimedPoint> = emptyList(), var camera: List<TimedPoint> = emptyList(),
     var swing: MutableList<TimedPoint> = mutableListOf(), var popups: MutableList<EditPopup> = mutableListOf(),
-    var baseModel: DoubleArray? = null
+    var baseModel: DoubleArray? = null, var trackingMode: String = "flight",
+    var autoHands: List<TimedPoint> = emptyList(), var autoClub: List<TimedPoint> = emptyList(),
+    var masks: List<PersonMask> = emptyList()
 ) {
     fun model(): DoubleArray? {
         val base = baseModel ?: return null
-        if (manual || apex != null) return null
+        if (trackingMode == "putt" || manual || apex != null) return null
         val result = if (landing == null && abs(flight - base[10]) < 1e-8) base else
             NativeCore.refit(base, observations(), landing?.let { doubleArrayOf(it.x, it.y) }, flight) ?: return null
         return if (abs(apexFraction - NativeCore.modelApex(base) / base[10]) > .001)
@@ -40,6 +42,14 @@ internal data class EditShot(
         val a = ball ?: EditPoint(.2, .8); val b = peak(); val c = endpoint()
         val p = NativeCore.curve(doubleArrayOf(a.x, a.y, b.x, b.y, c.x, c.y), flight, apexFraction, speed, time)
         return EditPoint(p[0], p[1])
+    }
+    fun ground(time: Double): EditPoint {
+        val span = max(.01,(base.lastOrNull()?.time ?: start)-start)
+        val f = (time / max(.01,flight)).coerceIn(0.0,1.0)
+        val p = interpolate(base,start+f*span); val end = base.lastOrNull()
+        val ease = ((f-.6)/.4).coerceIn(0.0,1.0).pow(2)
+        return EditPoint(p.x + (landing?.x?.minus(end?.x ?: p.x) ?: 0.0)*ease,
+            p.y + (landing?.y?.minus(end?.y ?: p.y) ?: 0.0)*ease)
     }
     fun edited() = baseModel != null || manual || landing != null || apex != null
 }
@@ -62,6 +72,7 @@ internal class EditorScene {
     val shapes = mutableListOf<EditShape>()
     var preset = "classic"; var lineWidth = 1.0; var glow = 1.0; var hold = 1.0
     var head = true; var marker = true; var swingEnabled = true
+    var personOcclusion = true; var autoSwing = "both"
     var logo: String? = null; var logoSize = .12; var logoOpacity = .85; var logoCorner = "bottom-right"
     var slowmo = false; var slowFactor = 3.0; var slowBefore = .4; var slowAfter = 1.2
     val shot: EditShot get() = shots[selected.coerceIn(0, shots.lastIndex)]
@@ -75,6 +86,8 @@ internal class EditorScene {
                 put("id", s.id); put("start", s.start); put("ball", point(s.ball)); put("landing", point(s.landing)); put("apex", point(s.apex))
                 put("flight", s.flight); put("apexFraction", s.apexFraction); put("speed", s.speed); put("color", s.color); put("manual", s.manual)
                 put("base", rows(s.base)); put("camera", rows(s.camera)); put("swing", rows(s.swing))
+                put("trackingMode", s.trackingMode); put("autoHands", rows(s.autoHands)); put("autoClub", rows(s.autoClub))
+                put("masks", JSONArray(s.masks.map { JSONObject().put("time", it.time).put("path", it.path) }))
                 put("baseModel", s.baseModel?.let { JSONArray(it.toList()) } ?: JSONObject.NULL)
                 put("popups", JSONArray(s.popups.map { p -> JSONObject().apply {
                     put("kind", p.kind); put("label", p.label); put("value", p.value); put("anchor", p.anchor)
@@ -85,6 +98,7 @@ internal class EditorScene {
                 put("kind", s.kind); put("a", point(s.a)); put("b", point(s.b)); put("color", s.color); put("width", s.width)
             } }))
             put("preset", preset); put("lineWidth", lineWidth); put("glow", glow); put("hold", hold)
+            put("personOcclusion",personOcclusion); put("autoSwing",autoSwing)
             put("head", head); put("marker", marker); put("swingEnabled", swingEnabled)
             put("logo", logo ?: JSONObject.NULL); put("logoSize", logoSize); put("logoOpacity", logoOpacity); put("logoCorner", logoCorner)
             put("slowmo", slowmo); put("slowFactor", slowFactor); put("slowBefore", slowBefore); put("slowAfter", slowAfter)
@@ -111,6 +125,9 @@ internal class EditorScene {
                                 v.optString("value"), v.optString("anchor", "landing"), v.optDouble("delay"),
                                 v.optString("hide", if (v.has("duration")) "time" else "after_shot"), v.optDouble("duration", 3.0)))
                         } }
+                        shot.trackingMode = s.optString("trackingMode","flight")
+                        shot.autoHands = rows(s.optJSONArray("autoHands")); shot.autoClub = rows(s.optJSONArray("autoClub"))
+                        s.optJSONArray("masks")?.let { a -> shot.masks = (0 until a.length()).map { i -> a.getJSONObject(i).let { PersonMask(it.getDouble("time"),it.getString("path")) } }.sortedBy { it.time } }
                         shots.add(shot)
                         s.optJSONArray("baseModel")?.takeIf { it.length() == 16 }?.let { a -> shot.baseModel = DoubleArray(16) { a.getDouble(it) } }
                     }
@@ -124,6 +141,7 @@ internal class EditorScene {
                 } }
                 preset = j.optString("preset", "classic"); lineWidth = j.optDouble("lineWidth", 1.0).coerceIn(.2, 5.0)
                 glow = j.optDouble("glow", 1.0).coerceIn(0.0, 3.0); hold = j.optDouble("hold", 1.0)
+                personOcclusion = j.optBoolean("personOcclusion",true); autoSwing = j.optString("autoSwing","both")
                 head = j.optBoolean("head", true); marker = j.optBoolean("marker", true); swingEnabled = j.optBoolean("swingEnabled", true)
                 logo = if (j.isNull("logo")) null else j.optString("logo").takeIf { it.isNotBlank() }
                 logoSize = j.optDouble("logoSize", .12); logoOpacity = j.optDouble("logoOpacity", .85); logoCorner = j.optString("logoCorner", "bottom-right")
@@ -137,6 +155,7 @@ internal class EditorScene {
 /** One renderer instance serves both preview and export from an immutable scene snapshot. */
 internal class EditorRenderer(private val scene: EditorScene) {
     private val logo = scene.logo?.let { BitmapFactory.decodeFile(it) }
+    private val maskCache = android.util.LruCache<String,Bitmap>(6)
     private val models = scene.shots.associate { it.id to it.model() }
     fun overlay(time: Double): Bitmap {
         val w = scene.width; val h = scene.height
@@ -148,14 +167,14 @@ internal class EditorRenderer(private val scene: EditorScene) {
         for (s in scene.shots) {
             val motion = s.motion(time)
             val model = models[s.id]
-            fun curve(t: Double): EditPoint = model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
-            val duration = if (s.edited()) s.flight else max(.01, (s.base.lastOrNull()?.time ?: s.start) - s.start)
+            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt") s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
+            val duration = if (s.edited() || s.trackingMode == "putt") s.flight else max(.01, (s.base.lastOrNull()?.time ?: s.start) - s.start)
             val elapsed = (time - s.start) * s.speed
             val visible = time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)
             val points = mutableListOf<EditPoint>()
-            if (visible && s.ball != null) {
+            if (visible && s.ball != null && (s.trackingMode != "putt" || s.base.size >= 2)) {
                 val from = if (scene.preset == "comet") max(0.0, elapsed - .7) else 0.0
-                if (s.edited()) {
+                if (s.edited() || s.trackingMode == "putt") {
                     for (i in 0..128) { val t = duration * i / 128; if (t in from..min(duration, elapsed)) points.add(curve(t)) }
                     if (elapsed >= 0) points.add(curve(min(duration, elapsed)))
                 } else if (s.base.isNotEmpty()) {
@@ -163,6 +182,7 @@ internal class EditorRenderer(private val scene: EditorScene) {
                     if (elapsed >= 0) interpolate(s.base, s.start + min(duration, elapsed)).let { points.add(EditPoint(it.x, it.y)) }
                 }
             }
+            canvas.saveLayer(0f,0f,w.toFloat(),h.toFloat(),null)
             if (points.size >= 2) {
                 val path = Path(); points.forEachIndexed { i, p -> val q = pos(p, motion); if (i == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y) }
                 val width = max(1.5, h / 240.0) * scene.lineWidth
@@ -182,6 +202,23 @@ internal class EditorRenderer(private val scene: EditorScene) {
                 val path = Path(); s.swing.filter { it.time <= time }.forEachIndexed { i, p -> val q = pos(EditPoint(p.x, p.y), motion); if (i == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y) }
                 paint.style = Paint.Style.STROKE; paint.color = Color.CYAN; paint.strokeWidth = max(2f, h / 240f); canvas.drawPath(path, paint)
             }
+            if (scene.swingEnabled) {
+                for ((rows,c) in listOf(s.autoHands to Color.rgb(45,212,191),s.autoClub to Color.rgb(251,191,36))) {
+                    if ((rows === s.autoHands && scene.autoSwing !in listOf("both","hands")) || (rows === s.autoClub && scene.autoSwing !in listOf("both","club"))) continue
+                    val path = Path(); var last: TimedPoint? = null
+                    for (p in rows) if (p.time <= time && p.time >= time-2.0) {
+                        val q = pos(EditPoint(p.x,p.y),motion)
+                        if (last == null || p.time-last.time > .18) path.moveTo(q.x,q.y) else path.lineTo(q.x,q.y)
+                        last = p
+                    }
+                    paint.style=Paint.Style.STROKE; paint.color=c; paint.strokeWidth=max(1.5f,h/240f); canvas.drawPath(path,paint); paint.style=Paint.Style.FILL
+                }
+            }
+            if (scene.personOcclusion) s.masks.minByOrNull { abs(it.time-time) }?.takeIf { abs(it.time-time) <= .11 }?.let { m ->
+                val mask = maskCache.get(m.path) ?: BitmapFactory.decodeFile(m.path)?.also { maskCache.put(m.path,it) }
+                if (mask != null) canvas.drawBitmap(mask,null,Rect(0,0,w,h),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { xfermode=PorterDuffXfermode(PorterDuff.Mode.DST_OUT) })
+            }
+            canvas.restore()
             for (p in s.popups) {
                 val event = when (p.anchor) { "landing" -> s.flight; "apex" -> s.flight * s.apexFraction; else -> 0.0 }
                 val begins = s.start + event + p.delay

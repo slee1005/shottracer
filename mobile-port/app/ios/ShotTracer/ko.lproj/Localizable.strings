@@ -88,7 +88,7 @@
 "editor.hold" = "착지 후 유지 시간 (초, -1은 끝까지)";
 "editor.head" = "공 머리 표시";
 "editor.marker" = "착지 표시";
-"editor.swingEnabled" = "수동 스윙 경로 표시";
+"editor.swingEnabled" = "스윙 경로 표시";
 "editor.logo" = "로고 선택";
 "editor.chooseLogo" = "로고 선택";
 "editor.logoSize" = "로고 너비 비율";
@@ -143,3 +143,20 @@
 "editor.deleteProjectsConfirm" = "선택한 프로젝트와 앱 내부 영상 사본·편집 정보·출력 영상을 삭제할까요? Photos·파일 앱의 원본은 유지됩니다. 삭제는 되돌릴 수 없습니다.";
 "editor.projectsDeleted" = "프로젝트 %d개를 삭제했습니다.";
 "editor.deleteFailed" = "일부 프로젝트를 삭제하지 못했습니다. 목록을 확인한 후 다시 시도하세요.";
+
+"editor.trackingMode" = "샷 모드";
+"editor.modeFlight" = "비행 샷";
+"editor.putt" = "퍼트";
+"editor.personOcclusion" = "인물 뒤로 궤적 표시";
+"editor.autoSwing" = "자동 스윙 경로";
+"editor.both" = "손목 + 클럽";
+"editor.hands" = "손목";
+"editor.club" = "클럽 헤드";
+"editor.off" = "끄기";
+"editor.personFailed" = "인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.";
+"editor.analysisProgress" = "기기에서 분석 중 · %d%%";
+"editor.analysisResult" = "공 %d · 손목 %d · 클럽 %d";
+"editor.onDevice" = "기기 내 처리";
+"editor.workspace" = "샷의 흐름을 한눈에";
+"editor.modeChanged" = "모드가 변경되었습니다. 다시 분석해 주세요.";
+"editor.autoNote" = "청록색: 손목 · 금색: 클럽. 검출되지 않은 구간은 표시하지 않습니다.";

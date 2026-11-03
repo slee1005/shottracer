@@ -88,7 +88,7 @@
 "editor.hold" = "Hold after landing (seconds; -1 keeps until end)";
 "editor.head" = "Ball head";
 "editor.marker" = "Landing marker";
-"editor.swingEnabled" = "Show manual swing path";
+"editor.swingEnabled" = "Show swing paths";
 "editor.logo" = "Choose logo";
 "editor.chooseLogo" = "Choose logo";
 "editor.logoSize" = "Logo width (fraction)";
@@ -143,3 +143,20 @@
 "editor.deleteProjectsConfirm" = "Delete selected projects and their imported copies, edits and exported videos? Originals in Photos or Files are kept. This cannot be undone.";
 "editor.projectsDeleted" = "Deleted %d projects.";
 "editor.deleteFailed" = "Some projects could not be deleted. Check the project list and try again.";
+
+"editor.trackingMode" = "Shot mode";
+"editor.modeFlight" = "Flight";
+"editor.putt" = "Putt";
+"editor.personOcclusion" = "Person occlusion";
+"editor.autoSwing" = "Automatic swing paths";
+"editor.both" = "Wrists + club";
+"editor.hands" = "Wrists";
+"editor.club" = "Club head";
+"editor.off" = "Off";
+"editor.personFailed" = "Person analysis was unavailable. Ball results are retained; retry analysis.";
+"editor.analysisProgress" = "Analyzing on device · %d%%";
+"editor.analysisResult" = "Ball %d · Wrists %d · Club %d";
+"editor.onDevice" = "ON DEVICE";
+"editor.workspace" = "Your shot, in focus.";
+"editor.modeChanged" = "Mode changed. Analyze again to track this shot.";
+"editor.autoNote" = "Teal: wrists · Gold: club. Missing detections are left blank.";

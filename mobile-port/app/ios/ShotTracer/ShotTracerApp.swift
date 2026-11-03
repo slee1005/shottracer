@@ -24,7 +24,7 @@ struct EditorView: View {
     @State private var transformedGesture = false
     @State private var resetConfirm = false
     private func icon(_ key: String, _ symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9)) }
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) }
             .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key))).disabled(disabled || model.busy)
     }
     var body: some View {
@@ -32,14 +32,14 @@ struct EditorView: View {
             VStack(spacing: 4) {
                 if !fullscreen { header; shotBar; workflow }
                 ZStack(alignment: .topTrailing) {
-                    preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black).clipped()
+                    preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black).clipShape(RoundedRectangle(cornerRadius:22)).overlay { RoundedRectangle(cornerRadius:22).stroke(.white.opacity(0.08)) }
                     if fullscreen { icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen = false }.padding(8) }
                 }
                 timeline
-                if !fullscreen { tools; Text(model.status).font(.caption2).foregroundStyle(.secondary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading) }
+                if !fullscreen { tools; Text(model.status).font(.caption2).foregroundStyle(.secondary).lineLimit(3).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.04),in:RoundedRectangle(cornerRadius:12)) }
                 if model.busy { ProgressView() }
             }
-            .padding(.horizontal, 6).background(Color(white: 0.05)).preferredColorScheme(.dark)
+            .padding(.horizontal, 8).background(LinearGradient(colors:[Color(red:0.04,green:0.09,blue:0.12),Color(red:0.03,green:0.05,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing)).preferredColorScheme(.dark).tint(.mint)
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fullScreenCover(isPresented: $reviewing) { if let url = model.output { ReviewView(url: url) } }
@@ -52,6 +52,14 @@ struct EditorView: View {
         }
     }
     private var header: some View {
+        VStack(spacing:6) {
+            HStack {
+                VStack(alignment:.leading,spacing:1) { Text("app.title").font(.title2.bold()); Text("editor.onDevice").font(.system(size:9,weight:.bold,design:.rounded)).tracking(2).foregroundStyle(.mint) }
+                Spacer()
+                Picker("editor.trackingMode",selection:Binding(get:{ model.scene.shot.trackingMode ?? "flight" },set:{ model.setTrackingMode($0) })) {
+                    Text("editor.modeFlight").tag("flight"); Text("editor.putt").tag("putt")
+                }.pickerStyle(.segmented).frame(width:170).disabled(model.busy || !model.hasVideo)
+            }
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
             PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
                 Image(systemName: "photo.on.rectangle.angled").font(.system(size: 21)).frame(width: 44, height: 44)
@@ -64,12 +72,13 @@ struct EditorView: View {
             icon("editor.settings", "slider.horizontal.3", disabled: !model.hasVideo) { settings = true }
             icon("editor.fullscreen", "arrow.up.left.and.arrow.down.right") { fullscreen = true }
         } }
+        }
     }
     private var shotBar: some View {
         HStack {
             ForEach(model.scene.shots.indices, id: \.self) { index in
                 Button(String(format: NSLocalizedString("editor.shotNumber", comment: ""), index + 1)) { model.selectShot(index) }
-                    .font(.caption).padding(.horizontal, 12).padding(.vertical, 6).background(index == model.scene.selected ? Color.red.opacity(0.8) : Color.white.opacity(0.08), in: Capsule())
+                    .font(.caption).padding(.horizontal, 12).padding(.vertical, 6).background(index == model.scene.selected ? Color.mint.opacity(0.25) : Color.white.opacity(0.08), in: Capsule())
             }
             icon("editor.add", "plus.circle.fill", disabled: !model.hasVideo || model.scene.shots.count >= 4) { model.addShot() }
             Spacer(minLength: 0)
@@ -83,10 +92,10 @@ struct EditorView: View {
                 }
             }.tint(model.scene.shot.ball == nil ? .white : .green)
             Spacer(minLength: 2)
-            Button("editor.analyzeAction") { model.analyze() }.disabled(model.scene.shot.ball == nil)
+            Button("editor.analyzeAction") { model.analyze() }.buttonStyle(.glassProminent).tint(.mint).disabled(model.scene.shot.ball == nil)
             Spacer(minLength: 2)
             Button { model.pause(); resetConfirm = true } label: { Label("editor.resetAction", systemImage: "arrow.counterclockwise") }
-        }.font(.caption).buttonStyle(.bordered).disabled(model.busy || !model.hasVideo)
+        }.font(.caption).buttonStyle(.glass).disabled(model.busy || !model.hasVideo)
     }
     @ViewBuilder private var preview: some View {
         if let image = model.image {
@@ -147,7 +156,7 @@ struct EditorView: View {
     private var tools: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
             ForEach([("ball", "scope"), ("landing", "flag.fill"), ("apex", "arrow.up.to.line"), ("path", "scribble.variable"), ("circle", "circle"), ("line", "line.diagonal"), ("swing", "figure.golf"), ("pan", "hand.point.up.left")], id: \.0) { key, symbol in
-                icon("editor." + key, symbol, disabled: !model.hasVideo) { model.chooseTool(key) }.tint(model.tool == key ? .red : .white)
+                icon("editor." + key, symbol, disabled: !model.hasVideo || (key == "apex" && model.scene.shot.trackingMode == "putt")) { model.chooseTool(key) }.tint(model.tool == key ? .mint : .white)
             }
             icon("editor.delete", "trash", disabled: !model.hasVideo) { model.deleteShape() }
             icon("editor.landingFrame", "flag.checkered", disabled: model.scene.shot.ball == nil) { model.landOnFrame() }
@@ -222,9 +231,16 @@ struct EditorSettings: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("editor.autoSwing") {
+                    Toggle("editor.personOcclusion",isOn:Binding(get:{ model.scene.personOcclusion != false },set:{ model.scene.personOcclusion=$0 }))
+                    Picker("editor.autoSwing",selection:Binding(get:{ model.scene.autoSwing ?? "both" },set:{ model.scene.autoSwing=$0 })) {
+                        ForEach(["both","hands","club","off"],id:\.self) { Text(LocalizedStringKey("editor."+$0)).tag($0) }
+                    }
+                    Text("editor.autoNote").font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("editor.shotSettings") {
                     number("flight", value: $model.scene.shot.flight, range: 0.2...15)
-                    number("apexFraction", value: Binding(get: { model.scene.shot.apexFraction * model.scene.shot.flight }, set: { model.scene.shot.apexFraction = min(0.62, max(0.35, $0 / model.scene.shot.flight)) }), range: (0.35 * model.scene.shot.flight)...(0.62 * model.scene.shot.flight))
+                    if model.scene.shot.trackingMode != "putt" { number("apexFraction", value: Binding(get: { model.scene.shot.apexFraction * model.scene.shot.flight }, set: { model.scene.shot.apexFraction = min(0.62, max(0.35, $0 / model.scene.shot.flight)) }), range: (0.35 * model.scene.shot.flight)...(0.62 * model.scene.shot.flight)) }
                     number("speed", value: $model.scene.shot.speed, range: 0.5...4)
                     TextField("editor.color", text: $model.scene.shot.color).textInputAutocapitalization(.characters)
                     Button("editor.deleteShot", role: .destructive) { model.deleteShot(); dismiss() }.disabled(model.scene.shots.count <= 1)

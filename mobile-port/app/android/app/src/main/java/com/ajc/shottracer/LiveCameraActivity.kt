@@ -50,7 +50,7 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
         setContentView(layout)
         layout.addView(TextView(this).apply { setText(R.string.live_title); textSize = 18f })
         layout.addView(TextView(this).apply { setText(R.string.live_instructions); textSize = 11f; maxLines = 2 })
-        preview = PreviewView(this).apply { contentDescription = getString(R.string.live_preview) }
+        preview = PreviewView(this).apply { contentDescription = getString(R.string.live_preview); background=android.graphics.drawable.GradientDrawable().apply { setColor(android.graphics.Color.BLACK); cornerRadius=20*resources.displayMetrics.density }; clipToOutline=true }
         layout.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         preview.onBall = { point ->
             val bitmap = preview.image
@@ -65,6 +65,7 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
         layout.addView(actions)
         fun button(label: Int, symbol: String, action: () -> Unit) = ImageButton(this).apply {
             contentDescription = getString(label); tooltipText = getString(label); setImageDrawable(ToolIcon(symbol))
+            background=android.graphics.drawable.GradientDrawable().apply { setColor(android.graphics.Color.rgb(27,35,45)); cornerRadius=18*resources.displayMetrics.density }
             setPadding(24, 24, 24, 24); setOnClickListener { action() }
             actions.addView(this, LinearLayout.LayoutParams(0, (52 * resources.displayMetrics.density).toInt(), 1f))
         }

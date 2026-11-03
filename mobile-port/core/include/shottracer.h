@@ -13,6 +13,14 @@ typedef struct {
     double height, lift, dv, dv_from, du;
 } STModel;
 STTracker *st_create(int width, int height, double x, double y);
+/* Set before the first frame: 0 flight, 1 rolling template tracker. */
+int st_set_mode(STTracker *tracker, int mode);
+/* Three camera-aligned gray frames plus the current person probability mask.
+   Returns 1 observed club tip, 0 missing, -1 invalid. Never invents detections. */
+int st_club_point(const uint8_t *previous, const uint8_t *current, const uint8_t *next,
+                  const uint8_t *body, int width, int height, double hx, double hy,
+                  double person_height, double previous_dx, double previous_dy,
+                  double next_dx, double next_dy, STPoint *point);
 void st_destroy(STTracker *tracker);
 /* Strictly increasing timestamps; first frame establishes the address spot.
    Returns -1 invalid input, 0 waiting/missing, 1 tracking, 2 track ended.

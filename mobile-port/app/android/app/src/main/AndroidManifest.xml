@@ -5,7 +5,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <!-- No INTERNET or broad media-library permission. Camera/mic requested only in live capture. -->
-    <application android:label="@string/app_name" android:theme="@android:style/Theme.Material.NoActionBar"
+    <application android:label="@string/app_name" android:theme="@style/AppTheme"
         android:icon="@drawable/ic_launcher" android:dataExtractionRules="@xml/data_extraction_rules"
         android:allowBackup="false" android:supportsRtl="true">
         <activity android:name=".ReviewActivity" android:exported="false" />

@@ -90,7 +90,7 @@
     <string name="editor_hold">Hold after landing (seconds; -1 keeps until end)</string>
     <string name="editor_head">Ball head</string>
     <string name="editor_marker">Landing marker</string>
-    <string name="editor_swing_enabled">Show manual swing path</string>
+    <string name="editor_swing_enabled">Show swing paths</string>
     <string name="editor_slowmo">Slow motion (export without audio)</string>
     <string name="editor_slow_factor">Slow-motion factor</string>
     <string name="editor_slow_before">Seconds before impact</string>
@@ -137,4 +137,20 @@
     <string name="editor_delete_projects_confirm">Delete selected projects and their imported copies, edits and exported videos? Originals in Photos or Files are kept. This cannot be undone.</string>
     <string name="editor_projects_deleted">Deleted %1$d projects.</string>
     <string name="editor_delete_failed">Some projects could not be deleted. Check the project list and try again.</string>
+    <string name="editor_tracking_mode">Shot mode</string>
+    <string name="editor_mode_flight">Flight</string>
+    <string name="editor_putt">Putt</string>
+    <string name="editor_person_occlusion">Person occlusion</string>
+    <string name="editor_auto_swing">Automatic swing paths</string>
+    <string name="editor_both">Wrists + club</string>
+    <string name="editor_hands">Wrists</string>
+    <string name="editor_club">Club head</string>
+    <string name="editor_off">Off</string>
+    <string name="editor_person_failed">Person analysis was unavailable. Ball results are retained; retry analysis.</string>
+    <string name="editor_analysis_progress">Analyzing on device · %1$d%%</string>
+    <string name="editor_analysis_result">Ball %1$d · Wrists %2$d · Club %3$d</string>
+    <string name="editor_on_device">ON DEVICE</string>
+    <string name="editor_workspace">Your shot, in focus.</string>
+    <string name="editor_mode_changed">Mode changed. Analyze again to track this shot.</string>
+    <string name="editor_auto_note">Teal: wrists · Gold: club. Missing detections are left blank.</string>
 </resources>

@@ -24,4 +24,14 @@ class EditorTimingTest {
         assertEquals(10.0, windows.last().second, 1e-10)
         assertEquals(3.25, sourceTime(3.25, emptyList(), 3.0), 1e-10)
     }
+    @Test fun puttEditsKeepObservedGroundPathAndExactLanding() {
+        val shot=EditShot(start=1.0,ball=EditPoint(.1,.8),flight=2.0,trackingMode="putt",base=listOf(TimedPoint(1.0,.1,.8),TimedPoint(2.0,.3,.8),TimedPoint(3.0,.5,.8)))
+        val original=shot.base.toList()
+        assertEquals(.3,shot.ground(1.0).x,1e-10)
+        assertEquals(.8,shot.ground(1.0).y,1e-10)
+        shot.landing=EditPoint(.7,.9); shot.flight=4.0
+        assertEquals(.7,shot.ground(4.0).x,1e-10)
+        assertEquals(.9,shot.ground(4.0).y,1e-10)
+        assertEquals(original,shot.base)
+    }
 }

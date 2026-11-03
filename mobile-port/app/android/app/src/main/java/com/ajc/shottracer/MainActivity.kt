@@ -40,6 +40,9 @@ class MainActivity : Activity() {
     private lateinit var shotBar: LinearLayout
     private lateinit var tools: HorizontalScrollView
     private lateinit var top: HorizontalScrollView
+    private lateinit var branding: LinearLayout
+    private lateinit var flightModeButton: Button
+    private lateinit var puttModeButton: Button
     private lateinit var workflow: LinearLayout
     private lateinit var startButton: Button
     private lateinit var analyzeButton: Button
@@ -78,7 +81,7 @@ class MainActivity : Activity() {
     private fun icon(parent: LinearLayout, key: String, action: () -> Unit): ImageButton {
         val button = ImageButton(this).apply {
             setImageDrawable(ToolIcon(key)); contentDescription = text(key); tooltipText = text(key)
-            setPadding(dp(12), dp(12), dp(12), dp(12)); background = GradientDrawable().apply { setColor(Color.rgb(32, 37, 48)); cornerRadius = dp(8).toFloat() }
+            setPadding(dp(12), dp(12), dp(12), dp(12)); background = GradientDrawable().apply { setColor(Color.rgb(27, 35, 45)); cornerRadius = dp(16).toFloat() }
             setOnClickListener { action() }
         }
         parent.addView(button, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(dp(2), 0, dp(2), 0) })
@@ -87,29 +90,36 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(14, 17, 23)); setPadding(dp(6), dp(6), dp(6), dp(6))
+            orientation = LinearLayout.VERTICAL; background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.rgb(12,22,29),Color.rgb(9,13,20))); setPadding(dp(6), dp(6), dp(6), dp(6))
             setOnApplyWindowInsetsListener { view, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars()); view.setPadding(dp(6) + bars.left, dp(6) + bars.top, dp(6) + bars.right, dp(6) + bars.bottom); insets
             }
         }
         setContentView(root)
+        branding = row(); root.addView(branding,LinearLayout.LayoutParams(-1,dp(44)))
+        branding.addView(TextView(this).apply { setText(R.string.app_name); textSize=22f; setTextColor(Color.WHITE); typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL) },LinearLayout.LayoutParams(0,-2,1f))
+        fun modeButton(label: String, mode: String) = Button(this).apply {
+            text=text(label); textSize=11f; minWidth=0; setPadding(dp(6),0,dp(6),0); isAllCaps=false
+            setOnClickListener { switchMode(mode) }; branding.addView(this,LinearLayout.LayoutParams(dp(78),dp(42)))
+        }
+        flightModeButton=modeButton("mode_flight","flight"); puttModeButton=modeButton("putt","putt")
         val upper = toolbar(root); top = upper.parent as HorizontalScrollView
         icon(upper, "import") { startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/*").putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 4), 1) }
         icon(upper, "camera") { stopPlay(); startActivity(Intent(this, LiveCameraActivity::class.java)) }
         icon(upper, "projects") { projects() }
         icon(upper, "undo") { restore(undo, redo) }; icon(upper, "redo") { restore(redo, undo) }
         icon(upper, "settings") { settings() }
-        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotBar.visibility = if (fullscreen) View.GONE else View.VISIBLE; workflow.visibility = if (fullscreen) View.GONE else View.VISIBLE }
+        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotBar.visibility = if (fullscreen) View.GONE else View.VISIBLE; workflow.visibility = if (fullscreen) View.GONE else View.VISIBLE; branding.visibility = if (fullscreen) View.GONE else View.VISIBLE }
         shotBar = row(); root.addView(shotBar, LinearLayout.LayoutParams(-1, dp(38)))
         workflow = row(); root.addView(workflow, LinearLayout.LayoutParams(-1, dp(44)))
         fun actionButton(key: String, action: () -> Unit) = Button(this).apply {
-            text = text(key); textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
+            text = text(key); isAllCaps=false; textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
         }
         startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; preview.panEnabled = false; status.text = text("hint_ball"); controls() }
         analyzeButton = actionButton("analyze_action") { analyze() }
         resetButton = actionButton("reset_action") { confirmReset() }
-        preview = PreviewView(this).apply { zoomEnabled = true }
+        preview = PreviewView(this).apply { zoomEnabled = true; background=GradientDrawable().apply { setColor(Color.BLACK); cornerRadius=dp(20).toFloat(); setStroke(dp(1),Color.rgb(35,50,63)) }; clipToOutline=true }
         root.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
         preview.onBall = { p -> touch(EditPoint(p.x / scene.width.toDouble(), p.y / scene.height.toDouble())) }
         preview.onHandleStart = { remember() }
@@ -136,7 +146,7 @@ class MainActivity : Activity() {
         }
         icon(lower, "delete") { if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() } else deleteShot() }
         icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; preview.panEnabled = false; status.text = text("hint_landing"); changed() } }
-        status = TextView(this).apply { setText(R.string.hint_import); setTextColor(Color.LTGRAY); textSize = 11f; maxLines = 2 }
+        status = TextView(this).apply { setText(R.string.hint_import); setTextColor(Color.LTGRAY); textSize = 11f; maxLines = 3; setPadding(dp(8),dp(5),dp(8),dp(5)) }
         root.addView(status); renderShots(); controls()
         // Restore the last local project without accessing the user's original video.
         File(filesDir, "projects").listFiles()?.filter { File(it, "source.mp4").isFile }?.maxByOrNull { File(it, "mobile-project.json").lastModified() }?.let { load(File(it, "source.mp4")) }
@@ -144,7 +154,8 @@ class MainActivity : Activity() {
     private fun controls() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && when (key) {
-                "previous", "next", "play", "ball", "landing", "apex", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
+                "previous", "next", "play", "ball", "landing", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
+                "apex" -> source != null && scene.shot.trackingMode != "putt"
                 "analyze" -> scene.shot.ball != null
                 "undo" -> undo.isNotEmpty()
                 "redo" -> redo.isNotEmpty()
@@ -152,15 +163,21 @@ class MainActivity : Activity() {
                 else -> true
             }
             button.alpha = if (button.isEnabled) 1f else .35f
-            button.imageTintList = android.content.res.ColorStateList.valueOf(if (key == tool) Color.rgb(255, 70, 70) else Color.WHITE)
+            button.imageTintList = android.content.res.ColorStateList.valueOf(if (key == tool) Color.rgb(45,212,191) else Color.WHITE)
             if (key == "play") button.setImageDrawable(ToolIcon(if (playing) "pause" else "play"))
         }
         slider.isEnabled = !busy && source != null
         preview.isEnabled = !busy && !decoding
+        fun tone(button: Button, active: Boolean) {
+            button.background=GradientDrawable().apply { setColor(if(active) Color.rgb(45,212,191) else Color.rgb(27,35,45)); cornerRadius=dp(18).toFloat() }
+            button.setTextColor(if(active) Color.rgb(7,30,32) else Color.LTGRAY); button.alpha=if(button.isEnabled) 1f else .4f
+        }
+        for ((button,mode) in listOf(flightModeButton to "flight",puttModeButton to "putt")) { button.isEnabled=!busy && source != null; tone(button,scene.shot.trackingMode==mode) }
         startButton.text = text(if (scene.shot.ball != null) "start_checked" else "start_unset")
         startButton.isEnabled = !busy && !decoding && source != null
         analyzeButton.isEnabled = !busy && !decoding && source != null && scene.shot.ball != null
         resetButton.isEnabled = !busy && source != null
+        tone(startButton,scene.shot.ball != null); tone(analyzeButton,true); tone(resetButton,false)
         for (i in 0 until shotBar.childCount) shotBar.getChildAt(i).isEnabled = !busy && source != null && (i < scene.shots.size || scene.shots.size < 4)
     }
     private fun renderShots() {
@@ -168,7 +185,8 @@ class MainActivity : Activity() {
         scene.shots.forEachIndexed { i, _ ->
             val button = Button(this).apply {
                 text = getString(R.string.editor_shot_number, i + 1); textSize = 12f; minWidth = 0; setPadding(0, 0, 0, 0)
-                setTextColor(if (i == scene.selected) Color.RED else Color.WHITE)
+                isAllCaps=false; background=GradientDrawable().apply { setColor(if (i == scene.selected) Color.rgb(26,65,66) else Color.rgb(23,32,43)); cornerRadius=dp(18).toFloat() }
+                setTextColor(if (i == scene.selected) Color.rgb(45,212,191) else Color.LTGRAY)
                 isEnabled = !busy
                 setOnClickListener { scene.selected = i; pending = null; persist(); handles(); renderShots(); controls() }
             }
@@ -211,7 +229,7 @@ class MainActivity : Activity() {
         fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()))
         val points = mutableListOf<EditorHandle>()
         s.ball?.let { points.add(handle("ball", it)) }
-        if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); points.add(handle("apex", s.peak())) }
+        if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt") points.add(handle("apex", s.peak())) }
         if (tool in listOf("line", "circle")) scene.shapes.forEachIndexed { i, shape -> points.add(EditorHandle("shape:$i:a", PointF(shape.a.x.toFloat(), shape.a.y.toFloat()))); points.add(EditorHandle("shape:$i:b", PointF(shape.b.x.toFloat(), shape.b.y.toFloat()))) }
         preview.ball = null; preview.handles = points; preview.invalidate()
     }
@@ -219,7 +237,7 @@ class MainActivity : Activity() {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.manual = false; s.landing = null; s.apex = null; changed() }
+            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.apex = null; changed() }
             "landing", "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
             "path" -> { remember(); if (pending == null) { s.ball = p; s.start = currentTime; s.manual = true; pending = p } else { s.landing = r; pending = null }; changed() }
             "circle", "line" -> { if (pending == null) { pending = p; status.text = text("second_point") } else { remember(); scene.shapes.add(EditShape(tool, pending!!, p)); pending = null; changed() } }
@@ -296,28 +314,55 @@ class MainActivity : Activity() {
             work { contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }; ui { remember(); scene.logo = file.path; changed() } }
         }
     }
+    private fun switchMode(mode: String) {
+        if (busy || scene.shot.trackingMode == mode) return
+        stopPlay(); remember(); scene.shot.apply { trackingMode=mode; base=emptyList(); baseModel=null; landing=null; apex=null; manual=false; flight=4.0 }
+        tool="ball"; pending=null; preview.panEnabled=false; changed(); status.text=text("mode_changed")
+    }
     private fun analyze() {
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
         if (busy) return
         status.setText(R.string.status_analyzing)
-        val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val rows = times.copyOf()
+        val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val rows = times.copyOf(); val putt = s.trackingMode == "putt"
         work {
-            val result = TrackingSession(width, height, ball.x * width, ball.y * height); val retriever = MediaMetadataRetriever()
+            val result = TrackingSession(width,height,ball.x*width,ball.y*height,putt)
+            val retriever = MediaMetadataRetriever()
+            var personError = false
+            val person = try { PersonAnalysis(this,File(file.parentFile,"analysis-${UUID.randomUUID()}")) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person task initialization failed",e); personError=true; null }
             try {
                 retriever.setDataSource(file.path)
-                var lastSample = Double.NEGATIVE_INFINITY
-                for (i in rows.indices) if (rows[i] >= start && rows[i] <= min(duration, start + 15) && rows[i] - lastSample >= 1.0 / 30 - 1e-6) {
+                var lastSample = Double.NEGATIVE_INFINITY; var lastPerson = Double.NEGATIVE_INFINITY
+                for (i in rows.indices) if (rows[i] >= max(0.0,start-1.2) && rows[i] <= min(duration,start+15) && rows[i]-lastSample >= 1.0/30-1e-6) {
                     if (Thread.currentThread().isInterrupted) throw InterruptedException()
-                    val frame = EditorMedia.frame(retriever, i); try { result.push(frame, rows[i]) } finally { frame.recycle() }
-                    lastSample = rows[i]
+                    val time = rows[i]; val frame = EditorMedia.frame(retriever,i)
+                    try {
+                        if (time >= start) result.push(frame,time)
+                        if (person != null && !personError && time-lastPerson >= (if (abs(time-start) <= 1.2) 1.0/30 else 1.0/15)-1e-6) {
+                            val cam = samples(result.samples(true)).lastOrNull()
+                            try { person.push(frame,time,EditPoint(cam?.x ?: 0.0,cam?.y ?: 0.0)) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person frame analysis failed",e); personError=true }
+                            lastPerson=time
+                        }
+                    } finally { frame.recycle() }
+                    lastSample=time
+                    if (i%15 == 0) ui { status.text=getString(R.string.editor_analysis_progress,((time-max(0.0,start-1.2))/(min(duration,start+15)-max(0.0,start-1.2))*100).toInt().coerceIn(0,100)) }
                 }
                 val observations = samples(result.samples()); val camera = samples(result.samples(true))
-                val model = if (observations.size >= 4) NativeCore.fit(observations.drop(1).flatMap { listOf(it.time, it.x, it.y) }.toDoubleArray(), ball.x, ball.y, observations[0].time, observations[1].time - .00001) else null
+                val model = if (!putt && observations.size >= 4) NativeCore.fit(observations.drop(1).flatMap { listOf(it.time,it.x,it.y) }.toDoubleArray(),ball.x,ball.y,observations[0].time,observations[1].time-.00001) else null
+                val impact = model?.get(3) ?: observations.firstOrNull()?.time ?: start
                 ui {
-                    if (observations.size < 4) status.setText(R.string.error_track)
-                    else { remember(); scene.shots.firstOrNull { it.id == id }?.let { it.base = observations; it.camera = camera; it.baseModel = model; it.start = model?.get(3) ?: observations.first().time; if (model != null) { it.flight = model[10]; it.apexFraction = (NativeCore.modelApex(model) / model[10]).coerceIn(.35, .62) } }; changed(); status.text = getString(R.string.status_tracked, observations.size) }
+                    remember(); scene.shots.firstOrNull { it.id == id }?.let {
+                        it.base=observations; it.camera=camera; it.baseModel=model; it.start=impact
+                        it.autoHands=person?.hands?.filter { p -> p.time in impact-1.2..impact+1.2 } ?: emptyList()
+                        it.autoClub=person?.clubs?.filter { p -> p.time in impact-1.2..impact+1.2 } ?: emptyList()
+                        it.masks=person?.masks?.toList() ?: emptyList()
+                        if (putt && observations.size >= 3) it.flight=max(.2,observations.last().time-impact)
+                        if (model != null) { it.flight=model[10]; it.apexFraction=(NativeCore.modelApex(model)/model[10]).coerceIn(.35,.62) }
+                    }
+                    changed()
+                    status.text=getString(R.string.editor_analysis_result,observations.size,scene.shot.autoHands.size,scene.shot.autoClub.size) +
+                        (if (observations.size < 3) "\n"+getString(R.string.error_track) else "") + (if (personError) "\n"+text("person_failed") else "")
                 }
-            } finally { retriever.release(); result.close() }
+            } finally { retriever.release(); result.close(); person?.close() }
         }
     }
     private fun review(file: File) { stopPlay(); startActivity(Intent(this, ReviewActivity::class.java).putExtra("path", file.path)) }
@@ -432,14 +477,17 @@ class MainActivity : Activity() {
         fun check(label: String, value: Boolean, set: (Boolean) -> Unit) { val box = CheckBox(this).apply { text = text(label); isChecked = value }; layout.addView(box); edits.add { set(box.isChecked) } }
         fun choice(label: String, options: List<String>, selected: String, set: (String) -> Unit) {
             layout.addView(TextView(this).apply { text = text(label) }); val spinner = Spinner(this)
-            spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options.map { text(it) }); spinner.setSelection(max(0, options.indexOf(selected)))
+            spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options.map { text(if (it == "flight") "mode_flight" else it) }); spinner.setSelection(max(0, options.indexOf(selected)))
             layout.addView(spinner); edits.add { set(options[spinner.selectedItemPosition]) }
         }
+        choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.apex=null; scene.shot.manual=false } }
+        check("person_occlusion",scene.personOcclusion) { scene.personOcclusion=it }
+        choice("auto_swing",listOf("both","hands","club","off"),scene.autoSwing) { scene.autoSwing=it }
         choice("preset", listOf("classic", "tv", "neon", "comet", "minimal"), scene.preset) { scene.preset = it }
         layout.addView(TextView(this).apply { text = text("color") }); val color = EditText(this).apply { setText(scene.shot.color); inputType = InputType.TYPE_CLASS_TEXT }; layout.addView(color)
         edits.add { try { Color.parseColor(color.text.toString()); scene.shot.color = color.text.toString() } catch (_: Exception) { } }
         number("flight", scene.shot.flight, .2, 15.0) { scene.shot.flight = it }
-        number("apex_time", scene.shot.apexFraction * scene.shot.flight, .07, 9.3) { scene.shot.apexFraction = (it / scene.shot.flight).coerceIn(.35, .62) }
+        if (scene.shot.trackingMode != "putt") number("apex_time", scene.shot.apexFraction * scene.shot.flight, .07, 9.3) { scene.shot.apexFraction = (it / scene.shot.flight).coerceIn(.35, .62) }
         number("speed", scene.shot.speed, .5, 4.0) { scene.shot.speed = it }
         number("width", scene.lineWidth, .2, 5.0) { scene.lineWidth = it }; number("glow", scene.glow, 0.0, 3.0) { scene.glow = it }
         number("hold", scene.hold, -1.0, 30.0) { scene.hold = it }

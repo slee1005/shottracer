@@ -314,7 +314,7 @@ struct LiveCameraView: View {
                                 .gesture(SpatialTapGesture().onEnded { tap in camera.select(CGPoint(x: tap.location.x / w, y: tap.location.y / h)) })
                         }.frame(width: area.size.width, height: area.size.height).accessibilityLabel(Text("camera.preview"))
                     } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                }.background(.black)
+                }.background(.black).clipShape(RoundedRectangle(cornerRadius:22))
                 Text(camera.status).font(.caption).lineLimit(2)
                 Text(camera.soundEnabled ? "camera.audioOn" : "camera.audioOff").font(.caption2).foregroundStyle(.secondary)
                 HStack(spacing: 30) {
@@ -329,8 +329,8 @@ struct LiveCameraView: View {
                         Button { reviewing = true } label: { Image(systemName: "play.rectangle.fill").font(.system(size: 28)) }.accessibilityLabel(Text("editor.review"))
                         ShareLink(item: output) { Image(systemName: "square.and.arrow.down").font(.system(size: 28)) }.accessibilityLabel(Text("action.share"))
                     }
-                }.frame(height: 54)
-            }.padding(.horizontal, 8).background(.black).preferredColorScheme(.dark)
+                }.padding(.horizontal,20).frame(height:60).glassEffect(.regular,in:Capsule())
+            }.padding(.horizontal, 8).background(Color(red:0.03,green:0.05,blue:0.08)).preferredColorScheme(.dark).tint(.mint)
                 .navigationTitle(Text("camera.title")).navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel(Text("camera.close")).disabled(camera.recording || camera.finishing) } }
         }
