@@ -118,7 +118,7 @@ Both Android and iPhone target these requirements. Manual editing serves interna
 - Local video copy, scrubbing, starting-ball selection, and automatic tracking sampled at 30 times per second for up to 15 seconds.
 - C++ bright moving-object candidates, address-spot disappearance, direction/speed consistency for launch confirmation, observation linking, and small camera-translation compensation. Only one frame is retained.
 - Preview and export share `st_render` geometry and the same platform-specific watermark composition function. Watermark is always present; no unlock UI exists yet. Desktop scrypt verification remains unchanged.
-- iPhone: SwiftUI, Photos library and Files video import, AVFoundation extraction/MP4 export, and save/share menu. Use **Choose video from Photos** to import a movie directly. Selected videos are copied as files into app storage and temporary transfer files are cleaned up. For iCloud-only assets, the system must download the original before analysis.
+- iPhone: SwiftUI, Photos library and Files video import, AVFoundation extraction/MP4 export, and save/share menu. Use **Choose video from Photos** to import a movie directly. Selected videos are copied as files into app storage and temporary transfer files are cleaned up. **Record a live shot** feeds rear-camera frames into the same tracker and records the displayed tracer/watermark into the video. For iCloud-only assets, the system must download the original before analysis.
 - Android: Kotlin, system video picker, JNI, Media3 Transformer MP4 export, and document save picker. No INTERNET or broad gallery permission is requested.
 - Ported desktop `Model.at` and `apex_time` numeric evaluation to C++ and compared results with Python. Automatic model fitting/edit integration remains pending.
 - Mobile strings use iOS `en.lproj`/`ko.lproj` and Android `values`/`values-ko` resources. Existing web localization remains unchanged.
@@ -163,3 +163,18 @@ Real golf footage, physical devices, and preview/export agreement on both platfo
 Analysis maximum dimension is 640px. iPhone export uses a 1080p preset and Android development output uses 720px height; original-resolution export remains pending. Standard platform export paths include source audio, but codecs, audio, HDR, portrait rotation, and variable frame rates require real-video validation. Android frame extraction uses the nearest frame to each requested time; a source-timestamp decoder remains pending.
 
 Keep the app open during validation. Background execution, recovery after OS termination, cache cleanup/project deletion UI, accessibility improvements, and mobile scrypt verification for password unlock remain pending. This is an initial automatic-tracking implementation, not completion of the first-release requirements.
+
+
+### iPhone live camera recording
+
+Reinstall through Xcode, then tap **Record a live shot**. Allow camera access and optionally microphone access for sound. Full Photos library access is not requested.
+
+1. Hold the phone upright on a stable support with the ball clearly visible.
+2. Tap the starting ball in the camera view.
+3. Tap **Start recording and tracking**, then hit the shot. Observed paths appear live.
+4. Tap **Stop and save**, or wait for the 15-second maximum.
+5. Use **Save or share video**. App-owned recordings also remain in the Files sharing directory under `captures/`, excluded from automatic cloud backup.
+
+Camera capture is currently iPhone-only. Live processing uses VGA (portrait 480×640) at up to 30fps; overload may drop frames. Both display and recording use existing `TrackingSession`/`st_render` composition. The yellow selection handle is an editor control and is not recorded. If tracking fails, the video is still saved and the failure is reported. Denied microphone access produces a silent recording with an explicit screen notice.
+
+Backgrounding the app or camera interruption finalizes capture. Reselect the ball for a new session. Live videos have the tracer baked in; they are not editable trajectory projects for the existing editor. Existing import/edit workflows remain available. Physical camera capture, audio synchronization, live throughput, and real golf-shot accuracy remain unverified.

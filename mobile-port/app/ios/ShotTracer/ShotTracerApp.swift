@@ -11,6 +11,7 @@ struct EditorView: View {
     @StateObject private var model = EditorModel()
     @State private var picking = false
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingCamera = false
 
     var body: some View {
         NavigationStack {
@@ -44,6 +45,7 @@ struct EditorView: View {
                     } else {
                         Image(systemName: "figure.golf").font(.system(size: 72)).padding(30).foregroundStyle(.red)
                     }
+                    Button("camera.open") { showingCamera = true }.buttonStyle(.borderedProminent)
                     PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
                         Text("action.photos")
                     }.buttonStyle(.borderedProminent)
@@ -65,6 +67,7 @@ struct EditorView: View {
                 .disabled(model.busy)
             }
             .navigationTitle(Text("app.title"))
+            .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in
                 switch result {
                 case .success(let url): model.importVideo(url)
