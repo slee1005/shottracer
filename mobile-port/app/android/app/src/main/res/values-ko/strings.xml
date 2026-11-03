@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ShotTracer</string>
+    <string name="prototype_notice">개발용 시제품 • 타격 전 프레임에서 공을 누르세요. 밝은 공 추적만 지원하며 스토어 출시 준비 전입니다.</string>
+    <string name="preview_label">영상 미리보기. 공을 눌러 시작 위치를 지정하세요.</string>
+    <string name="action_import">영상 선택</string>
+    <string name="action_analyze">공 자동 추적</string>
+    <string name="action_export">MP4 내보내기</string>
+    <string name="action_save">내보낸 영상 저장</string>
+    <string name="hint_import">기기에 저장된 영상을 선택하세요.</string>
+    <string name="hint_ball">타격 전 프레임으로 이동한 뒤 공을 누르세요.</string>
+    <string name="hint_analyze">시작 공을 지정했습니다. 자동 추적을 실행하세요.</string>
+    <string name="status_analyzing">공을 추적하고 있습니다…</string>
+    <string name="status_progress">%d초 분석했습니다…</string>
+    <string name="status_tracked">관측점 %d개. 프레임을 이동하여 궤적을 확인하세요.</string>
+    <string name="status_exporting">영상을 내보내고 있습니다… 앱을 열어 두세요.</string>
+    <string name="status_exported">내보내기를 완료했습니다. 아래에서 영상을 저장하세요.</string>
+    <string name="status_saved">영상을 저장했습니다.</string>
+    <string name="error_processing">영상을 처리하지 못했습니다. 여유 공간과 영상 형식을 확인하세요.</string>
+    <string name="error_track">일관된 발사를 찾지 못했습니다. 더 선명한 공이나 앞 프레임을 지정하세요.</string>
+</resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ShotTracer</string>
+    <string name="prototype_notice">Development prototype • Pick a frame before impact, then tap the ball. Bright-ball tracking only; not ready for store release.</string>
+    <string name="preview_label">Video preview. Tap the ball to select its starting position.</string>
+    <string name="action_import">Choose video</string>
+    <string name="action_analyze">Track ball automatically</string>
+    <string name="action_export">Export MP4</string>
+    <string name="action_save">Save exported video</string>
+    <string name="hint_import">Choose a local video to begin.</string>
+    <string name="hint_ball">Scrub to a frame before impact and tap the ball.</string>
+    <string name="hint_analyze">Starting ball selected. Run automatic tracking.</string>
+    <string name="status_analyzing">Tracking ball…</string>
+    <string name="status_progress">Analyzed time: %d s…</string>
+    <string name="status_tracked">Observed points: %d. Scrub to preview the tracer.</string>
+    <string name="status_exporting">Exporting video… Keep the app open.</string>
+    <string name="status_exported">Export complete. Save the video below.</string>
+    <string name="status_saved">Video saved.</string>
+    <string name="error_processing">Could not process the video. Check free storage and video format.</string>
+    <string name="error_track">No consistent launch found. Pick a clearer ball or an earlier frame.</string>
+</resources>

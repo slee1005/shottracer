@@ -1,0 +1,14 @@
+.gradle/
+.kotlin/
+.cxx/
+.build/
+DerivedData/
+local.properties
+*.keystore
+*.jks
+*.ipa
+*.apk
+*.aab
+xcuserdata/
+*.xcuserstate
+__pycache__/

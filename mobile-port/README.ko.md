@@ -1,0 +1,165 @@
+[English](README.md) | **한국어**
+
+# ShotTracer Android 및 iPhone 전환 계획
+
+작성일: 2026-11-03. 상태: 1차 개발용 시제품 구현. Android·iPhone 앱 소스와 공통 자동 추적 코어를 이 폴더에 추가했다. 스토어 출시 및 실기기 검증은 아직 완료하지 않았다.
+
+## 1. 목표와 전제
+
+기존 골프 영상 편집기를 Android와 iPhone에서 사용할 수 있도록 만든다. `../AGENTS.md`, `../docs/ARCHITECTURE.md`, README 두 언어판 및 실제 소스를 기준으로 검토했다. 사용자가 확정한 첫 버전 요구는 **휴대폰 단독·오프라인 사용과 자동 공 추적**이다. 첫 구현은 SwiftUI(iPhone)·Kotlin(Android)과 공통 C++ 코어를 사용한다. 현재 개발 환경에서 네이티브 영상 API를 직접 검증하기 위한 선택이며, 기기 검증 후 조정할 수 있다. 자동 추적은 기존 앱처럼 사용자가 시작 공 위치를 지정한 뒤 분석하는 방식으로 계획하며, 시작 위치까지 자동 탐지하는 기능은 별도 요구로 구분한다.
+
+현재 Python 3.13 + FastAPI + pywebview/PyInstaller 구조를 APK 또는 iOS 앱으로 단순 변환할 수는 없다. 특히 Python MediaPipe/OpenCV 의존성, 외부 ffmpeg 프로세스, 파일 경로 접근은 모바일용 대체 구현이 필요하다. Python 자체의 모바일 실행 가능성과 이 프로젝트 전체의 모바일 호환성은 별개다.
+
+모바일 소스·설계·검증 도구는 이 폴더 안에 추가한다. 기존 앱 소스, 프로젝트 데이터, 워터마크 동작은 변경하지 않는다. 작업 시작 시 루트 README 두 파일은 수정 상태였고 `AGENTS.md`, `docs/`는 미추적 상태였다. 해당 기존 작업은 유지했다.
+
+## 2. 구현 방식 비교
+
+| 방식 | 기존 코드 활용 | 휴대폰 단독 사용 | 판단 |
+| --- | --- | --- | --- |
+| Flutter 화면 + 공통 C++ 처리 엔진 + Swift/Kotlin 연동 | 알고리즘·프로젝트 형식·테스트 기준 재사용, Python/JS 구현은 이식 | 가능하도록 설계 | 공통 화면이 필요할 때 검토할 대안 |
+| Swift iOS + Kotlin Android 개별 앱 | 알고리즘을 공통 엔진으로 공유 가능 | 가능하도록 설계 | 첫 구현에 선택. 플랫폼별 화면 유지보수 필요 |
+| WebView/PWA로 현재 화면 포장 | HTML/JS 일부 활용 | 현재 백엔드 그대로는 불가 | 터치 화면과 분석·내보내기 엔진을 별도로 해결해야 함 |
+| 휴대폰 화면 + PC 또는 클라우드 처리 | Python 엔진 활용도가 높음 | 불가 | 현재 로컬 전용 원칙과 달라 별도 요구 확인 필요 |
+
+Flutter는 네이티브 코드 호출을 지원하지만 영상 분석 엔진을 제공하지는 않는다. 제안 구조는 Flutter → 플랫폼 채널/FFI → 공통 처리 엔진 및 OS 영상 어댑터다. 큰 영상 프레임을 채널로 반복 복사하지 않고 네이티브 버퍼/텍스처를 사용하도록 검증한다. [Flutter 공식 문서](https://docs.flutter.dev/platform-integration/platform-channels)
+
+휴대폰의 `127.0.0.1`은 휴대폰 자신이다. 현재 PC 서버에 자동으로 연결되지 않으며, PC 서버 주소만 바꿔 공개하는 방법은 이번 범위에 포함하지 않는다.
+
+## 3. 모듈별 필요한 변경
+
+| 현재 구성 | 모바일 변경안 |
+| --- | --- |
+| `settings.py` | 기존 필드 기본값, legacy 프로젝트·팝업·스윙 포인트 검증 규칙을 보존하는 모바일 모델과 호환성 테스트 |
+| `trajectory.py`, `engine.apply_edits`, `ShotPath` | 수치 계산을 공통 엔진으로 이식. 자동 `base_model` 보존, 편집 시 빠른 재계산, apex/landing/speed 의미 유지 |
+| `camera.py`, `ball.py`, `putt.py`, `swing.py` | OpenCV 네이티브 연산 및 공통 알고리즘으로 이식. 수치·추적 결과를 기존 합성 테스트와 비교 |
+| `person.py` | Python 패키지 대신 Android/iOS MediaPipe Tasks 사용 검증. 모델을 앱에 포함하고 해시 확인, 마스크·손목·좌표 변환 확인 |
+| `video.py` | Android Media3/MediaCodec, iOS AVFoundation 기반 영상 입출력. 외부 ffmpeg 실행 방식 대체 |
+| `render.py`, `popups.py` | 공통 장면 계산·합성 엔진으로 이식. Pillow 글꼴·한글·알파 합성·글로 효과 재현 검증 |
+| `engine.py` 저장소 | 앱 전용 저장소, 원본 선택/복사 정책, 캐시 제한 및 작업 취소·복구 구현 |
+| `server.py` | 휴대폰 내부 작업 서비스로 대체 제안. HTTP 서버는 필수 요소가 아님 |
+| `web/app.js`, `style.css` | 세로 화면, 터치 선택·드래그·핀치, 프레임 이동 버튼, 하단 도구 패널 구현. 현재 고정 3열과 마우스 이벤트는 그대로 사용하기 어려움 |
+| `web/i18n.js` | en/ko 키를 유지하고 모바일 번역 리소스와 대응표 작성. 기존 웹 UI 변경 시 모든 문자열은 계속 이 파일 사용 |
+| `desktop.py`, `packaging/` | 모바일 빌드로 재사용하지 않음. Android/iOS 별도 서명·빌드·테스트 절차 필요 |
+| `watermark.py` | 기본 표시와 salted scrypt 비밀번호 검증 유지. 해제 흐름과 저장 정책을 기기별로 검증 |
+
+MediaPipe는 Android/iOS용 Pose Landmarker와 선택적 인물 마스크를 제공한다. 그러나 현재 Python 파이프라인과 동일한 속도·정확도는 실기기로 검증해야 한다. [Android 가이드](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/android), [iOS 가이드](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/ios)
+
+Android Transformer는 하드웨어 영상 처리와 사용자 정의 효과를 지원한다. iOS는 AVFoundation을 입출력 후보로 검증한다. 이것만으로 기존 tracer 렌더링이 구현되는 것은 아니며, 공통 합성 엔진을 별도로 연결해야 한다. [Android 문서](https://developer.android.com/media/media3/transformer), [Apple 문서](https://developer.apple.com/av-foundation/)
+
+## 4. 모바일에서 특히 검증할 사항
+
+- **시간과 회전:** 휴대폰 가변 프레임률(VFR), 세로 영상 회전 메타데이터, 미러링을 처리한다. 원본 타임스탬프와 기존 프레임 인덱스의 대응을 정의해야 한다. 구형 프로젝트의 좌표 의미는 바꾸지 않는다.
+- **좌표:** video px → analysis px → reference → output 변환을 보존한다. 터치 좌표에는 화면 배율·레터박스·핀치·회전 역변환이 필요하다.
+- **메모리:** 현재 `video.read_analysis_frames`는 분석 구간의 회색 프레임을 리스트로 유지한다. 예를 들어 960×540×960프레임×1바이트는 약 475 MiB이며, 부가 버퍼는 제외한 값이다. 스트리밍/구간 처리로 바꿀 때 카메라 기준 프레임과 3프레임 차분 문맥을 유지해야 한다. 세로 영상은 가로 폭만 제한하면 높이가 커지므로 최대 변 또는 총 픽셀 수도 제한한다.
+- **동일한 결과:** 모바일 미리보기와 내보내기는 같은 장면·경로·글꼴·합성 규칙을 사용한다. Flutter 캔버스에만 tracer를 그리는 구현은 허용하지 않는다. GPU/코덱 차이는 허용 오차를 정해 비교한다.
+- **저장소:** 갤러리 자산은 데스크톱 절대경로와 다르다. 첫 버전은 선택 영상을 앱 저장소에 복사하는 안으로 시작하고 용량·정리 정책을 표시한다. iCloud 등 원격 원본은 로컬 확보 후 오프라인 편집한다. Android Photo Picker는 선택 영상 접근에 활용한다. [공식 문서](https://developer.android.com/training/data-storage/shared/photo-picker)
+- **중단과 복구:** 앱 전환·화면 잠금·OS 종료를 가정한다. 작업 상태를 디스크에 기록하고 원자적 저장·취소·재시작을 구현한다. 백그라운드에서 계속 실행된다고 가정하지 않는다.
+- **출력:** 첫 검증은 SDR H.264 MP4와 일반 속도 원본 오디오를 대상으로 한다. HEVC/HDR·고속 촬영은 별도 확인한다. 슬로모션 오디오 제외라는 현재 제한은 초기에는 유지하고 화면과 설명에 알린다.
+- **제품 원칙:** 영상 업로드·텔레메트리·새 네트워크 호출 없이 처리한다. 거리·속도는 현재처럼 사용자가 입력하며 단일 영상에서 실제 측정값이라고 표시하지 않는다.
+
+## 5. 필요한 장비와 준비사항
+
+사용자 요청은 **iOS 26.6.2 이상 지원**으로 해석한다. 이는 최소 OS 버전 요구이며 기기 모델명이 아니다. 실제 SDK·deployment target 설정 가능 여부와 해당 OS를 사용하는 기기 성능은 구현 단계에서 검증한다. Android 최소 지원 버전은 사용자 지정에 따라 **Android 14 이상**으로 계획한다. 아직 두 플랫폼의 앱 호환성을 검증하지 않았다. 최소 지원 OS와 스토어 제출용 target SDK는 별도로 관리한다.
+
+| 항목 | 현재 확인 / 필요한 준비 |
+| --- | --- |
+| iOS 개발 Mac | 현재 Mac에서 Xcode 27.2 및 개발 경로 확인. 실제 iOS 빌드·서명·연결 기기 검증은 아직 하지 않음 |
+| Android 개발 환경 | Android Studio, Android SDK, 호환 JDK 필요. `adb`가 PATH에서 발견되지 않았으며 전체 설치 여부는 미확인 |
+| 공통 UI 도구 | Flutter 후보. `flutter`가 PATH에서 발견되지 않았으며 아직 설치하지 않음 |
+| 실제 기기 | iPhone과 Android 각 1대 이상. 모델명·OS 버전·여유 공간 확인 필요 |
+| 검증 영상 | 공유 가능한 드라이버/칩/퍼트, 세로·가로, 30/60fps 및 고속 촬영 표본. 영상은 Git에 커밋하지 않음 |
+| 배포 준비 | 앱 이름·아이콘·지원 연락처·개인정보 설명·서명 키 보관 정책. 계정은 소유자가 관리 |
+
+App Store/TestFlight 배포에는 일반적으로 Apple Developer Program이 필요하며 공식 안내는 연 US$99다. 본인 기기 Xcode 테스트는 무료 계정으로 시작할 수 있다. [Apple 안내](https://developer.apple.com/programs/)
+
+Google Play 등록비는 공식 안내상 US$25 일회성이다. 배포 시 계정 유형별 확인·테스트 요건과 제출 시점의 SDK 요건을 다시 확인한다. Android 로컬 기기 테스트를 시작하는 데 Play 등록은 필요하지 않다. [Google 안내](https://support.google.com/googleplay/android-developer/answer/6112435?hl=en)
+
+비용은 2026-11-03 확인 기준이며 지역·세금 등에 따라 달라질 수 있다. 개발 기간과 총비용은 기기 성능 검증 및 기능 범위 확정 후 산정한다.
+
+**확정된 배포 목표는 Apple App Store와 Google Play 공개 출시다.** 개인용 설치만으로 완료 처리하지 않는다. 다음을 출시 준비 범위에 포함한다.
+
+- Google Play 개발자 계정 보유는 사용자 확인 완료. 신규 계정 등록은 준비 항목에서 제외한다. 개인/조직 유형, 생성일, 본인 확인 및 프로덕션 액세스 상태는 추가 확인이 필요하다. 사용자는 Apple Developer Program에 아직 가입하지 않았다. App Store 공개 배포 전 가입을 준비한다. 등록·결제·실제 게시 작업은 별도로 진행한다.
+- iOS Bundle ID와 Android application ID 확정, 배포 서명 설정, Android 업로드 키와 복구 방법 보관. 비밀 키는 저장소에 넣지 않는다.
+- en/ko 앱 설명, 아이콘, 실제 앱 화면 캡처, 지원 연락처와 URL, 개인정보처리방침 URL, 연령 등급, 배포 국가 준비. 무료/유료 등 판매 방식은 아직 미정이다.
+- 로컬 영상 처리와 사용 SDK의 실제 데이터 동작에 맞춰 Apple App Privacy와 Google Play Data safety를 작성한다. 오프라인 앱이라는 이유만으로 개인정보 설명을 생략하지 않는다. [Apple 개인정보 안내](https://developer.apple.com/app-store/app-privacy-details/), [Google Data safety 안내](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
+- TestFlight 및 Play 테스트 트랙에서 실기기 검증 후 심사 제출을 준비한다. 2023-11-13 이후 생성된 Google Play 개인 개발자 계정에는 현재 최소 12명이 연속 14일 참여하는 비공개 테스트 후 프로덕션 액세스를 신청하는 요건이 적용된다. 본인 계정의 적용 여부를 확인하며 테스트만으로 출시 승인을 보장하지 않는다. [Google 테스트 요건](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en)
+- 제출 시점의 Apple SDK/Xcode 및 Android target SDK 요건을 다시 확인한다. 심사자가 자동 추적을 재현할 수 있는 사용 절차와 권한 설명을 제공하고 미리보기·출력·워터마크 동작을 실제 빌드에서 검증한다. [Apple 심사 안내](https://developer.apple.com/app-store/review/)
+
+## 6. 단계별 구현과 완료 기준
+
+1. **기술 검증:** 두 기기에서 영상 선택 → 한 프레임 해독 → 공통 엔진 tracer 합성 → 짧은 MP4 저장. 회전·소리·한글·워터마크, 미리보기와 출력 일치를 확인한다. 시간·최대 메모리·발열을 측정하고 iOS 26.6.2 이상이라는 요청 범위에서 도구·기기 호환성을 검증한다. Android 14 이상에서도 같은 항목을 검증하고 기술 선택을 확정한다.
+2. **내부 편집 검증:** 영상 선택, 타격 프레임, 수동 시작/정점/착지, 궤적 속도, 스타일, 실행 취소/다시 실행, 저장/불러오기, en/ko, 워터마크 잠금과 영상 저장. 자동 분석 연결을 위한 개발 중간 단계이며 첫 출시 완료로 간주하지 않는다.
+3. **자동 추적:** 카메라 보정 → 공 후보/발사/비행 모델 → 인물 마스크/손목 → 스윙/퍼트 순으로 이식하고 기기 표본을 비교한다. 편집이 재분석을 유발하지 않는지 확인한다.
+4. **기능 확대와 배포:** 최대 4샷, 팝업·로고·도형, 슬로모션·일괄 작업, 호환 프로젝트 이전 및 중단 복구. 서명한 기기 빌드와 사용자 테스트 후 스토어 제출을 준비한다.
+
+첫 출시는 두 플랫폼에서 PC·클라우드 없이 영상 선택 → 시작 공 지정 → 자동 공 추적 → 궤적 보정 → 미리보기 → 영상 저장이 완료되어야 한다. 수동 편집만 가능한 앱은 출시 요구를 충족하지 않는다. 추적이 끊긴 구간의 예측과 착지 보정은 현재 제품 방식대로 구분해 표시한다. 자동 추적의 처리 시간·메모리·성공 기준은 대표 영상과 대상 기기를 확보한 뒤 측정해 정한다. 인물 가림·자동 스윙·퍼트의 첫 출시 포함 여부는 별도 확정한다.
+
+## 7. 코드와 변경 이력 저장 방침
+
+앱은 `app/android/`와 `app/ios/`, 공통 엔진은 `core/`, 합성·수치 테스트는 `tests/`, 개발 도구는 `tools/`에 저장한다. 플랫폼 앱은 같은 C ABI를 호출한다. 첫 구현에서 데스크톱 Python 코드나 프로젝트 데이터를 수정하지 않았다.
+
+앱 설치 파일·서명 인증서·비밀번호·실제 영상·빌드 산출물은 커밋하지 않는다. 데스크톱 공통 코드 변경이 필요해지면 원인을 기록하고 별도 변경으로 진행한다. 변경은 `codex/mobile-port-plan` 브랜치에서 개발하고 검증 후 초안 PR로 검토한다. 기존 루트 README 및 문서의 사용자 수정은 모바일 커밋에 포함하지 않는다.
+
+## 8. 사용자에게 필요한 결정
+
+- 확정: PC 없이 휴대폰 단독·오프라인 사용, 첫 출시부터 자동 공 추적 포함.
+- 추가 결정: 인물 가림·자동 스윙·퍼트까지 첫 출시에 포함할지.
+- 지원 목표: iOS 26.6.2 이상, Android 14 이상. 추가 확인: 실제 테스트 기기 모델과 설치 OS, 대표 영상의 해상도·fps·길이.
+- 확정: App Store·Google Play 공개 배포, Google Play 개발자 계정 보유. 추가 확인: Google 계정 유형·생성일·확인 및 프로덕션 액세스 상태, Apple Developer Program 미가입에 따른 가입 준비, 무료/유료 판매 방식.
+- 우선 개발할 기기와 첫 버전에 필요한 기능.
+
+Android와 iPhone 모두 위 요구를 목표로 한다. 수동 편집은 내부 검증 및 자동 추적 실패 시 보정 수단이다. 계정 비밀번호나 서명 키를 채팅에 보낼 필요는 없다.
+
+
+## 9. 현재 구현과 개발 방법
+
+### 구현한 범위
+
+- 영상의 로컬 복사, 프레임 이동, 시작 공 터치 지정, 최대 15초 구간을 초당 30회 표본 추출하여 자동 추적.
+- C++ 코어의 밝은 이동 물체 후보 검출, 공 위치 비움 확인, 방향·속도 일관성으로 발사 확인, 관측점 연결, 작은 카메라 평행 이동 보정. 프레임은 한 장만 유지한다.
+- 미리보기와 내보내기는 같은 `st_render` 궤적과 플랫폼별 동일 워터마크 합성 함수를 사용한다. 워터마크는 항상 표시되며 해제 UI는 아직 없다. 기존 데스크톱 scrypt 검증은 그대로 유지한다.
+- iPhone: SwiftUI + Files 영상 선택 + AVFoundation 프레임 추출/MP4 내보내기 + 저장/공유 메뉴.
+- Android: Kotlin + 시스템 영상 선택기 + JNI + Media3 Transformer MP4 내보내기 + 파일 저장 선택기. INTERNET 권한이나 광범위 갤러리 접근 권한을 요청하지 않는다.
+- 기존 `Model.at`과 `apex_time` 수치 계산을 C++로 이식하고 Python 결과와 비교했다. 이 모델의 자동 피팅·편집 연결은 아직 이식 전이다.
+- 모바일 UI 문구는 iOS `en.lproj`/`ko.lproj`, Android `values`/`values-ko` 리소스에서 관리한다. 웹 UI 문자열 체계는 변경하지 않았다.
+
+### 검증과 빌드
+
+저장소 루트에서 전체 테스트:
+
+```bash
+uv run pytest
+```
+
+기존 50개와 모바일 코어 10개를 합친 60개가 통과했다. 코어 테스트에는 C++17 컴파일러가 필요하며, 없으면 해당 테스트는 skip된다. 수치 모델 일치, 합성 공 추적, 정지 공, 관측 소실, 카메라 이동, 가변 시간 간격, 렌더링 시점을 확인한다.
+
+Xcode 프로젝트는 저장소에 포함되어 있으며 다음 명령으로 재생성할 수 있다.
+
+```bash
+python3 mobile-port/tools/generate_ios_project.py
+xcodebuild -project mobile-port/app/ios/ShotTracer.xcodeproj \
+  -scheme ShotTracer -configuration Debug -sdk iphoneos \
+  -destination generic/platform=iOS \
+  -derivedDataPath /tmp/shottracer-mobile-ios CODE_SIGNING_ALLOWED=NO build
+```
+
+현재 Mac에서 서명 없는 iOS 기기용 빌드가 성공했다. 실기기 설치에는 Xcode에서 본인 Team과 고유 Bundle ID를 설정해야 한다. 현재 ID `com.ajc.shottracer.dev`는 개발용이며 스토어 등록에 사용 확정한 ID가 아니다. CoreSimulator 서비스 버전 불일치로 시뮬레이터 실행은 검증하지 못했다.
+
+Android는 JDK 17, Android SDK 플랫폼 35·Build Tools 35.0.0·NDK 27.0.12077973·CMake 3.22.1로 구성한다. Gradle 8.11.1 wrapper와 배포 ZIP SHA-256 검증값을 포함한다. 개발 빌드의 compile/target SDK 35는 스토어 제출 적합성을 의미하지 않으며 출시 시 갱신한다.
+
+```bash
+cd mobile-port/app/android
+./gradlew :app:assembleDebug
+```
+
+현재 Mac에서 arm64-v8a·x86_64 네이티브 코어를 포함한 디버그 APK 빌드와 `lintDebug`가 성공했다. 실제 Android 기기 설치·실행은 아직 검증하지 않았다.
+
+Android Studio에서 이 폴더를 열거나 `ANDROID_HOME`을 준비한 SDK 경로로 지정한다. SDK 경로를 Git에 저장하지 않는다. 생성 APK는 `app/build/outputs/apk/debug/`에 있으며 커밋하지 않는다.
+
+### 남은 작업과 실제 사용 제한
+
+실제 골프 영상·두 플랫폼 실기기에서 추적과 내보내기 일치를 아직 검증하지 않았다. 현재 검출기는 밝은 공과 작은 카메라 평행 이동을 가정하며, 데스크톱 LK/RANSAC·인물 마스크와 동등하지 않다. 공 소실 후 예측 비행, 착지/정점 편집, 4샷, 팝업·스윙·퍼트·슬로모션·프로젝트 복구/호환 가져오기는 아직 미구현이다. 관측 경로만 그리며 관측 소실 후 점을 임의로 추가하지 않는다.
+
+분석 프레임의 최대 변은 640px다. iPhone 내보내기는 1080p 프리셋, Android는 높이 720px 개발용 출력이며 원본 해상도 내보내기는 후속 작업이다. 원본 오디오를 포함하는 표준 플랫폼 경로를 사용하지만 코덱·오디오·HDR·세로 회전·가변 프레임률은 실영상 검증이 필요하다. Android 프레임 추출은 요청 시각의 가까운 프레임을 사용하므로 원본 타임스탬프 기반 디코더 이식이 남아 있다.
+
+앱을 열어둔 상태에서 검증한다. 장시간 작업의 백그라운드 지속, OS 종료 후 작업 복구, 캐시 정리·프로젝트 삭제 UI, 접근성 보완, 워터마크 비밀번호 해제의 모바일 scrypt 검증은 후속 작업이다. 자동 추적 기능의 초기 구현이며 첫 출시 요구 전체가 완료된 상태는 아니다.
