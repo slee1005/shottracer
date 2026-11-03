@@ -115,6 +115,8 @@ Both Android and iPhone target these requirements. Manual editing serves interna
 
 ### Implemented scope
 
+New logo source: [ShotTracer logo v1](assets/brand/shottracer-logo-v1.png), with the generation prompt and asset scope in [design notes](assets/brand/DESIGN.md).
+
 - A redesigned dark workspace with teal action/selection controls, rounded video cards, visible Flight/Putt switching and iPhone native Glass controls. A larger, zoomable video workspace with accessible icon buttons, an expand/collapse control, exact previous/next source-frame stepping and a frame counter. Long-press an Android icon to see its label. Landscape and portrait use fit-to-screen without cropping the video.
 - Up to four shots in one video: add/select/delete, select the starting ball and frame, analyze the selected shot, drag start/apex/landing handles, assign the current frame as landing time, adjust flight duration, time to apex and tracer speed. Undo/redo stores up to 50 edit snapshots; edits do not rerun tracking.
 - Shared C++ perspective flight fitting, landing refitting and apex reshaping, compared numerically with the desktop Python implementation. Automatic observations and `baseModel` remain separate from edits. The predicted flight after tracking loss is an estimate; selecting the actual landing point improves it.
