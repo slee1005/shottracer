@@ -119,7 +119,7 @@ Both Android and iPhone target these requirements. Manual editing serves interna
 - C++ bright moving-object candidates, address-spot disappearance, direction/speed consistency for launch confirmation, observation linking, and small camera-translation compensation. Only one frame is retained.
 - Preview and export share `st_render` geometry and the same platform-specific watermark composition function. Watermark is always present; no unlock UI exists yet. Desktop scrypt verification remains unchanged.
 - iPhone: SwiftUI, Photos library and Files video import, AVFoundation extraction/MP4 export, and save/share menu. Use **Choose video from Photos** to import a movie directly. Selected videos are copied as files into app storage and temporary transfer files are cleaned up. **Record a live shot** feeds rear-camera frames into the same tracker and records the displayed tracer/watermark into the video. For iCloud-only assets, the system must download the original before analysis.
-- Android: Kotlin, system video picker, JNI, Media3 Transformer MP4 export, and document save picker. No INTERNET or broad gallery permission is requested.
+- Android: Kotlin, system video picker, JNI, Media3 Transformer MP4 export, and document save picker. Camera2 live capture feeds the same tracker and records the live composite as H.264/AAC MP4. Camera/microphone permissions are requested only in the live view; no INTERNET or broad gallery permission is requested.
 - Ported desktop `Model.at` and `apex_time` numeric evaluation to C++ and compared results with Python. Automatic model fitting/edit integration remains pending.
 - Mobile strings use iOS `en.lproj`/`ko.lproj` and Android `values`/`values-ko` resources. Existing web localization remains unchanged.
 
@@ -175,6 +175,27 @@ Reinstall through Xcode, then tap **Record a live shot**. Allow camera access an
 4. Tap **Stop and save**, or wait for the 15-second maximum.
 5. Use **Save or share video**. App-owned recordings also remain in the Files sharing directory under `captures/`, excluded from automatic cloud backup.
 
-Camera capture is currently iPhone-only. Live processing uses VGA (portrait 480×640) at up to 30fps; overload may drop frames. Both display and recording use existing `TrackingSession`/`st_render` composition. The yellow selection handle is an editor control and is not recorded. If tracking fails, the video is still saved and the failure is reported. Denied microphone access produces a silent recording with an explicit screen notice.
+iPhone capture uses AVFoundation; the separate Android Camera2 implementation is described below. Live processing uses VGA (portrait 480×640) at up to 30fps; overload may drop frames. Both display and recording use existing `TrackingSession`/`st_render` composition. The yellow selection handle is an editor control and is not recorded. If tracking fails, the video is still saved and the failure is reported. Denied microphone access produces a silent recording with an explicit screen notice.
 
 Backgrounding the app or camera interruption finalizes capture. Reselect the ball for a new session. Live videos have the tracer baked in; they are not editable trajectory projects for the existing editor. Existing import/edit workflows remain available. Physical camera capture, audio synchronization, live throughput, and real golf-shot accuracy remain unverified.
+
+
+### Android live camera recording
+
+Install the new APK and tap **Record a live shot**. Allow camera access. Microphone access is optional; if denied or unavailable, capture is silent with an explicit notice. Video import alone does not request camera access.
+
+1. Hold the phone upright on a stable support and tap the starting ball.
+2. Tap **Start recording and tracking**, then hit the shot. Observed paths appear live.
+3. Tap **Stop and save**, or wait for the 15-second maximum.
+4. Use **Save exported video** to choose a destination.
+
+Camera2 YUV_420_888 frames are read using each plane’s row/pixel strides and corrected for sensor orientation. The app requests a maximum dimension of 640px and up to 30fps; actual size/rate depend on the camera. Preview composites the shared `TrackingSession` tracer/watermark, then passes that exact bitmap to the EGL/MediaCodec encoder. The yellow selection handle is not recorded. Late camera frames and UI updates are not queued indefinitely; overload may drop frames.
+
+When available, microphone PCM is encoded as AAC and muxed with H.264 into MP4. Pending packets while codec formats initialize and finalization waits are bounded. If the camera lacks a real-time sensor clock, video arrival time estimates the audio start offset; device synchronization needs validation.
+
+Leaving the view or backgrounding closes the camera and finalizes recording. Temporary `.partial.mp4` files are renamed only on successful completion. Complete videos stay in app-private `files/captures/`; reopening live capture makes the most recent complete video available to save. Tracking failure still saves the watermarked video with a failure notice. Automatic app backups exclude recordings.
+
+Run `./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug` for validation. Four added JVM tests check padded YUV rows, chroma pixel strides, crop, sensor rotation, and color bounds. Real golf accuracy, device-specific camera/codec support, audio synchronization, and sustained throughput require physical-device validation. Live output has a baked tracer and is not an editable trajectory project.
+
+
+Android 14 emulator checks with a virtual camera passed: 15-second automatic stop, H.264 480×640 plus AAC MP4, silent manual stop, saving through Downloads, and background finalization of a roughly 2-second clip with no active camera clients. Physical camera/microphone input and real golf-shot accuracy remain unverified.

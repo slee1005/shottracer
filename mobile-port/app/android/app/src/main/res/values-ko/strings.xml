@@ -18,4 +18,24 @@
     <string name="status_saved">영상을 저장했습니다.</string>
     <string name="error_processing">영상을 처리하지 못했습니다. 여유 공간과 영상 형식을 확인하세요.</string>
     <string name="error_track">일관된 발사를 찾지 못했습니다. 더 선명한 공이나 앞 프레임을 지정하세요.</string>
+    <string name="live_open">카메라로 라이브 샷 촬영</string>
+    <string name="live_title">라이브 샷</string>
+    <string name="live_instructions">휴대폰을 세로로 안정적으로 고정하세요. 공 지정 → 촬영 시작 → 샷 순서로 진행합니다. 실시간 추적은 검증 중이며 15초 후 자동으로 저장합니다.</string>
+    <string name="live_preview">실시간 카메라 화면. 촬영 전에 시작 공을 눌러 지정하세요.</string>
+    <string name="live_preparing">카메라를 준비하고 있습니다…</string>
+    <string name="live_hint">촬영 전에 화면에서 시작 공을 누르세요.</string>
+    <string name="live_ready">공을 지정했습니다. 스윙 전에 촬영을 시작하세요.</string>
+    <string name="live_record">촬영 및 추적 시작</string>
+    <string name="live_stop">촬영 중지 및 저장</string>
+    <string name="live_recording">촬영과 추적 중… 최대 15초입니다.</string>
+    <string name="live_finishing">영상을 마무리하고 있습니다…</string>
+    <string name="live_saved">관측 궤적과 워터마크를 포함해 저장했습니다. 아래에서 영상을 저장하세요.</string>
+    <string name="live_no_track">영상은 워터마크와 함께 저장했지만 일관된 공 발사를 찾지 못했습니다. 더 선명한 공과 고정된 화면으로 다시 시도하세요.</string>
+    <string name="live_audio_on">마이크 사용 중: 영상에 소리를 함께 녹음합니다.</string>
+    <string name="live_audio_off">마이크를 사용할 수 없어 무음으로 촬영합니다.</string>
+    <string name="live_denied">카메라 권한이 필요합니다. 설정에서 ShotTracer의 카메라 접근을 허용한 뒤 돌아오세요.</string>
+    <string name="live_unavailable">카메라를 사용할 수 없습니다. 실제 기기에서 실행하고 다른 카메라 앱을 닫아주세요.</string>
+    <string name="live_interrupted">카메라 사용이 중단되어 촬영을 멈췄습니다. 앱으로 돌아와 공을 다시 지정하세요.</string>
+    <string name="live_failed">영상을 처리하거나 저장하지 못했습니다. 여유 공간을 확인한 뒤 다시 시도하세요.</string>
+    <string name="live_audio_hint">마이크 접근을 허용하면 촬영할 때 소리를 함께 녹음합니다.</string>
 </resources>

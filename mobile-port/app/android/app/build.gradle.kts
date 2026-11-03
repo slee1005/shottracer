@@ -20,6 +20,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.media3:media3-transformer:1.9.0")
     implementation("androidx.media3:media3-effect:1.9.0")
     implementation("androidx.media3:media3-common:1.9.0")

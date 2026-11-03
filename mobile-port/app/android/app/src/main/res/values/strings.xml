@@ -18,4 +18,24 @@
     <string name="status_saved">Video saved.</string>
     <string name="error_processing">Could not process the video. Check free storage and video format.</string>
     <string name="error_track">No consistent launch found. Pick a clearer ball or an earlier frame.</string>
+    <string name="live_open">Record a live shot</string>
+    <string name="live_title">Live shot</string>
+    <string name="live_instructions">Hold the phone upright on a stable support. Tap the ball, start recording, then hit. Live tracking is experimental; recording stops automatically after 15 seconds.</string>
+    <string name="live_preview">Live camera preview. Tap the starting ball before recording.</string>
+    <string name="live_preparing">Preparing camera…</string>
+    <string name="live_hint">Tap the starting ball before recording.</string>
+    <string name="live_ready">Ball selected. Start recording before the swing.</string>
+    <string name="live_record">Start recording and tracking</string>
+    <string name="live_stop">Stop and save</string>
+    <string name="live_recording">Recording and tracking… Maximum 15 seconds.</string>
+    <string name="live_finishing">Finishing video…</string>
+    <string name="live_saved">Shot saved with the observed tracer and watermark. Save the video below.</string>
+    <string name="live_no_track">Video saved with watermark, but no consistent ball launch was found. Try a clearer ball and a steadier phone.</string>
+    <string name="live_audio_on">Microphone enabled: video includes sound.</string>
+    <string name="live_audio_off">Microphone unavailable: recording will be silent.</string>
+    <string name="live_denied">Camera access is required. Enable it for ShotTracer in Settings, then return.</string>
+    <string name="live_unavailable">Camera unavailable. Test on a physical device and close other camera apps.</string>
+    <string name="live_interrupted">Camera interrupted. Recording stopped; return to the app and reselect the ball.</string>
+    <string name="live_failed">Could not process or save the recording. Check free storage and try again.</string>
+    <string name="live_audio_hint">Allow microphone access to include sound when recording.</string>
 </resources>

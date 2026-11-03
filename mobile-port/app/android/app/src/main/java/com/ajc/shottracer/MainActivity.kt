@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var slider: SeekBar
     private lateinit var importButton: Button
+    private lateinit var cameraButton: Button
     private lateinit var analyzeButton: Button
     private lateinit var exportButton: Button
     private lateinit var saveButton: Button
@@ -90,6 +91,7 @@ class MainActivity : Activity() {
         fun button(label: Int, action: () -> Unit) = Button(this).apply {
             setText(label); setOnClickListener { action() }; layout.addView(this)
         }
+        cameraButton = button(R.string.live_open) { startActivity(Intent(this, LiveCameraActivity::class.java)) }
         importButton = button(R.string.action_import) {
             startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/*"), 1)
         }
@@ -107,6 +109,7 @@ class MainActivity : Activity() {
 
     private fun updateControls() {
         importButton.isEnabled = !busy
+        cameraButton.isEnabled = !busy
         analyzeButton.isEnabled = !busy && preview.ball != null
         exportButton.isEnabled = !busy && session != null
         saveButton.isEnabled = !busy && output != null
