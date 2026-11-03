@@ -22,6 +22,7 @@ struct EditorView: View {
     @State private var dragging = false
     @State private var pinching = false
     @State private var transformedGesture = false
+    @State private var resetConfirm = false
     private func icon(_ key: String, _ symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9)) }
             .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key))).disabled(disabled || model.busy)
@@ -29,7 +30,7 @@ struct EditorView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 4) {
-                if !fullscreen { header; shotBar }
+                if !fullscreen { header; shotBar; workflow }
                 ZStack(alignment: .topTrailing) {
                     preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black).clipped()
                     if fullscreen { icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen = false }.padding(8) }
@@ -43,9 +44,8 @@ struct EditorView: View {
             .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fullScreenCover(isPresented: $reviewing) { if let url = model.output { ReviewView(url: url) } }
             .sheet(isPresented: $settings) { EditorSettings(model: model).onAppear { model.checkpoint() }.onDisappear { model.commitEdits() } }
-            .sheet(isPresented: $showingProjects) { NavigationStack { List(model.projects, id: \.path) { file in
-                Button(file.deletingLastPathComponent().lastPathComponent.prefix(8).description) { showingProjects = false; model.openProject(file) }
-            }.navigationTitle(Text("editor.projects")).toolbar { Button("editor.batch") { showingProjects = false; model.exportAll() } } } }
+            .sheet(isPresented: $showingProjects) { ProjectList(model: model) }
+            .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
             .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in if case .success(let url) = result { model.importVideo(url) } }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
             .onDisappear { model.pause() }
@@ -74,6 +74,19 @@ struct EditorView: View {
             icon("editor.add", "plus.circle.fill", disabled: !model.hasVideo || model.scene.shots.count >= 4) { model.addShot() }
             Spacer(minLength: 0)
         }.frame(height: 34)
+    }
+    private var workflow: some View {
+        HStack {
+            Button { model.pause(); model.chooseTool("ball") } label: {
+                Label { Text(LocalizedStringKey(model.scene.shot.ball == nil ? "editor.startUnset" : "editor.startChecked")) } icon: {
+                    Image(systemName: model.scene.shot.ball == nil ? "scope" : "checkmark.circle.fill")
+                }
+            }.tint(model.scene.shot.ball == nil ? .white : .green)
+            Spacer(minLength: 2)
+            Button("editor.analyzeAction") { model.analyze() }.disabled(model.scene.shot.ball == nil)
+            Spacer(minLength: 2)
+            Button { model.pause(); resetConfirm = true } label: { Label("editor.resetAction", systemImage: "arrow.counterclockwise") }
+        }.font(.caption).buttonStyle(.bordered).disabled(model.busy || !model.hasVideo)
     }
     @ViewBuilder private var preview: some View {
         if let image = model.image {
@@ -149,7 +162,45 @@ struct ReviewView: View {
     var body: some View {
         NavigationStack { VideoPlayer(player: player).background(.black).navigationTitle(Text("editor.review"))
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("camera.close") { dismiss() } } }
-        }.onAppear { player.play() }.onDisappear { player.pause() }
+        }.onAppear { player.defaultRate = 1; player.playImmediately(atRate: 1) }.onDisappear { player.pause() }
+    }
+}
+
+struct ProjectList: View {
+    @ObservedObject var model: EditorModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected = Set<URL>()
+    @State private var deletion: [URL] = []
+    @State private var confirming = false
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(model.projects, id: \.path) { file in
+                    HStack {
+                        Button {
+                            if selected.contains(file) { selected.remove(file) } else { selected.insert(file) }
+                        } label: { Image(systemName: selected.contains(file) ? "checkmark.circle.fill" : "circle") }
+                            .accessibilityLabel(Text("editor.selectProject")).buttonStyle(.borderless)
+                        Button(file.deletingLastPathComponent().lastPathComponent.prefix(8).description) { dismiss(); model.openProject(file) }.buttonStyle(.borderless)
+                    }.swipeActions { Button("editor.deleteProjects", role: .destructive) { deletion = [file]; confirming = true } }
+                }
+            }
+            .navigationTitle(Text("editor.projects")).disabled(model.busy)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("editor.done") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("editor.selectAll") { selected = selected.count == model.projects.count ? [] : Set(model.projects) }.disabled(model.busy || model.projects.isEmpty)
+                }
+                ToolbarItemGroup(placement: .bottomBar) {
+                    Button("editor.batch") { dismiss(); model.exportAll() }.disabled(model.busy || model.projects.isEmpty)
+                    Spacer()
+                    Button("editor.deleteSelected", role: .destructive) { deletion = Array(selected); confirming = true }.disabled(model.busy || selected.isEmpty)
+                }
+            }
+            .confirmationDialog("editor.deleteProjectsConfirm", isPresented: $confirming, titleVisibility: .visible) {
+                Button("editor.deleteSelected", role: .destructive) { model.deleteProjects(deletion); selected.subtract(deletion); deletion = [] }
+            }
+        }
     }
 }
 

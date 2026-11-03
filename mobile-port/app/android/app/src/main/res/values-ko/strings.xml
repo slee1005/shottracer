@@ -126,4 +126,15 @@
     <string name="editor_hide_after_shot">샷 이후 숨기기</string>
     <string name="editor_hide_end">영상 끝까지 표시</string>
     <string name="editor_hide_time">지정 시간 동안 표시</string>
+    <string name="editor_start_unset">시작점 지정</string>
+    <string name="editor_start_checked">✓ 시작점 지정됨</string>
+    <string name="editor_analyze_action">분석</string>
+    <string name="editor_reset_action">리셋</string>
+    <string name="editor_delete_projects">프로젝트 삭제…</string>
+    <string name="editor_delete_selected">선택 항목 삭제</string>
+    <string name="editor_select_all">전체 선택 / 해제</string>
+    <string name="editor_select_project">프로젝트 선택</string>
+    <string name="editor_delete_projects_confirm">선택한 프로젝트와 앱 내부 영상 사본·편집 정보·출력 영상을 삭제할까요? Photos·파일 앱의 원본은 유지됩니다. 삭제는 되돌릴 수 없습니다.</string>
+    <string name="editor_projects_deleted">프로젝트 %1$d개를 삭제했습니다.</string>
+    <string name="editor_delete_failed">일부 프로젝트를 삭제하지 못했습니다. 목록을 확인한 후 다시 시도하세요.</string>
 </resources>

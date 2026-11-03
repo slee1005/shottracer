@@ -40,6 +40,10 @@ class MainActivity : Activity() {
     private lateinit var shotBar: LinearLayout
     private lateinit var tools: HorizontalScrollView
     private lateinit var top: HorizontalScrollView
+    private lateinit var workflow: LinearLayout
+    private lateinit var startButton: Button
+    private lateinit var analyzeButton: Button
+    private lateinit var resetButton: Button
     private val buttons = mutableMapOf<String, ImageButton>()
     private var source: File? = null
     private var output: File? = null
@@ -95,8 +99,16 @@ class MainActivity : Activity() {
         icon(upper, "projects") { projects() }
         icon(upper, "undo") { restore(undo, redo) }; icon(upper, "redo") { restore(redo, undo) }
         icon(upper, "settings") { settings() }
-        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotBar.visibility = if (fullscreen) View.GONE else View.VISIBLE }
+        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotBar.visibility = if (fullscreen) View.GONE else View.VISIBLE; workflow.visibility = if (fullscreen) View.GONE else View.VISIBLE }
         shotBar = row(); root.addView(shotBar, LinearLayout.LayoutParams(-1, dp(38)))
+        workflow = row(); root.addView(workflow, LinearLayout.LayoutParams(-1, dp(44)))
+        fun actionButton(key: String, action: () -> Unit) = Button(this).apply {
+            text = text(key); textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
+            setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
+        }
+        startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; preview.panEnabled = false; status.text = text("hint_ball"); controls() }
+        analyzeButton = actionButton("analyze_action") { analyze() }
+        resetButton = actionButton("reset_action") { confirmReset() }
         preview = PreviewView(this).apply { zoomEnabled = true }
         root.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
         preview.onBall = { p -> touch(EditPoint(p.x / scene.width.toDouble(), p.y / scene.height.toDouble())) }
@@ -132,7 +144,7 @@ class MainActivity : Activity() {
     private fun controls() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && when (key) {
-                "previous", "next", "play", "ball", "landing", "apex", "path", "circle", "line", "swing", "pan", "settings", "export" -> source != null
+                "previous", "next", "play", "ball", "landing", "apex", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
                 "analyze" -> scene.shot.ball != null
                 "undo" -> undo.isNotEmpty()
                 "redo" -> redo.isNotEmpty()
@@ -145,6 +157,11 @@ class MainActivity : Activity() {
         }
         slider.isEnabled = !busy && source != null
         preview.isEnabled = !busy && !decoding
+        startButton.text = text(if (scene.shot.ball != null) "start_checked" else "start_unset")
+        startButton.isEnabled = !busy && !decoding && source != null
+        analyzeButton.isEnabled = !busy && !decoding && source != null && scene.shot.ball != null
+        resetButton.isEnabled = !busy && source != null
+        for (i in 0 until shotBar.childCount) shotBar.getChildAt(i).isEnabled = !busy && source != null && (i < scene.shots.size || scene.shots.size < 4)
     }
     private fun renderShots() {
         shotBar.removeAllViews()
@@ -152,7 +169,8 @@ class MainActivity : Activity() {
             val button = Button(this).apply {
                 text = getString(R.string.editor_shot_number, i + 1); textSize = 12f; minWidth = 0; setPadding(0, 0, 0, 0)
                 setTextColor(if (i == scene.selected) Color.RED else Color.WHITE)
-                setOnClickListener { scene.selected = i; pending = null; persist(); handles(); renderShots() }
+                isEnabled = !busy
+                setOnClickListener { scene.selected = i; pending = null; persist(); handles(); renderShots(); controls() }
             }
             shotBar.addView(button, LinearLayout.LayoutParams(dp(62), -1))
         }
@@ -280,6 +298,8 @@ class MainActivity : Activity() {
     }
     private fun analyze() {
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
+        if (busy) return
+        status.setText(R.string.status_analyzing)
         val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val rows = times.copyOf()
         work {
             val result = TrackingSession(width, height, ball.x * width, ball.y * height); val retriever = MediaMetadataRetriever()
@@ -344,13 +364,62 @@ class MainActivity : Activity() {
         try { transformer!!.start(item, destination.path) } catch (_: Exception) { destination.delete(); busy = false; controls(); status.setText(R.string.error_processing) }
     }
     private fun deleteShot() { if (scene.shots.size > 1) { remember(); scene.shots.removeAt(scene.selected); scene.selected = min(scene.selected, scene.shots.lastIndex); changed(); renderShots() } }
+    private fun confirmReset() {
+        if (busy || source == null) return
+        stopPlay()
+        AlertDialog.Builder(this).setMessage(text("reset_confirm")).setPositiveButton(text("reset_action")) { _, _ ->
+            remember(); val width = scene.width; val height = scene.height
+            scene = EditorScene().apply { this.width = width; this.height = height }
+            tool = "ball"; pending = null; preview.panEnabled = false
+            changed(); renderShots(); controls(); status.text = text("hint_ball"); refresh(0)
+        }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun clearProject() {
+        stopPlay(); generation++; source = null; output = null; times = doubleArrayOf(0.0); duration = 0.0
+        frameIndex = 0; displayed = 0; decoding = false; scene = EditorScene(); renderer = EditorRenderer(scene)
+        undo.clear(); redo.clear(); pending = null; tool = "ball"; preview.panEnabled = false
+        preview.image?.recycle(); preview.image = null; preview.overlay?.recycle(); preview.overlay = null
+        preview.handles = emptyList(); preview.invalidate(); slider.max = 1; slider.progress = 0; counter.text = ""
+        renderShots(); controls(); status.setText(R.string.hint_import)
+    }
+    private fun deleteProjects(folders: List<File>) {
+        if (busy || folders.isEmpty()) return
+        AlertDialog.Builder(this).setTitle(text("delete_projects")).setMessage(text("delete_projects_confirm"))
+            .setPositiveButton(text("delete_selected")) { _, _ ->
+                val root = File(filesDir, "projects").canonicalFile
+                val allowed = folders.filter { it.canonicalFile.parentFile == root && File(it, "source.mp4").isFile }
+                work {
+                    val deleted = allowed.filter { it.deleteRecursively() }
+                    ui {
+                        if (source?.isFile == false) clearProject()
+                        status.text = if (deleted.size == allowed.size) getString(R.string.editor_projects_deleted, deleted.size) else text("delete_failed")
+                    }
+                }
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+    private fun chooseDeletions(folders: List<File>) {
+        val selected = BooleanArray(folders.size)
+        val dialog = AlertDialog.Builder(this).setTitle(text("delete_projects"))
+            .setMultiChoiceItems(folders.map { it.name.take(8) }.toTypedArray(), selected) { _, index, checked -> selected[index] = checked }
+            .setPositiveButton(text("delete_selected")) { _, _ -> deleteProjects(folders.filterIndexed { i, _ -> selected[i] }) }
+            .setNeutralButton(text("select_all"), null).setNegativeButton(android.R.string.cancel, null).create()
+        dialog.setOnShowListener {
+            val delete = dialog.getButton(AlertDialog.BUTTON_POSITIVE); delete.isEnabled = false
+            dialog.listView.setOnItemClickListener { _, _, i, _ -> selected[i] = dialog.listView.isItemChecked(i); delete.isEnabled = selected.any { it } }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val checked = !selected.all { it }; selected.indices.forEach { selected[it] = checked; dialog.listView.setItemChecked(it, checked) }; delete.isEnabled = checked
+            }
+        }
+        dialog.show()
+    }
     private fun projects() {
+        if (busy) return
         stopPlay(); val folders = File(filesDir, "projects").listFiles()?.filter { File(it, "source.mp4").isFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
         AlertDialog.Builder(this).setTitle(text("projects")).setItems(folders.map { it.name.take(8) }.toTypedArray()) { _, index -> load(File(folders[index], "source.mp4")) }
             .setNeutralButton(text("batch")) { _, _ ->
                 fun next(index: Int) { if (index < folders.size) load(File(folders[index], "source.mp4")) { exportVideo { next(index + 1) } } }
                 if (folders.isNotEmpty()) next(0)
-            }.setPositiveButton(android.R.string.cancel, null).show()
+            }.setNegativeButton(text("delete_projects")) { _, _ -> if (folders.isNotEmpty()) chooseDeletions(folders) }.setPositiveButton(android.R.string.cancel, null).show()
     }
     private fun settings() {
         stopPlay(); val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
@@ -384,7 +453,6 @@ class MainActivity : Activity() {
         action("logo") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), 3) }
         action("logo_clear") { remember(); scene.logo = null; changed() }
         action("delete_shot") { deleteShot() }
-        action("reset") { AlertDialog.Builder(this).setMessage(text("reset_confirm")).setPositiveButton(android.R.string.ok) { _, _ -> remember(); scene = EditorScene().apply { width = scene.width; height = scene.height }; changed(); renderShots() }.setNegativeButton(android.R.string.cancel, null).show() }
         AlertDialog.Builder(this).setTitle(text("settings")).setView(ScrollView(this).apply { addView(layout) }).setPositiveButton(android.R.string.ok) { _, _ -> remember(); edits.forEach { it() }; changed() }.setNegativeButton(android.R.string.cancel, null).show()
     }
     private fun popup() {

@@ -94,7 +94,32 @@ final class EditorModel: ObservableObject {
     func deleteShot() { guard scene.shots.count > 1 else { return }; checkpoint(); scene.shots.remove(at: scene.selected); scene.selected = min(scene.selected, scene.shots.count - 1); commitEdits() }
     func deleteShape() { if !scene.shapes.isEmpty { checkpoint(); scene.shapes.removeLast(); commitEdits() } else { deleteShot() } }
     func landOnFrame() { guard scene.shot.ball != nil, displayedTime > scene.shot.start else { return }; checkpoint(); scene.shot.landing = scene.shot.endpoint; scene.shot.flight = min(15, max(0.2, displayedTime - scene.shot.start)); chooseTool("landing"); commitEdits() }
-    func reset() { checkpoint(); let w = scene.width, h = scene.height; scene = EditorScene(); scene.width = w; scene.height = h; commitEdits() }
+    func reset() {
+        guard !busy, hasVideo else { return }
+        pause(); checkpoint(); let w = scene.width, h = scene.height
+        scene = EditorScene(); scene.width = w; scene.height = h; chooseTool("ball"); commitEdits(); seek(0)
+    }
+    func deleteProjects(_ files: [URL]) {
+        guard !busy, !files.isEmpty else { return }
+        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath()
+        let known = Set(projects)
+        let folders = Set(files.filter { known.contains($0) }.map { $0.deletingLastPathComponent().resolvingSymlinksInPath() })
+            .filter { $0.deletingLastPathComponent() == root }
+        guard !folders.isEmpty else { return }
+        pause(); previewTask?.cancel(); previewGeneration += 1; busy = true
+        task = Task {
+            let deleted = await Task.detached { folders.filter { folder in
+                do { try FileManager.default.removeItem(at: folder); return true } catch { return false }
+            } }.value
+            if let source, !FileManager.default.fileExists(atPath: source.path) {
+                self.source = nil; output = nil; image = nil; overlay = nil; scene = EditorScene()
+                renderer = EditorRenderer(scene); times = [0]; frameIndex = 0; time = 0; displayedTime = 0; duration = 0
+                undo = []; redo = []; pending = nil; tool = "ball"
+            }
+            reloadProjects(); busy = false
+            status = deleted.count == folders.count ? String(format: NSLocalizedString("editor.projectsDeleted", comment: ""), deleted.count) : NSLocalizedString("editor.deleteFailed", comment: "")
+        }
+    }
     func selectShot(_ index: Int) { scene.selected = index; persist() }
     private func reference(_ p: EditPoint) -> EditPoint { let m = interpolated(scene.shot.camera, displayedTime); return EditPoint(p.x - m.x, p.y - m.y) }
     func moveHandle(_ key: String, _ p: EditPoint) {

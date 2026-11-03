@@ -95,7 +95,11 @@ class ReviewActivity : Activity() {
         setContentView(root); video = view
         val controller = MediaController(this); controller.setAnchorView(view)
         view.setMediaController(controller); view.setVideoURI(Uri.fromFile(file))
-        view.setOnPreparedListener { it.isLooping = false; view.start(); controller.show(5000) }
+        view.setOnPreparedListener {
+            it.isLooping = false
+            it.playbackParams = it.playbackParams.setSpeed(1f).setPitch(1f)
+            view.start(); controller.show(5000)
+        }
         view.contentDescription = getString(R.string.editor_review)
     }
     override fun onPause() { video?.pause(); super.onPause() }

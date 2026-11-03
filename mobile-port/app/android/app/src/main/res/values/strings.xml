@@ -126,4 +126,15 @@
     <string name="editor_hide_after_shot">Hide after shot</string>
     <string name="editor_hide_end">Show until video ends</string>
     <string name="editor_hide_time">Show for specified duration</string>
+    <string name="editor_start_unset">Set start point</string>
+    <string name="editor_start_checked">✓ Start point set</string>
+    <string name="editor_analyze_action">Analyze</string>
+    <string name="editor_reset_action">Reset</string>
+    <string name="editor_delete_projects">Delete projects…</string>
+    <string name="editor_delete_selected">Delete selected</string>
+    <string name="editor_select_all">Select / deselect all</string>
+    <string name="editor_select_project">Select project</string>
+    <string name="editor_delete_projects_confirm">Delete selected projects and their imported copies, edits and exported videos? Originals in Photos or Files are kept. This cannot be undone.</string>
+    <string name="editor_projects_deleted">Deleted %1$d projects.</string>
+    <string name="editor_delete_failed">Some projects could not be deleted. Check the project list and try again.</string>
 </resources>

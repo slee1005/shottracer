@@ -131,3 +131,15 @@
 "editor.landingFrame" = "Land on this frame";
 "editor.batch" = "Export all projects";
 "editor.batchProgress" = "Exporting %d / %d";
+
+"editor.startUnset" = "Set start point";
+"editor.startChecked" = "✓ Start point set";
+"editor.analyzeAction" = "Analyze";
+"editor.resetAction" = "Reset";
+"editor.deleteProjects" = "Delete projects…";
+"editor.deleteSelected" = "Delete selected";
+"editor.selectAll" = "Select / deselect all";
+"editor.selectProject" = "Select project";
+"editor.deleteProjectsConfirm" = "Delete selected projects and their imported copies, edits and exported videos? Originals in Photos or Files are kept. This cannot be undone.";
+"editor.projectsDeleted" = "Deleted %d projects.";
+"editor.deleteFailed" = "Some projects could not be deleted. Check the project list and try again.";

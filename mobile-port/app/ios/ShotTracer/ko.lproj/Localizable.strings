@@ -131,3 +131,15 @@
 "editor.landingFrame" = "현재 프레임에 착지";
 "editor.batch" = "모든 프로젝트 내보내기";
 "editor.batchProgress" = "%d / %d 내보내는 중";
+
+"editor.startUnset" = "시작점 지정";
+"editor.startChecked" = "✓ 시작점 지정됨";
+"editor.analyzeAction" = "분석";
+"editor.resetAction" = "리셋";
+"editor.deleteProjects" = "프로젝트 삭제…";
+"editor.deleteSelected" = "선택 항목 삭제";
+"editor.selectAll" = "전체 선택 / 해제";
+"editor.selectProject" = "프로젝트 선택";
+"editor.deleteProjectsConfirm" = "선택한 프로젝트와 앱 내부 영상 사본·편집 정보·출력 영상을 삭제할까요? Photos·파일 앱의 원본은 유지됩니다. 삭제는 되돌릴 수 없습니다.";
+"editor.projectsDeleted" = "프로젝트 %d개를 삭제했습니다.";
+"editor.deleteFailed" = "일부 프로젝트를 삭제하지 못했습니다. 목록을 확인한 후 다시 시도하세요.";
