@@ -1,8 +1,31 @@
 import AVFoundation
 import Combine
 import CoreImage
+import CoreTransferable
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
+
+/// A picker URL expires after the transfer callback, so retain an owned file,
+/// rather than loading a potentially large movie into Data.
+private struct PickedMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("video.\(received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension)")
+            do {
+                try FileManager.default.copyItem(at: received.file, to: file)
+                return PickedMovie(url: file)
+            } catch {
+                try? FileManager.default.removeItem(at: folder)
+                throw error
+            }
+        }
+    }
+}
 
 @MainActor
 final class EditorModel: ObservableObject {
@@ -24,35 +47,61 @@ final class EditorModel: ObservableObject {
     private var displayedTime = 0.0
 
     func importVideo(_ incoming: URL) {
-        guard !busy else { return }
-        previewTask?.cancel(); previewGeneration += 1
-        busy = true
+        guard beginImport() else { return }
+        task = Task {
+            defer { busy = false }
+            do { try await loadVideo(incoming) }
+            catch { status = error.localizedDescription }
+        }
+    }
+
+    func importPhoto(_ item: PhotosPickerItem) {
+        guard beginImport() else { return }
         task = Task {
             defer { busy = false }
             do {
-                let accessed = incoming.startAccessingSecurityScopedResource()
-                defer { if accessed { incoming.stopAccessingSecurityScopedResource() } }
-                let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                    .appendingPathComponent(UUID().uuidString, isDirectory: true)
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                // Imported originals and derived videos stay out of automatic cloud backups.
-                var privateFolder = folder
-                var values = URLResourceValues()
-                values.isExcludedFromBackup = true
-                try privateFolder.setResourceValues(values)
-                let local = folder.appendingPathComponent("source.\(incoming.pathExtension.isEmpty ? "mov" : incoming.pathExtension)")
-                // File providers may return temporary URLs. Own a durable local copy.
-                try await Task.detached { try FileManager.default.copyItem(at: incoming, to: local) }.value
-                let asset = AVURLAsset(url: local)
-                let seconds = try await asset.load(.duration).seconds
-                guard seconds.isFinite, seconds > 0 else { throw MobileError.missingVideo }
-                source = local; duration = seconds; time = 0
-                session = nil; ball = nil; output = nil; overlay = nil; image = nil; canExport = false
-                status = NSLocalizedString("hint.ball", comment: "")
-                busy = false
-                refreshFrame()
+                guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
+                    throw MobileError.missingVideo
+                }
+                defer { try? FileManager.default.removeItem(at: movie.url.deletingLastPathComponent()) }
+                try await loadVideo(movie.url)
             } catch { status = error.localizedDescription }
         }
+    }
+
+    private func beginImport() -> Bool {
+        guard !busy else { return false }
+        previewTask?.cancel(); previewGeneration += 1
+        busy = true
+        status = NSLocalizedString("status.importing", comment: "")
+        return true
+    }
+
+    private func loadVideo(_ incoming: URL) async throws {
+        let accessed = incoming.startAccessingSecurityScopedResource()
+        defer { if accessed { incoming.stopAccessingSecurityScopedResource() } }
+        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var imported = false
+        defer { if !imported { try? FileManager.default.removeItem(at: folder) } }
+        // Imported originals and derived videos stay out of automatic cloud backups.
+        var privateFolder = folder
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try privateFolder.setResourceValues(values)
+        let local = folder.appendingPathComponent("source.\(incoming.pathExtension.isEmpty ? "mov" : incoming.pathExtension)")
+        // File providers may return temporary URLs. Own a durable local copy.
+        try await Task.detached { try FileManager.default.copyItem(at: incoming, to: local) }.value
+        let asset = AVURLAsset(url: local)
+        let seconds = try await asset.load(.duration).seconds
+        guard seconds.isFinite, seconds > 0 else { throw MobileError.missingVideo }
+        imported = true
+        source = local; duration = seconds; time = 0
+        session = nil; ball = nil; output = nil; overlay = nil; image = nil; canExport = false
+        status = NSLocalizedString("hint.ball", comment: "")
+        busy = false
+        refreshFrame()
     }
 
     func refreshFrame() {

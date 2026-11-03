@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 
 @main
@@ -9,6 +10,7 @@ struct ShotTracerApp: App {
 struct EditorView: View {
     @StateObject private var model = EditorModel()
     @State private var picking = false
+    @State private var selectedPhoto: PhotosPickerItem?
 
     var body: some View {
         NavigationStack {
@@ -41,6 +43,14 @@ struct EditorView: View {
                         Text(String(format: NSLocalizedString("status.time", comment: ""), model.time, model.duration)).monospacedDigit()
                     } else {
                         Image(systemName: "figure.golf").font(.system(size: 72)).padding(30).foregroundStyle(.red)
+                    }
+                    PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
+                        Text("action.photos")
+                    }.buttonStyle(.borderedProminent)
+                    .onChange(of: selectedPhoto) { _, item in
+                        guard let item else { return }
+                        model.importPhoto(item)
+                        selectedPhoto = nil
                     }
                     Button("action.import") { picking = true }.buttonStyle(.bordered)
                     Button("action.analyze") { model.analyze() }.buttonStyle(.borderedProminent)

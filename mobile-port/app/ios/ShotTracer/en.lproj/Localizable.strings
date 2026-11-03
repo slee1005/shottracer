@@ -2,6 +2,8 @@
 "prototype.notice" = "Development prototype • Select a frame before impact, then tap the ball. Bright-ball tracking only; not ready for store release.";
 "preview.label" = "Video preview. Tap the ball to select its starting position.";
 "action.import" = "Choose video from Files";
+"action.photos" = "Choose video from Photos";
+"status.importing" = "Importing video… If stored in iCloud, the original must download first.";
 "action.analyze" = "Track ball automatically";
 "action.export" = "Export MP4";
 "action.share" = "Save or share video";

@@ -118,7 +118,7 @@ Both Android and iPhone target these requirements. Manual editing serves interna
 - Local video copy, scrubbing, starting-ball selection, and automatic tracking sampled at 30 times per second for up to 15 seconds.
 - C++ bright moving-object candidates, address-spot disappearance, direction/speed consistency for launch confirmation, observation linking, and small camera-translation compensation. Only one frame is retained.
 - Preview and export share `st_render` geometry and the same platform-specific watermark composition function. Watermark is always present; no unlock UI exists yet. Desktop scrypt verification remains unchanged.
-- iPhone: SwiftUI, Files video import, AVFoundation extraction/MP4 export, and save/share menu.
+- iPhone: SwiftUI, Photos library and Files video import, AVFoundation extraction/MP4 export, and save/share menu. Use **Choose video from Photos** to import a movie directly. Selected videos are copied as files into app storage and temporary transfer files are cleaned up. For iCloud-only assets, the system must download the original before analysis.
 - Android: Kotlin, system video picker, JNI, Media3 Transformer MP4 export, and document save picker. No INTERNET or broad gallery permission is requested.
 - Ported desktop `Model.at` and `apex_time` numeric evaluation to C++ and compared results with Python. Automatic model fitting/edit integration remains pending.
 - Mobile strings use iOS `en.lproj`/`ko.lproj` and Android `values`/`values-ko` resources. Existing web localization remains unchanged.
