@@ -20,6 +20,12 @@ void st_destroy(STTracker *tracker);
 int st_push(STTracker *tracker, const uint8_t *gray, int stride, double time);
 int st_count(const STTracker *tracker);
 int st_point(const STTracker *tracker, int index, STPoint *point);
+int st_camera_count(const STTracker *tracker);
+int st_camera_point(const STTracker *tracker, int index, STPoint *point);
+/* Start/apex/landing in normalized reference coordinates, actual flight seconds.
+   Speed changes the drawing clock only. The apex and landing are exact. */
+int st_curve_at(const double *controls, double flight, double apex_fraction,
+                double speed, double time, double *x, double *y);
 /* Transparent, premultiplied RGBA. Same function for preview and export.
    Output is at analysis resolution, for proportional scaling by native adapters.
    The native adapter adds the always-on product watermark to this same bitmap. */
@@ -27,6 +33,14 @@ int st_render(const STTracker *tracker, double time, uint8_t *rgba, int stride);
 /* Desktop Model.at/apex_time semantics, without mutating the automatic model. */
 int st_model_at(const STModel *model, double time, double *x, double *y);
 double st_model_apex(const STModel *model);
+/* Samples are (source seconds, reference x, reference y); t0 is in source seconds.
+   The caller excludes the address seed. No observation/model is modified. */
+int st_fit_model(const double *samples, int count, double x, double y, double horizon,
+                 double t0_min, double t0_max, double min_flight, double max_flight,
+                 double typical, STModel *model);
+int st_refit_model(const STModel *base, const double *samples, int count,
+                   const double *landing, double flight, STModel *model);
+int st_with_apex(const STModel *base, const double *samples, int count, double apex_time, STModel *model);
 #ifdef __cplusplus
 }
 #endif

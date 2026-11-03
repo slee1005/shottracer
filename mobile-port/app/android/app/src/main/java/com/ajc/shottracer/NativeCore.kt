@@ -11,6 +11,13 @@ internal object NativeCore {
     external fun destroy(handle: Long)
     external fun push(handle: Long, pixels: IntArray, time: Double): Int
     external fun count(handle: Long): Int
+    external fun samples(handle: Long, camera: Boolean): DoubleArray
+    external fun curve(controls: DoubleArray, flight: Double, apex: Double, speed: Double, time: Double): DoubleArray
+    external fun fit(points: DoubleArray, x: Double, y: Double, t0Min: Double, t0Max: Double): DoubleArray?
+    external fun refit(base: DoubleArray, points: DoubleArray, landing: DoubleArray?, flight: Double): DoubleArray?
+    external fun modelPoint(model: DoubleArray, time: Double): DoubleArray?
+    external fun modelApex(model: DoubleArray): Double
+    external fun reshape(model: DoubleArray, samples: DoubleArray, apex: Double): DoubleArray?
     external fun render(handle: Long, time: Double): IntArray
 }
 
@@ -27,6 +34,7 @@ internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Do
     }
 
     @Synchronized fun count(): Int = if (handle != 0L) NativeCore.count(handle) else 0
+    @Synchronized fun samples(camera: Boolean = false): DoubleArray = NativeCore.samples(handle, camera)
 
     /** The same complete overlay, including watermark, is used by ImageView and Transformer. */
     @Synchronized fun overlay(time: Double): Bitmap {

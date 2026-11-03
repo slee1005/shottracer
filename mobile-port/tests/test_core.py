@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from shottracer.trajectory import Model
+from shottracer.trajectory import fit, refit, with_apex, SHOT_TYPES
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,10 +42,17 @@ def core(tmp_path_factory):
     lib.st_push.argtypes = [c.c_void_p, c.c_void_p, c.c_int, c.c_double]
     lib.st_count.argtypes = [c.c_void_p]
     lib.st_point.argtypes = [c.c_void_p, c.c_int, c.POINTER(Point)]
+    lib.st_camera_count.argtypes = [c.c_void_p]
+    lib.st_camera_point.argtypes = [c.c_void_p, c.c_int, c.POINTER(Point)]
+    lib.st_curve_at.argtypes = [c.POINTER(c.c_double), c.c_double, c.c_double, c.c_double, c.c_double,
+                               c.POINTER(c.c_double), c.POINTER(c.c_double)]
     lib.st_render.argtypes = [c.c_void_p, c.c_double, c.c_void_p, c.c_int]
     lib.st_model_at.argtypes = [c.POINTER(NativeModel), c.c_double, c.POINTER(c.c_double), c.POINTER(c.c_double)]
     lib.st_model_apex.argtypes = [c.POINTER(NativeModel)]
     lib.st_model_apex.restype = c.c_double
+    lib.st_fit_model.argtypes = [c.c_void_p, c.c_int] + [c.c_double] * 8 + [c.POINTER(NativeModel)]
+    lib.st_refit_model.argtypes = [c.POINTER(NativeModel), c.c_void_p, c.c_int, c.c_void_p, c.c_double, c.POINTER(NativeModel)]
+    lib.st_with_apex.argtypes = [c.POINTER(NativeModel), c.c_void_p, c.c_int, c.c_double, c.POINTER(NativeModel)]
     return lib
 
 
@@ -156,3 +164,64 @@ def test_variable_frame_timestamps_keep_launch_time(core, tracker):
     assert point.time == 0
     core.st_point(tracker, 5, c.byref(point))
     assert point.time == pytest.approx(.19)
+
+
+@pytest.mark.parametrize("speed", [.5, 1, 4])
+def test_edit_curve_hits_exact_start_apex_and_landing(core, speed):
+    controls = (c.c_double * 6)(.15, .8, .55, .12, .86, .65)
+    x, y = c.c_double(), c.c_double()
+    for time, expected in [(0, [.15, .8]), (4 * .5 / speed, [.55, .12]), (4 / speed, [.86, .65])]:
+        assert core.st_curve_at(controls, 4, .5, speed, time, c.byref(x), c.byref(y)) == 0
+        np.testing.assert_allclose([x.value, y.value], expected, atol=1e-12)
+    ys = []
+    for time in np.linspace(0, 4 / speed, 101):
+        core.st_curve_at(controls, 4, .5, speed, time, c.byref(x), c.byref(y))
+        ys.append(y.value)
+    assert np.all(np.diff(ys[:51]) <= 0)
+    assert np.all(np.diff(ys[50:]) >= 0)
+
+
+def test_camera_samples_preserve_reference_offsets(core, tracker):
+    rng = np.random.default_rng(7)
+    background = rng.integers(20, 90, size=(180, 240), dtype=np.uint8)
+    for i in range(9):
+        push(core, tracker, np.roll(frame(40, 150, background), i, axis=1), i / 30)
+    assert core.st_camera_count(tracker) == 9
+    point = Point()
+    assert core.st_camera_point(tracker, 8, c.byref(point)) == 0
+    assert point.x == pytest.approx(8)
+    assert point.y == pytest.approx(0)
+    assert point.time == pytest.approx(8 / 30)
+
+
+def test_native_fit_and_landing_refit_match_desktop(core):
+    base = Model(80, 150, 30, .2, 110, 1, 180, 30, .6, .35, 5.5)
+    frames = np.arange(1, 20, dtype=np.float64)
+    xy = base.at((frames - base.t0) / 30)
+    points = np.column_stack([frames, xy])
+    expected = fit(points.tolist(), (80, 150), 30, (0, .9), SHOT_TYPES['full'], 30)
+    seconds = np.ascontiguousarray(np.column_stack([frames / 30, xy]))
+    actual = NativeModel()
+    assert core.st_fit_model(seconds.ctypes.data, len(seconds), 80, 150, 30, 0, .9 / 30,
+                             3.5, 7.5, 5.5, c.byref(actual)) == 0
+    for time in np.linspace(0, 5.5, 30):
+        x, y = c.c_double(), c.c_double()
+        core.st_model_at(c.byref(actual), time, c.byref(x), c.byref(y))
+        np.testing.assert_allclose([x.value, y.value], expected.at(time), atol=1e-5)
+    landing = np.array([210., 140.])
+    edited = NativeModel()
+    assert core.st_refit_model(c.byref(actual), seconds.ctypes.data, len(seconds), landing.ctypes.data,
+                               4.2, c.byref(edited)) == 0
+    expected_edit = refit(expected, points.tolist(), 30, SHOT_TYPES['full'], (210, 140), 4.2)
+    for time in np.linspace(0, 4.2, 30):
+        x, y = c.c_double(), c.c_double()
+        core.st_model_at(c.byref(edited), time, c.byref(x), c.byref(y))
+        np.testing.assert_allclose([x.value, y.value], expected_edit.at(time), atol=1e-5)
+    assert actual.flight_time == 5.5  # Refit never overwrites the automatic model.
+    reshaped = NativeModel()
+    assert core.st_with_apex(c.byref(edited), seconds.ctypes.data, len(seconds), 2.2, c.byref(reshaped)) == 0
+    expected_apex = with_apex(expected_edit, points.tolist(), 30, 2.2)
+    for time in np.linspace(0, 4.2, 30):
+        x, y = c.c_double(), c.c_double()
+        core.st_model_at(c.byref(reshaped), time, c.byref(x), c.byref(y))
+        np.testing.assert_allclose([x.value, y.value], expected_apex.at(time), atol=1e-5)

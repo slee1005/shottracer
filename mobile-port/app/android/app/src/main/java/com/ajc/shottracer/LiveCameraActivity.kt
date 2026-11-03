@@ -9,7 +9,7 @@ import android.os.Bundle
 import android.view.Surface
 import android.view.ViewGroup
 import android.view.WindowInsets
-import android.widget.Button
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -21,9 +21,10 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
     private lateinit var preview: PreviewView
     private lateinit var status: TextView
     private lateinit var sound: TextView
-    private lateinit var recordButton: Button
-    private lateinit var stopButton: Button
-    private lateinit var saveButton: Button
+    private lateinit var recordButton: ImageButton
+    private lateinit var stopButton: ImageButton
+    private lateinit var saveButton: ImageButton
+    private lateinit var reviewButton: ImageButton
     private val fileWorker = Executors.newSingleThreadExecutor()
     private var resumed = false
     private var requested = false
@@ -46,12 +47,11 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
                 insets
             }
         }
-        setContentView(ScrollView(this).apply { addView(layout) })
-        layout.addView(TextView(this).apply { setText(R.string.live_title); textSize = 26f })
-        layout.addView(TextView(this).apply { setText(R.string.live_instructions) })
+        setContentView(layout)
+        layout.addView(TextView(this).apply { setText(R.string.live_title); textSize = 18f })
+        layout.addView(TextView(this).apply { setText(R.string.live_instructions); textSize = 11f; maxLines = 2 })
         preview = PreviewView(this).apply { contentDescription = getString(R.string.live_preview) }
-        layout.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-            (400 * resources.displayMetrics.density).toInt()))
+        layout.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         preview.onBall = { point ->
             val bitmap = preview.image
             if (!recording && !finishing && bitmap != null && point.x >= 3 && point.y >= 3 &&
@@ -61,15 +61,22 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
                 status.setText(R.string.live_ready); controls()
             }
         }
-        fun button(label: Int, action: () -> Unit) = Button(this).apply {
-            setText(label); setOnClickListener { action() }; layout.addView(this)
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        layout.addView(actions)
+        fun button(label: Int, symbol: String, action: () -> Unit) = ImageButton(this).apply {
+            contentDescription = getString(label); tooltipText = getString(label); setImageDrawable(ToolIcon(symbol))
+            setPadding(24, 24, 24, 24); setOnClickListener { action() }
+            actions.addView(this, LinearLayout.LayoutParams(0, (52 * resources.displayMetrics.density).toInt(), 1f))
         }
-        recordButton = button(R.string.live_record) {
+        recordButton = button(R.string.live_record, "record") {
             recording = true; output = null; controls()
             engine.record(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
         }
-        stopButton = button(R.string.live_stop) { finishing = true; controls(); engine.stopRecording() }
-        saveButton = button(R.string.action_save) {
+        stopButton = button(R.string.live_stop, "stop") { finishing = true; controls(); engine.stopRecording() }
+        reviewButton = button(R.string.editor_review, "review") {
+            output?.let { startActivity(Intent(this, ReviewActivity::class.java).putExtra("path", it.path)) }
+        }
+        saveButton = button(R.string.action_save, "save") {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                 type = "video/mp4"; addCategory(Intent.CATEGORY_OPENABLE)
                 putExtra(Intent.EXTRA_TITLE, "ShotTracer-live.mp4")
@@ -86,6 +93,7 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
         recordButton.isEnabled = resumed && !recording && !finishing && !saving && preview.ball != null
         stopButton.isEnabled = recording && !finishing
         saveButton.isEnabled = !recording && !finishing && !saving && output != null
+        reviewButton.isEnabled = saveButton.isEnabled
         preview.isEnabled = resumed && !recording && !finishing && !saving
     }
 

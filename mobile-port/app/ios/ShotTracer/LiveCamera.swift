@@ -294,55 +294,49 @@ struct LiveCameraView: View {
     @StateObject private var camera = LiveCamera()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-
+    @State private var reviewing = false
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    Text("camera.instructions").font(.footnote)
+            VStack(spacing: 6) {
+                Text("camera.instructions").font(.caption2).lineLimit(2)
+                GeometryReader { area in
                     if let image = camera.image {
-                        GeometryReader { geometry in
+                        let fit = min(area.size.width / image.size.width, area.size.height / image.size.height)
+                        let w = image.size.width * fit, h = image.size.height * fit
+                        ZStack {
                             ZStack(alignment: .topLeading) {
                                 Image(uiImage: image).resizable()
                                 if let overlay = camera.overlay { Image(uiImage: overlay).resizable() }
                                 if let selected = camera.selected {
-                                    Circle().stroke(.yellow, lineWidth: 2).frame(width: 18, height: 18)
-                                        .position(x: selected.x * geometry.size.width, y: selected.y * geometry.size.height)
+                                    Circle().stroke(.yellow, lineWidth: 2).frame(width: 18, height: 18).position(x: selected.x * w, y: selected.y * h)
                                 }
-                            }
-                            .contentShape(Rectangle())
-                            .gesture(SpatialTapGesture().onEnded { tap in
-                                camera.select(CGPoint(x: tap.location.x / geometry.size.width,
-                                                      y: tap.location.y / geometry.size.height))
-                            })
-                            .accessibilityLabel(Text("camera.preview"))
-                        }.aspectRatio(image.size, contentMode: .fit)
-                    } else { ProgressView().padding(40) }
-                    Text(camera.status).font(.callout)
-                    Text(camera.soundEnabled ? "camera.audioOn" : "camera.audioOff").font(.footnote).foregroundStyle(.secondary)
+                            }.frame(width: w, height: h).contentShape(Rectangle())
+                                .gesture(SpatialTapGesture().onEnded { tap in camera.select(CGPoint(x: tap.location.x / w, y: tap.location.y / h)) })
+                        }.frame(width: area.size.width, height: area.size.height).accessibilityLabel(Text("camera.preview"))
+                    } else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                }.background(.black)
+                Text(camera.status).font(.caption).lineLimit(2)
+                Text(camera.soundEnabled ? "camera.audioOn" : "camera.audioOff").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 30) {
                     if camera.recording {
-                        Button("camera.stop") { camera.stopRecording() }.buttonStyle(.borderedProminent)
+                        Button { camera.stopRecording() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.stop"))
                     } else {
-                        Button("camera.record") { camera.record() }.buttonStyle(.borderedProminent)
+                        Button { camera.record() } label: { Image(systemName: "record.circle").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.record"))
                             .disabled(camera.selected == nil || camera.image == nil || camera.finishing)
                     }
                     if camera.finishing { ProgressView() }
-                    if let output = camera.output { ShareLink("action.share", item: output) }
-                }.padding()
-            }
-            .navigationTitle(Text("camera.title"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("camera.close") { dismiss() }.disabled(camera.recording || camera.finishing)
-                }
-            }
+                    if let output = camera.output {
+                        Button { reviewing = true } label: { Image(systemName: "play.rectangle.fill").font(.system(size: 28)) }.accessibilityLabel(Text("editor.review"))
+                        ShareLink(item: output) { Image(systemName: "square.and.arrow.down").font(.system(size: 28)) }.accessibilityLabel(Text("action.share"))
+                    }
+                }.frame(height: 54)
+            }.padding(.horizontal, 8).background(.black).preferredColorScheme(.dark)
+                .navigationTitle(Text("camera.title")).navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel(Text("camera.close")).disabled(camera.recording || camera.finishing) } }
         }
+        .fullScreenCover(isPresented: $reviewing) { if let output = camera.output { ReviewView(url: output) } }
         .interactiveDismissDisabled(camera.recording || camera.finishing)
-        .onAppear { camera.start() }
-        .onDisappear { camera.stop() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { camera.start() }
-            else if phase == .background { camera.stop() }
-        }
+        .onAppear { camera.start() }.onDisappear { camera.stop() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { camera.start() } else if phase == .background { camera.stop() } }
     }
 }

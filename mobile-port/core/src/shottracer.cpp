@@ -177,6 +177,30 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
     } catch (...) { return -1; }
 }
 extern "C" int st_count(const STTracker *t) { return t ? int(t->points.size()) : 0; }
+extern "C" int st_camera_count(const STTracker *t) { return t ? int(t->cameras.size()) : 0; }
+extern "C" int st_camera_point(const STTracker *t, int i, STPoint *p) {
+    if (!t || !p || i < 0 || i >= int(t->cameras.size())) return -1;
+    const auto &c = t->cameras[size_t(i)];
+    *p = {c.time, c.x, c.y, 1}; return 0;
+}
+extern "C" int st_curve_at(const double *p, double flight, double apex, double speed,
+                            double time, double *x, double *y) {
+    if (!p || !x || !y || !std::isfinite(flight) || flight <= 0 ||
+        !std::isfinite(speed) || speed < .5 || speed > 4 || !std::isfinite(time) || !std::isfinite(apex)) return -1;
+    for (int i = 0; i < 6; ++i) if (!std::isfinite(p[i])) return -1;
+    const double u = std::clamp(time * speed / flight, 0.0, 1.0);
+    const double a = std::clamp(apex, .35, .62);
+    if (u <= a) {
+        const double q = u / a, ease = 1 - (1 - q) * (1 - q);
+        *x = p[0] + (p[2] - p[0]) * ease;
+        *y = p[1] + (p[3] - p[1]) * ease;
+    } else {
+        const double q = (u - a) / (1 - a);
+        *x = p[2] + (p[4] - p[2]) * q;
+        *y = p[3] + (p[5] - p[3]) * q * q;
+    }
+    return 0;
+}
 extern "C" int st_point(const STTracker *t, int i, STPoint *p) {
     if (!t || !p || i < 0 || i >= int(t->points.size())) return -1;
     *p = t->points[size_t(i)]; return 0;
@@ -229,4 +253,110 @@ extern "C" double st_model_apex(const STModel *m) {
         if (rise > best) { best = rise; time = t; }
     }
     return time;
+}
+
+namespace {
+bool least2(double aa, double ab, double bb, double ar, double br, double &x, double &y) {
+    const double det = aa * bb - ab * ab;
+    if (std::abs(det) < 1e-30) return false;
+    x = (ar * bb - br * ab) / det; y = (br * aa - ar * ab) / det;
+    return std::isfinite(x) && std::isfinite(y);
+}
+double landing_time(const STModel &m) {
+    if (m.g <= 1e-9 || m.b <= 0 || m.b * travel(30, m.k) - m.g * 900 > 0)
+        return std::numeric_limits<double>::infinity();
+    double lo = .001, hi = 30;
+    for (int i = 0; i < 60; ++i) { const double t = (lo + hi) / 2; if (m.b * travel(t, m.k) > m.g * t * t) lo = t; else hi = t; }
+    return (lo + hi) / 2;
+}
+STModel tie_gravity(STModel m, const double *samples, int count, double duration) {
+    const double sT = travel(duration, m.k);
+    double aa = 0, ar = 0;
+    for (int i = 0; i < count; ++i) {
+        const double t = samples[i * 3] - m.t0, s = travel(t, m.k), den = 1 + m.w * s;
+        const double basis = (s - sT * t * t / (duration * duration)) / den;
+        const double rhs = (m.v0 - m.vh) / den + m.vh - samples[i * 3 + 2];
+        aa += basis * basis; ar += basis * rhs;
+    }
+    m.b = ar / std::max(aa, 1e-12); m.g = m.b * sT / (duration * duration); m.flight_time = duration;
+    m.height = 1; m.lift = 0; m.du = m.dv = m.dv_from = 0;
+    return m;
+}
+bool solve_model(const double *samples, int count, double x, double y, double horizon,
+                  double t0, double w, double minT, double maxT, double typical,
+                  double explicitT, STModel &m, double &error) {
+    double aa = 0, ab = 0, bb = 0, ax = 0, bx = 0, ay = 0, by = 0;
+    for (int i = 0; i < count; ++i) {
+        const double t = samples[i * 3] - t0;
+        if (t <= 0) return false;
+        const double s = travel(t, .35), den = 1 + w * s, a = s / den, b = t * t / den;
+        const double rhs = (y - horizon) / den + horizon - samples[i * 3 + 2];
+        aa += a * a; ab += a * b; bb += b * b;
+        ax += a * (samples[i * 3 + 1] - x); bx += b * (samples[i * 3 + 1] - x);
+        ay += a * rhs; by += -b * rhs;
+    }
+    m = {}; m.u0 = x; m.v0 = y; m.vh = horizon; m.t0 = t0; m.w = w; m.k = .35; m.height = 1;
+    if (!least2(aa, ab, bb * 2, ax, bx, m.a, m.c) || !least2(aa, -ab, bb, ay, by, m.b, m.g)) return false;
+    m.g = std::max(0.0, m.g);
+    const double duration = landing_time(m), observed = samples[(count - 1) * 3] - t0;
+    if (explicitT > 0) m = tie_gravity(m, samples, count, explicitT);
+    else if (observed < .35 * std::min(duration, maxT)) m = tie_gravity(m, samples, count, typical);
+    else if (duration >= minT && duration <= maxT) m.flight_time = duration;
+    else m = tie_gravity(m, samples, count, std::clamp(duration, minT, maxT));
+    error = 0;
+    for (int i = 0; i < count; ++i) {
+        double u, v;
+        if (st_model_at(&m, samples[i * 3] - t0, &u, &v) != 0) return false;
+        error += std::pow(u - samples[i * 3 + 1], 2) + std::pow(v - samples[i * 3 + 2], 2);
+    }
+    return std::isfinite(error);
+}
+bool valid_samples(const double *p, int count) {
+    if (!p || count < 3 || count > 2000) return false;
+    for (int i = 0; i < count * 3; ++i) if (!std::isfinite(p[i])) return false;
+    for (int i = 1; i < count; ++i) if (p[i * 3] <= p[(i - 1) * 3]) return false;
+    return true;
+}
+}
+extern "C" int st_fit_model(const double *p, int count, double x, double y, double horizon,
+                             double lo, double hi, double minT, double maxT, double typical, STModel *out) {
+    if (!out || !valid_samples(p, count) || !(lo <= hi && hi < p[0]) || minT <= 0 || maxT < minT || typical < minT || typical > maxT) return -1;
+    double best = std::numeric_limits<double>::infinity(); bool found = false;
+    for (int i = 0; i <= 10; ++i) for (int j = 0; j <= 60; ++j) {
+        const double t0 = lo + (hi - lo) * i / 10, w = j == 0 ? 0 : .05 * std::pow(800.0, (j - 1) / 59.0);
+        STModel m{}; double error;
+        if (solve_model(p, count, x, y, horizon, t0, w, minT, maxT, typical, 0, m, error) && error < best) { best = error; *out = m; found = true; }
+    }
+    return found ? 0 : -1;
+}
+extern "C" int st_refit_model(const STModel *base, const double *p, int count, const double *landing,
+                               double flight, STModel *out) {
+    if (!base || !out || !valid_samples(p, count) || !std::isfinite(flight) || flight < .2 || flight > 15) return -1;
+    double error;
+    if (!solve_model(p, count, base->u0, base->v0, base->vh, base->t0, base->w, flight, flight, flight, flight, *out, error)) return -1;
+    if (landing) {
+        if (!std::isfinite(landing[0]) || !std::isfinite(landing[1])) return -1;
+        double x, y; st_model_at(out, flight, &x, &y);
+        out->du = landing[0] - x; out->dv = landing[1] - y;
+        out->dv_from = std::clamp(p[(count - 1) * 3] - base->t0, 0.0, .6 * flight);
+    }
+    return 0;
+}
+extern "C" int st_with_apex(const STModel *base, const double *p, int count, double apex, STModel *out) {
+    if (!base || !out || !valid_samples(p, count) || !std::isfinite(apex) || base->flight_time <= 0) return -1;
+    const double T = base->flight_time, ta = std::clamp(apex, .35 * T, .62 * T);
+    const double a = -T * T, b = T * T * T, c = -2 * ta, d = 3 * ta * ta;
+    const double r1 = -travel(T, base->k), r2 = -std::exp(-base->k * ta), det = a * d - b * c;
+    if (std::abs(det) < 1e-12) return -1;
+    const double gu = (r1 * d - b * r2) / det, lu = (a * r2 - r1 * c) / det;
+    double aa = 0, ar = 0;
+    for (int i = 0; i < count; ++i) {
+        const double t = p[i * 3] - base->t0; if (t <= 0) continue;
+        const double s = travel(t, base->k), den = 1 + base->w * s;
+        const double basis = (s - gu * t * t + lu * t * t * t) / den;
+        aa += basis * basis; ar += basis * ((base->v0 - base->vh) / den + base->vh - p[i * 3 + 2]);
+    }
+    const double launch = ar / std::max(aa, 1e-12);
+    *out = *base; out->b = launch > 0 ? launch : base->b; out->g = gu * out->b; out->lift = lu * out->b;
+    return 0;
 }

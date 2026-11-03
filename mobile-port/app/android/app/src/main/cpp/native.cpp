@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <vector>
+#include <cstring>
 #include "shottracer.h"
 
 namespace {
@@ -36,6 +37,30 @@ Java_com_ajc_shottracer_NativeCore_count(JNIEnv *, jobject, jlong pointer) {
     auto *handle = get(pointer);
     return handle ? st_count(handle->tracker) : 0;
 }
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_samples(JNIEnv *env, jobject, jlong pointer, jboolean camera) {
+    auto *h = get(pointer); if (!h) return nullptr;
+    const int count = camera ? st_camera_count(h->tracker) : st_count(h->tracker);
+    std::vector<jdouble> result(count * 3);
+    for (int i = 0; i < count; ++i) {
+        STPoint p{};
+        if (camera) st_camera_point(h->tracker, i, &p); else st_point(h->tracker, i, &p);
+        result[i * 3] = p.time; result[i * 3 + 1] = p.x / h->width; result[i * 3 + 2] = p.y / h->height;
+    }
+    auto output = env->NewDoubleArray(count * 3);
+    if (output) env->SetDoubleArrayRegion(output, 0, count * 3, result.data());
+    return output;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_curve(JNIEnv *env, jobject, jdoubleArray controls,
+                                      jdouble flight, jdouble apex, jdouble speed, jdouble time) {
+    if (env->GetArrayLength(controls) != 6) return nullptr;
+    double p[6], result[2]; env->GetDoubleArrayRegion(controls, 0, 6, p);
+    if (st_curve_at(p, flight, apex, speed, time, &result[0], &result[1]) != 0) return nullptr;
+    auto output = env->NewDoubleArray(2);
+    if (output) env->SetDoubleArrayRegion(output, 0, 2, result);
+    return output;
+}
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_ajc_shottracer_NativeCore_render(JNIEnv *env, jobject, jlong pointer, jdouble time) {
     auto *handle = get(pointer);
@@ -50,4 +75,51 @@ Java_com_ajc_shottracer_NativeCore_render(JNIEnv *env, jobject, jlong pointer, j
     auto array = env->NewIntArray(n);
     if (array) env->SetIntArrayRegion(array, 0, n, pixels.data());
     return array;
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_fit(JNIEnv *env, jobject, jdoubleArray points, jdouble x, jdouble y,
+                                    jdouble lo, jdouble hi) {
+    const int size = env->GetArrayLength(points);
+    if (size % 3 != 0) return nullptr;
+    std::vector<double> p(size); env->GetDoubleArrayRegion(points, 0, size, p.data());
+    STModel model{};
+    if (st_fit_model(p.data(), size / 3, x, y, .15, lo, hi, 3.5, 7.5, 5.5, &model) != 0) return nullptr;
+    static_assert(sizeof(STModel) == sizeof(double) * 16);
+    double values[16]; std::memcpy(values, &model, sizeof(model));
+    auto out = env->NewDoubleArray(16); if (out) env->SetDoubleArrayRegion(out, 0, 16, values); return out;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_refit(JNIEnv *env, jobject, jdoubleArray base, jdoubleArray points,
+                                      jdoubleArray landing, jdouble flight) {
+    if (env->GetArrayLength(base) != 16) return nullptr;
+    const int size = env->GetArrayLength(points); if (size % 3 != 0) return nullptr;
+    double values[16]; env->GetDoubleArrayRegion(base, 0, 16, values); STModel model{}, result{};
+    std::memcpy(&model, values, sizeof(model));
+    std::vector<double> p(size); env->GetDoubleArrayRegion(points, 0, size, p.data());
+    double target[2]; if (landing) { if (env->GetArrayLength(landing) != 2) return nullptr; env->GetDoubleArrayRegion(landing, 0, 2, target); }
+    if (st_refit_model(&model, p.data(), size / 3, landing ? target : nullptr, flight, &result) != 0) return nullptr;
+    std::memcpy(values, &result, sizeof(result)); auto out = env->NewDoubleArray(16);
+    if (out) env->SetDoubleArrayRegion(out, 0, 16, values); return out;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_modelPoint(JNIEnv *env, jobject, jdoubleArray values, jdouble time) {
+    if (env->GetArrayLength(values) != 16) return nullptr;
+    double p[16], result[2]; env->GetDoubleArrayRegion(values, 0, 16, p); STModel model{}; std::memcpy(&model, p, sizeof(model));
+    if (st_model_at(&model, time, &result[0], &result[1]) != 0) return nullptr;
+    auto out = env->NewDoubleArray(2); if (out) env->SetDoubleArrayRegion(out, 0, 2, result); return out;
+}
+extern "C" JNIEXPORT jdouble JNICALL
+Java_com_ajc_shottracer_NativeCore_modelApex(JNIEnv *env, jobject, jdoubleArray values) {
+    if (env->GetArrayLength(values) != 16) return -1;
+    double p[16]; env->GetDoubleArrayRegion(values, 0, 16, p); STModel m{}; std::memcpy(&m, p, sizeof(m)); return st_model_apex(&m);
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_reshape(JNIEnv *env, jobject, jdoubleArray values, jdoubleArray points, jdouble apex) {
+    if (env->GetArrayLength(values) != 16) return nullptr;
+    const int size = env->GetArrayLength(points); if (size % 3) return nullptr;
+    double p[16]; env->GetDoubleArrayRegion(values, 0, 16, p); STModel base{}, result{}; std::memcpy(&base, p, sizeof(base));
+    std::vector<double> rows(size); env->GetDoubleArrayRegion(points, 0, size, rows.data());
+    if (st_with_apex(&base, rows.data(), size / 3, apex, &result)) return nullptr;
+    std::memcpy(p, &result, sizeof(result)); auto out = env->NewDoubleArray(16); if (out) env->SetDoubleArrayRegion(out, 0, 16, p); return out;
 }

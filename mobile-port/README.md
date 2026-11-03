@@ -115,13 +115,17 @@ Both Android and iPhone target these requirements. Manual editing serves interna
 
 ### Implemented scope
 
-- Local video copy, scrubbing, starting-ball selection, and automatic tracking sampled at 30 times per second for up to 15 seconds.
-- C++ bright moving-object candidates, address-spot disappearance, direction/speed consistency for launch confirmation, observation linking, and small camera-translation compensation. Only one frame is retained.
-- Preview and export share `st_render` geometry and the same platform-specific watermark composition function. Watermark is always present; no unlock UI exists yet. Desktop scrypt verification remains unchanged.
-- iPhone: SwiftUI, Photos library and Files video import, AVFoundation extraction/MP4 export, and save/share menu. Use **Choose video from Photos** to import a movie directly. Selected videos are copied as files into app storage and temporary transfer files are cleaned up. **Record a live shot** feeds rear-camera frames into the same tracker and records the displayed tracer/watermark into the video. For iCloud-only assets, the system must download the original before analysis.
-- Android: Kotlin, system video picker, JNI, Media3 Transformer MP4 export, and document save picker. Camera2 live capture feeds the same tracker and records the live composite as H.264/AAC MP4. Camera/microphone permissions are requested only in the live view; no INTERNET or broad gallery permission is requested.
-- Ported desktop `Model.at` and `apex_time` numeric evaluation to C++ and compared results with Python. Automatic model fitting/edit integration remains pending.
-- Mobile strings use iOS `en.lproj`/`ko.lproj` and Android `values`/`values-ko` resources. Existing web localization remains unchanged.
+- A larger, zoomable video workspace with accessible icon buttons, an expand/collapse control, exact previous/next source-frame stepping and a frame counter. Long-press an Android icon to see its label. Landscape and portrait use fit-to-screen without cropping the video.
+- Up to four shots in one video: add/select/delete, select the starting ball and frame, analyze the selected shot, drag start/apex/landing handles, assign the current frame as landing time, adjust flight duration, time to apex and tracer speed. Undo/redo stores up to 50 edit snapshots; edits do not rerun tracking.
+- Shared C++ perspective flight fitting, landing refitting and apex reshaping, compared numerically with the desktop Python implementation. Automatic observations and `baseModel` remain separate from edits. The predicted flight after tracking loss is an estimate; selecting the actual landing point improves it.
+- Five tracer presets (classic/TV/neon/comet/minimal), shot colors, width/glow/hold, ball head and landing marker; manual start/apex/landing curves, circles/lines with draggable endpoints, and frame-timed manual swing points.
+- Eight popup kinds with position and timing, local logo import/size/opacity/corner, silent slow motion around shot starts, project save/reopen, reset and sequential batch export. Distance and speed values are user-entered, not measurements from one video.
+- Normal-speed export retains source audio through native media APIs. Slow-motion export is explicitly video-only. Each platform uses its same `EditorRenderer` scene raster for preview and export, including all shots, shapes, popups, logo and the default-on watermark. Selection handles are editor controls and are not exported.
+- Local video copies and atomic `mobile-project.json` edit saves in app storage. No PC/cloud processing or runtime network calls. The new mobile schema is version 1; it does not import desktop project folders. App-private logo paths are not portable between devices.
+- iPhone: SwiftUI, Photos/Files import, AVFoundation export and native output review/playback/share. Photos copies selected files without requesting full-library access. iCloud-only originals must be downloaded by the system before offline editing.
+- Android: Kotlin, system video picker, JNI, Media3 normal-speed export, MediaCodec slow-motion export, app output review and system file-save dialog. No INTERNET or broad gallery permission.
+- Both live cameras show observed tracers during recording, save the composited video and offer output review. Camera and optional microphone permissions are requested only for live capture. Details and limits are below.
+- en/ko UI uses Android resources and iOS localized strings. The desktop web localization system is unchanged. The watermark remains on; its mobile password-unlock UI is not implemented and the desktop scrypt check is preserved.
 
 ### Validation and builds
 
@@ -131,7 +135,7 @@ From the repository root:
 uv run pytest
 ```
 
-All 60 tests passed: 50 existing and 10 mobile-core tests. Core tests require a C++17 compiler and skip if none is available. They check model parity, synthetic tracking, stationary balls, tracking loss, camera translation, variable time intervals, and rendering time.
+All 65 tests passed: 50 existing and 15 mobile-core tests. Core tests require a C++17 compiler and skip if none is available. They check fit/refit/apex parity with desktop, exact manual-curve endpoints and speed, synthetic tracking, stationary balls, tracking loss, camera translations, variable time intervals and rendering time.
 
 The Xcode project is included and can be regenerated:
 
@@ -152,17 +156,27 @@ cd mobile-port/app/android
 ./gradlew :app:assembleDebug
 ```
 
-On this Mac, the debug APK build including arm64-v8a/x86_64 native cores and `lintDebug` succeeded. Installation/execution on an Android device remains unverified.
+On this Mac, the debug APK build including arm64-v8a/x86_64 native cores and `lintDebug` succeeded. Android 14 emulator installation and editor/live-camera smoke checks passed; physical-device validation remains pending.
 
 Open this folder in Android Studio or set `ANDROID_HOME` to a prepared SDK. Do not commit local SDK paths. Generated APKs belong in `app/build/outputs/apk/debug/` and are not committed.
 
+### Testing the editor
+
+1. Install the newly built APK, or rebuild/install the iPhone app from Xcode. Open a local video using the import icon (Photos is available on iPhone).
+2. Use previous/next-frame icons or the frame slider. Select the starting-ball tool and tap the ball just before impact, then run analysis.
+3. Use **+** to add another shot (up to four). Select its shot chip before editing. Drag the green landing handle and cyan apex handle. The landing-frame tool sets flight time to the displayed frame, then enables landing-point selection.
+4. Open settings for flight/apex timing, speed, styles, popups, logo and slow motion. Use circle/line tools with two taps; tap manual swing points on consecutive frames. Pinch to zoom, use the pan tool to move and double-tap to fit.
+5. Export, then tap the review icon to play the finished MP4 inside the app. Save/share the output to the chosen location. Reopen a project from the project icon to resume saved edits. Batch export processes saved projects sequentially.
+
+Android 14 emulator checks used an uncommitted synthetic 640×360/30fps/90-frame clip: frame 1→2 changed the timestamp 0.000→0.033s, a landing drag changed persisted normalized coordinates, shot add/undo restored one shot, normal export produced a valid 3-second/90-frame H.264 MP4 with tracer/popup/circle/watermark, and the review activity opened the result. The expand control retained a visible return control; a 2× slow-motion window produced a 4.6-second/138-frame H.264 video-only file. These checks do not establish real golf tracking quality or iPhone runtime behavior. Six Android JVM tests cover YUV conversion/rotation and overlapping slow-motion timing windows.
+
 ### Remaining work and usage limits
 
-Real golf footage, physical devices, and preview/export agreement on both platforms remain unverified. The detector assumes a bright ball and small camera translations; it is not equivalent to desktop LK/RANSAC and person masking. Predicted flight after observation loss, landing/apex edits, four shots, popups/swing/putt/slow motion, and project recovery/compatible import remain unimplemented. Only observed paths are drawn; no observations are fabricated after tracking loss.
+**This is not yet the complete desktop feature set or a store-ready release.** Automatic person cut-out/occlusion, automatic club/hands path analysis, the dedicated rolling-putt tracker, desktop project import and mobile password unlock remain to be ported. Swing points are currently manual; the existing bright moving-ball detector and small translation compensation do not replace desktop LK/RANSAC or MediaPipe. Manual paths currently use start/apex/landing curves rather than arbitrary freehand strokes.
 
-Analysis maximum dimension is 640px. iPhone export uses a 1080p preset and Android development output uses 720px height; original-resolution export remains pending. Standard platform export paths include source audio, but codecs, audio, HDR, portrait rotation, and variable frame rates require real-video validation. Android frame extraction uses the nearest frame to each requested time; a source-timestamp decoder remains pending.
+Real golf footage and physical Android/iPhone devices still need testing for tracking accuracy, codecs/audio, HDR, rotation, variable frame rates, heat and memory. Frame controls use the source timestamp table (Android index decode; iPhone exact-time decode). Analysis samples at at most 30fps with a 640px maximum dimension; timestamps and controls still include all source frames. Normal export keeps source dimensions using platform encoders, with overlays rasterized at analysis resolution; it is not an HDR-preserving pipeline. Android slow-motion development export uses analysis dimensions and 30fps, without audio. iPhone uses the highest-quality export preset and a video-only retimed composition for slow motion.
 
-Keep the app open during validation. Background execution, recovery after OS termination, cache cleanup/project deletion UI, accessibility improvements, and mobile scrypt verification for password unlock remain pending. This is an initial automatic-tracking implementation, not completion of the first-release requirements.
+Keep the app open during long analysis/export. Background jobs and recovery of unfinished work after OS termination remain pending; completed edit saves can be reopened. Further work includes cache/project deletion UI, richer annotation/popup editing, accessibility and device-specific validation. Live recordings already contain their tracer and do not reopen as editable tracking projects. Public App Store/Play release still requires signed device tests and store preparation.
 
 
 ### iPhone live camera recording
