@@ -132,7 +132,7 @@ class MainActivity : Activity() {
             setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
         }
         startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; preview.panEnabled = false; status.text = text("hint_ball"); controls() }
-        analyzeButton = actionButton("analyze_action") { analyze() }
+        analyzeButton = actionButton("analyze_action") { analyzeFromButton() }
         resetButton = actionButton("reset_action") { confirmReset() }
         preview = PreviewView(this).apply { zoomEnabled = true; background=GradientDrawable().apply { setColor(Color.BLACK); cornerRadius=dp(20).toFloat(); setStroke(dp(1),Color.rgb(35,50,63)) }; clipToOutline=true }
         root.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -166,7 +166,7 @@ class MainActivity : Activity() {
         icon(transport, "previous") { stopPlay(); refresh(frameIndex - 1) }
         icon(transport, "play") { if (playing) stopPlay() else { playing = true; playNext() } }
         icon(transport, "next") { stopPlay(); refresh(frameIndex + 1) }
-        icon(transport, "analyze") { analyze() }; icon(transport, "export") { exportVideo() }
+        icon(transport, "analyze") { analyzeFromButton() }; icon(transport, "export") { exportVideo() }
         icon(transport, "review") { output?.let { review(it) } }; icon(transport, "save") { saveOutput() }
         val lower = toolbar(root); tools = lower.parent as HorizontalScrollView
         for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing", "pan")) icon(lower, key) {
@@ -300,7 +300,7 @@ class MainActivity : Activity() {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); status.text=text("start_options") }
+            "ball" -> { stopPlay(); remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); status.text=text("start_options") }
             "landing", "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
             "path" -> { remember(); if (pending == null) { s.ball = p; s.start = currentTime; s.manual = true; pending = p } else { s.landing = r; pending = null }; changed() }
             "circle", "line" -> { if (pending == null) { pending = p; status.text = text("second_point") } else { remember(); scene.shapes.add(EditShape(tool, pending!!, p)); pending = null; changed() } }
@@ -382,7 +382,7 @@ class MainActivity : Activity() {
         stopPlay(); remember(); scene.shot.apply { trackingMode=mode; base=emptyList(); baseModel=null; landing=null; timingLandingEstimated=null; apex=null; manual=false; flight=4.0 }
         tool="ball"; pending=null; preview.panEnabled=false; changed(); status.text=text("mode_changed")
     }
-    private fun analyze() {
+    private fun analyzeFromButton() {
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
         if (busy) return
         status.setText(R.string.status_analyzing)
@@ -569,7 +569,7 @@ class MainActivity : Activity() {
         layout.addView(TextView(this).apply { text=motionReport(); setPadding(0,0,0,dp(12)); setTextIsSelectable(true) })
         choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.timingLandingEstimated=null; scene.shot.apex=null; scene.shot.manual=false } }
         check("person_occlusion",scene.personOcclusion) { scene.personOcclusion=it }
-        choice("auto_swing",listOf("both","hands","club","off"),scene.autoSwing) { scene.autoSwing=it }
+        choice("auto_swing",listOf("both","hands","club","off"),scene.visibleAutoSwing()) { scene.configureAutoSwing(it) }
         choice("preset", listOf("classic", "tv", "neon", "comet", "minimal"), scene.preset) { scene.preset = it }
         layout.addView(TextView(this).apply { text = text("color") }); val color = EditText(this).apply { setText(scene.shot.color); inputType = InputType.TYPE_CLASS_TEXT }; layout.addView(color)
         edits.add { try { Color.parseColor(color.text.toString()); scene.shot.color = color.text.toString() } catch (_: Exception) { } }

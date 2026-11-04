@@ -88,7 +88,15 @@ internal class EditorScene {
     val shapes = mutableListOf<EditShape>()
     var preset = "classic"; var lineWidth = 1.0; var glow = 1.0; var hold = 1.0
     var head = true; var marker = true; var swingEnabled = true
-    var personOcclusion = true; var autoSwing = "both"
+    var personOcclusion = true; var autoSwing = "off"
+    // Legacy "both" was a default, so it does not prove an explicit club-path choice.
+    var clubTracingEnabled = false
+    fun showAutoClub() = swingEnabled && clubTracingEnabled && autoSwing in listOf("both","club")
+    fun visibleAutoSwing() = if (clubTracingEnabled) autoSwing else when(autoSwing) { "both" -> "hands"; "club" -> "off"; else -> autoSwing }
+    fun configureAutoSwing(mode: String) {
+        autoSwing = mode.takeIf { it in listOf("both","hands","club","off") } ?: "off"
+        clubTracingEnabled = autoSwing in listOf("both","club")
+    }
     var logo: String? = null; var logoSize = .12; var logoOpacity = .85; var logoCorner = "bottom-right"
     var slowmo = false; var slowFactor = 3.0; var slowBefore = .4; var slowAfter = 1.2
     val shot: EditShot get() = shots[selected.coerceIn(0, shots.lastIndex)]
@@ -115,7 +123,7 @@ internal class EditorScene {
                 put("kind", s.kind); put("a", point(s.a)); put("b", point(s.b)); put("color", s.color); put("width", s.width)
             } }))
             put("preset", preset); put("lineWidth", lineWidth); put("glow", glow); put("hold", hold)
-            put("personOcclusion",personOcclusion); put("autoSwing",autoSwing)
+            put("personOcclusion",personOcclusion); put("autoSwing",autoSwing); put("clubTracingEnabled",clubTracingEnabled)
             put("head", head); put("marker", marker); put("swingEnabled", swingEnabled)
             put("logo", logo ?: JSONObject.NULL); put("logoSize", logoSize); put("logoOpacity", logoOpacity); put("logoCorner", logoCorner)
             put("slowmo", slowmo); put("slowFactor", slowFactor); put("slowBefore", slowBefore); put("slowAfter", slowAfter)
@@ -159,7 +167,7 @@ internal class EditorScene {
                 } }
                 preset = j.optString("preset", "classic"); lineWidth = j.optDouble("lineWidth", 1.0).coerceIn(.2, 5.0)
                 glow = j.optDouble("glow", 1.0).coerceIn(0.0, 3.0); hold = j.optDouble("hold", 1.0)
-                personOcclusion = j.optBoolean("personOcclusion",true); autoSwing = j.optString("autoSwing","both")
+                personOcclusion = j.optBoolean("personOcclusion",true); autoSwing = j.optString("autoSwing","off"); clubTracingEnabled = j.optBoolean("clubTracingEnabled",false)
                 head = j.optBoolean("head", true); marker = j.optBoolean("marker", true); swingEnabled = j.optBoolean("swingEnabled", true)
                 logo = if (j.isNull("logo")) null else j.optString("logo").takeIf { it.isNotBlank() }
                 logoSize = j.optDouble("logoSize", .12); logoOpacity = j.optDouble("logoOpacity", .85); logoCorner = j.optString("logoCorner", "bottom-right")
@@ -223,7 +231,7 @@ internal class EditorRenderer(private val scene: EditorScene) {
             }
             if (scene.swingEnabled) {
                 for ((rows,c) in listOf(s.autoHands to Color.rgb(45,212,191),s.autoClub to Color.rgb(251,191,36))) {
-                    if ((rows === s.autoHands && scene.autoSwing !in listOf("both","hands")) || (rows === s.autoClub && scene.autoSwing !in listOf("both","club"))) continue
+                    if ((rows === s.autoHands && scene.autoSwing !in listOf("both","hands")) || (rows === s.autoClub && !scene.showAutoClub())) continue
                     val path = Path(); var last: TimedPoint? = null
                     for (p in rows) if (p.time <= time && p.time >= time-2.0) {
                         val q = pos(EditPoint(p.x,p.y),motion)
