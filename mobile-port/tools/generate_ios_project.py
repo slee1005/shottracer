@@ -22,7 +22,7 @@ def main() -> None:
         return add(f'isa = PBXFileReference; lastKnownFileType = {kind}; path = "{path}"; sourceTree = "<group>";')
 
     sources = [file(f"ShotTracer/{name}.swift", "sourcecode.swift")
-               for name in ("ShotTracerApp", "EditorModel", "TrackingSession", "LiveCamera")]
+               for name in ("ShotTracerApp", "EditorModel", "TrackingSession", "LiveCamera", "SubscriptionStore")]
     sources.append(file("../../core/src/shottracer.cpp", "sourcecode.cpp.cpp"))
     headers = [file("ShotTracer/Bridge.h", "sourcecode.c.h"), file("../../core/include/shottracer.h", "sourcecode.c.h")]
     languages = [file(f"ShotTracer/{lang}.lproj/Localizable.strings", "text.plist.strings") for lang in ("en", "ko")]
@@ -30,6 +30,7 @@ def main() -> None:
     usage_languages = [file(f"ShotTracer/{lang}.lproj/InfoPlist.strings", "text.plist.strings") for lang in ("en", "ko")]
     usage = add(f'isa = PBXVariantGroup; children = ({", ".join(usage_languages)}); name = InfoPlist.strings; sourceTree = "<group>";')
     assets = file("ShotTracer/Assets.xcassets", "folder.assetcatalog")
+    store_config = file("../../commerce/ShotTracer.storekit", "text")
     asset_resource = add(f"isa = PBXBuildFile; fileRef = {assets};")
     product = add('isa = PBXFileReference; explicitFileType = wrapper.application; path = ShotTracer.app; sourceTree = BUILT_PRODUCTS_DIR;')
     builds = [add(f"isa = PBXBuildFile; fileRef = {source};") for source in sources]
@@ -39,7 +40,7 @@ def main() -> None:
     resource_phase = add(f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({resource}, {usage_resource}, {asset_resource}); runOnlyForDeploymentPostprocessing = 0;')
     frameworks = add('isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
     products = add(f'isa = PBXGroup; children = ({product}); name = Products; sourceTree = "<group>";')
-    group = add(f'isa = PBXGroup; children = ({", ".join(sources + headers + [localized, usage, assets, products])}); sourceTree = "<group>";')
+    group = add(f'isa = PBXGroup; children = ({", ".join(sources + headers + [localized, usage, assets, store_config, products])}); sourceTree = "<group>";')
     common = '''CLANG_ENABLE_MODULES = YES; CLANG_CXX_LANGUAGE_STANDARD = "c++17";
         IPHONEOS_DEPLOYMENT_TARGET = 26.6.2; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;
         SWIFT_OBJC_BRIDGING_HEADER = "ShotTracer/Bridge.h";

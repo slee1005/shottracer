@@ -303,6 +303,7 @@ final class LiveCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputSamp
 }
 
 struct LiveCameraView: View {
+    @EnvironmentObject private var access: SubscriptionAccess
     @StateObject private var camera = LiveCamera()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -334,8 +335,8 @@ struct LiveCameraView: View {
                     if camera.recording {
                         Button { camera.stopRecording() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.stop"))
                     } else {
-                        Button { camera.record() } label: { Image(systemName: "record.circle").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.record"))
-                            .disabled(camera.selected == nil || camera.image == nil || camera.finishing || camera.albumSaving)
+                        Button { if access.allowed { camera.record() } } label: { Image(systemName: "record.circle").font(.system(size: 38)).foregroundStyle(.red) }.accessibilityLabel(Text("camera.record"))
+                            .disabled(!access.allowed || camera.selected == nil || camera.image == nil || camera.finishing || camera.albumSaving)
                     }
                     if camera.finishing { ProgressView() }
                     if let output = camera.output {

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="com.android.vending.BILLING" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
-    <!-- No INTERNET or broad media-library permission. Camera/mic requested only in live capture. -->
+    <!-- Purchases use Google Play services; videos remain local. No broad media-library permission. -->
     <application android:label="@string/app_name" android:theme="@style/AppTheme"
         android:icon="@drawable/ic_launcher" android:dataExtractionRules="@xml/data_extraction_rules"
         android:allowBackup="false" android:supportsRtl="true">

@@ -3,11 +3,15 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.security.KeyFactory
+import java.security.spec.X509EncodedKeySpec
+import java.util.Base64
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+val playBillingPublicKey=providers.gradleProperty("shottracerPlayPublicKey").orElse("").get().filterNot { it.isWhitespace() }
 android {
     namespace = "com.ajc.shottracer"
     compileSdk = 35
@@ -21,6 +25,12 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17" } }
     }
+    buildFeatures { buildConfig = true }
+    defaultConfig {
+        buildConfigField("String", "PLAY_BILLING_PUBLIC_KEY", "\"" + playBillingPublicKey.replace("\"", "") + "\"")
+        buildConfigField("boolean", "TEST_CODES", "false")
+    }
+    buildTypes { create("preview") { initWith(getByName("debug")); applicationIdSuffix=".tester"; matchingFallbacks += "debug"; buildConfigField("boolean", "TEST_CODES", "true") } }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
@@ -28,6 +38,7 @@ android {
 dependencies {
     implementation("com.google.mediapipe:tasks-vision:1.1.1")
     testImplementation("junit:junit:4.13.2")
+    implementation("com.android.billingclient:billing:8.3.0")
     implementation("androidx.media3:media3-transformer:1.9.0")
     implementation("androidx.media3:media3-effect:1.9.0")
     implementation("androidx.media3:media3-common:1.9.0")
@@ -53,3 +64,13 @@ val preparePoseModel by tasks.registering {
     }
 }
 tasks.named("preBuild").configure { dependsOn(preparePoseModel) }
+
+// An unconfigured release could take a store purchase but never verify it.
+val verifyReleaseSubscription=tasks.register("verifyReleaseSubscription") {
+    doLast {
+        require(playBillingPublicKey.isNotBlank()) { "Configure -PshottracerPlayPublicKey with the app's Play licensing public key before a release build." }
+        val bytes=Base64.getDecoder().decode(playBillingPublicKey)
+        KeyFactory.getInstance("RSA").generatePublic(X509EncodedKeySpec(bytes))
+    }
+}
+tasks.matching { it.name=="preReleaseBuild" }.configureEach { dependsOn(verifyReleaseSubscription) }

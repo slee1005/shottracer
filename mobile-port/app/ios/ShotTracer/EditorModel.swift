@@ -58,6 +58,7 @@ final class EditorModel: ObservableObject {
     private var pending: EditPoint?
     private var undo: [EditorScene] = []
     private var redo: [EditorScene] = []
+    var subscriptionAllowed: () -> Bool = { true }
     var hasVideo: Bool { source != nil }
     var canExport: Bool { scene.shots.contains { $0.ball != nil && ($0.edited || !$0.base.isEmpty) } }
     var canUndo: Bool { !undo.isEmpty }
@@ -192,6 +193,7 @@ final class EditorModel: ObservableObject {
         } catch { status = error.localizedDescription } }
     }
     private func beginImport() -> Bool {
+        guard subscriptionAllowed() else { status=NSLocalizedString("access.expired",comment:"");return false }
         guard !busy,!editingTimeline else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1; frameLoading=false
         busy = true; status = NSLocalizedString("status.importing", comment: ""); return true
     }
@@ -288,6 +290,7 @@ final class EditorModel: ObservableObject {
         lines.append(NSLocalizedString("editor.motionCalibration",comment:"")); return lines.joined(separator:"\n")
     }
     func analyze() {
+        guard subscriptionAllowed() else { status=NSLocalizedString("access.expired",comment:"");return }
         guard !busy,!editingTimeline, let source, let ball = scene.shot.ball else { return }
         pause(); busy=true; output=nil
         let start=scene.shot.start, end=min(duration,start+15), width=scene.width, height=scene.height, id=scene.shot.id, rows=times
@@ -351,6 +354,7 @@ final class EditorModel: ObservableObject {
         catch { status=(error as? PhotoAlbumError)?.localizedDescription ?? NSLocalizedString("editor.albumFailed",comment:"") }
     }
     func export() {
+        guard subscriptionAllowed() else { status=NSLocalizedString("access.expired",comment:"");return }
         guard !busy,!editingTimeline, let source else { return }; pause(); persist(); busy = true; output = nil
         status = NSLocalizedString("status.exporting", comment: "")
         let snapshot = scene, seconds = duration
@@ -360,6 +364,7 @@ final class EditorModel: ObservableObject {
         } catch { status = error.localizedDescription } }
     }
     func exportAll() {
+        guard subscriptionAllowed() else { status=NSLocalizedString("access.expired",comment:"");return }
         guard !busy, !projects.isEmpty else { return }; pause(); persist(); busy = true
         let queue = projects
         task = Task { defer { busy = false }; do {

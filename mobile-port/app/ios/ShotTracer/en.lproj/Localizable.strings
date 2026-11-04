@@ -199,3 +199,24 @@
 
 "editor.puttCurve" = "Putt curve";
 "editor.hint.puttCurve" = "Drag the cyan midpoint or tap a curve position. Start and landing stay fixed.";
+
+"access.title" = "Subscription and access";
+"access.restore" = "Restore purchases";
+"access.manage" = "Manage subscription";
+"access.code" = "Special offer code";
+"access.redeem" = "Redeem code";
+"access.device" = "Tester device ID: %@";
+"access.terms" = "First launch includes 3 free days. After that, continued editing requires a monthly subscription. No charge starts without your purchase confirmation. A purchased subscription renews automatically until cancelled through your store account. Store prices and offer eligibility apply. Videos stay on your device.";
+"access.continue" = "Continue to app";
+"access.close" = "Close app";
+"access.available" = "Free access: %d hours remaining.";
+"access.expired" = "Free access has ended. Subscribe or redeem an eligible offer to continue.";
+"access.subscribed" = "Subscription access is active.";
+"access.subscribe" = "Subscribe — %@ / month";
+"access.unavailable" = "Store purchase is not ready. Check connectivity and store product setup, or restore an existing purchase.";
+"access.extended" = "Tester access extended by 3 days.";
+"access.invalidCode" = "Invalid, expired, already used, or different-device tester code.";
+"access.expiredShort" = "Free access ended. Open Subscription to continue.";
+"access.pending" = "Purchase is pending. Access updates after approval.";
+"access.referencePrice" = "Requested US price: US$2.99 per month. Your storefront confirms the actual price before purchase.";
+"access.testCode" = "Tester extension code";

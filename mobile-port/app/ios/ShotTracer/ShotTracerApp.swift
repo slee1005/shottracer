@@ -3,9 +3,10 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
-@main struct ShotTracerApp: App { var body: some Scene { WindowGroup { EditorView() } } }
+@main struct ShotTracerApp: App { var body: some Scene { WindowGroup { SubscriptionRootView() } } }
 
 struct EditorView: View {
+    @EnvironmentObject private var access: SubscriptionAccess
     @StateObject private var model = EditorModel()
     @State private var picking = false
     @State private var showingCamera = false
@@ -52,6 +53,8 @@ struct EditorView: View {
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
             .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in if case .success(let url) = result { model.importVideo(url) } }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
+            .onAppear { model.subscriptionAllowed = { [weak access] in access?.allowed ?? false } }
+            .onChange(of:access.allowed) { _,allowed in if !allowed { model.pause();model.endTimeEdit(cancel:true) } }
             .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil }
             .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil } }
         }
@@ -61,6 +64,7 @@ struct EditorView: View {
             HStack {
                 Image("Brand").resizable().scaledToFit().frame(width:36,height:36).clipShape(RoundedRectangle(cornerRadius:8)).accessibilityHidden(true)
                 VStack(alignment:.leading,spacing:1) { Text("app.title").font(.title3.bold()); Text("editor.onDevice").font(.system(size:9,weight:.bold,design:.rounded)).tracking(2).foregroundStyle(.mint) }
+                Button { access.showing=true } label: { Image(systemName:"creditcard") }.accessibilityLabel(Text("access.title"))
                 Spacer()
                 Picker("editor.trackingMode",selection:Binding(get:{ model.scene.shot.trackingMode ?? "flight" },set:{ model.setTrackingMode($0) })) {
                     Text("editor.modeFlight").tag("flight"); Text("editor.putt").tag("putt")

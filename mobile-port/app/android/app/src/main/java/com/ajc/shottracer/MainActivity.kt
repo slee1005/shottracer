@@ -32,6 +32,9 @@ import kotlin.math.*
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class MainActivity : Activity() {
+    private var foreground=false
+    private lateinit var access: SubscriptionAccess
+    private fun requireAccess(): Boolean { if(access.allowed()) return true; access.show(this); return false }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private lateinit var preview: PreviewView
@@ -89,13 +92,14 @@ class MainActivity : Activity() {
         val button = ImageButton(this).apply {
             setImageDrawable(ToolIcon(key)); contentDescription = text(key); tooltipText = text(key)
             setPadding(dp(12), dp(12), dp(12), dp(12)); background = GradientDrawable().apply { setColor(Color.rgb(27, 35, 45)); cornerRadius = dp(16).toFloat() }
-            setOnClickListener { action() }
+            setOnClickListener { if(key in listOf("settings","projects","review","save") || requireAccess()) action() }
         }
         parent.addView(button, LinearLayout.LayoutParams(dp(48), dp(48)).apply { setMargins(dp(2), 0, dp(2), 0) })
         buttons[key] = button; return button
     }
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        access=SubscriptionAccess(this) { if(!isDestroyed && ::status.isInitialized) { controls(); if(!access.allowed() && foreground) { stopPlay(); access.show(this) } } }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.rgb(12,22,29),Color.rgb(9,13,20))); setPadding(dp(6), dp(6), dp(6), dp(6))
             setOnApplyWindowInsetsListener { view, insets ->
@@ -132,7 +136,7 @@ class MainActivity : Activity() {
         workflow = row(); root.addView(workflow, LinearLayout.LayoutParams(-1, dp(44)))
         fun actionButton(key: String, action: () -> Unit) = Button(this).apply {
             text = text(key); isAllCaps=false; textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
-            setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
+            setOnClickListener { if(requireAccess()) action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
         }
         startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; preview.panEnabled = false; status.text = text("hint_ball"); controls() }
         analyzeButton = actionButton("analyze_action") { analyzeFromButton() }
@@ -280,6 +284,7 @@ class MainActivity : Activity() {
     private fun overlay() { preview.overlay?.recycle(); preview.overlay = renderer.overlay(currentTime); preview.invalidate() }
     private fun reference(p: EditPoint): EditPoint { val m = scene.shot.motion(currentTime); return EditPoint(p.x - m.x, p.y - m.y) }
     private fun handle(key: String, p: EditPoint) {
+        if(!requireAccess()) return
         val point = reference(p)
         when {
             key == "ball" -> { scene.shot.ball = point; scene.shot.manual = true }
@@ -301,6 +306,7 @@ class MainActivity : Activity() {
         preview.ball = null; preview.handles = points; preview.invalidate()
     }
     private fun touch(p: EditPoint) {
+        if(!requireAccess()) return
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
@@ -382,6 +388,7 @@ class MainActivity : Activity() {
         super.onActivityResult(request, result, data); if (result != RESULT_OK) return
         val uri = data?.data
         if (request == 1) {
+            if(!requireAccess()) return
             val uris = data?.clipData?.let { clip -> (0 until clip.itemCount).map { clip.getItemAt(it).uri } } ?: listOfNotNull(uri)
             work {
                 var first: File? = null
@@ -402,6 +409,7 @@ class MainActivity : Activity() {
         tool="ball"; pending=null; preview.panEnabled=false; changed(); status.text=text("mode_changed")
     }
     private fun analyzeFromButton() {
+        if(!requireAccess()) return
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
         if (busy) return
         status.setText(R.string.status_analyzing)
@@ -460,6 +468,7 @@ class MainActivity : Activity() {
         output=file; saveOutput(done)
     }
     private fun exportVideo(done: (() -> Unit)? = null) {
+        if(!requireAccess()) return
         val file = source ?: return; stopPlay(); persist()
         val snapshot = scene.copy(); val draw = EditorRenderer(snapshot); val destination = File(file.parentFile, "traced-${UUID.randomUUID()}.mp4")
         busyTicket++; busy = true; controls(); status.setText(R.string.status_exporting)
@@ -572,6 +581,7 @@ class MainActivity : Activity() {
     }
     private fun settings() {
         stopPlay(); val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
+        layout.addView(Button(this).apply { setText(R.string.access_title); setOnClickListener { access.show(this@MainActivity) } })
         val edits = mutableListOf<() -> Unit>()
         var settingsDialog: AlertDialog?=null
         fun number(label: String, value: Double, min: Double, max: Double, set: (Double) -> Unit) {
@@ -654,8 +664,9 @@ class MainActivity : Activity() {
         } }
         dialog.show()
     }
-    override fun onPause() { if(timelineBefore!=null) endTimeEdit(true); stopPlay(); super.onPause() }
-    override fun onDestroy() { transformer?.cancel(); worker.shutdownNow(); super.onDestroy() }
+    override fun onResume() { super.onResume(); foreground=true; if(::access.isInitialized) { access.refresh(); if(access.needsIntroduction() || !access.allowed()) access.show(this) } }
+    override fun onPause() { foreground=false; if(timelineBefore!=null) endTimeEdit(true); stopPlay(); super.onPause() }
+    override fun onDestroy() { if(::access.isInitialized) access.close(); transformer?.cancel(); worker.shutdownNow(); super.onDestroy() }
 }
 internal fun slowIntervals(scene: EditorScene, duration: Double): List<Pair<Double, Double>> {
     val windows = scene.shots.filter { it.ball != null }.map { max(0.0, it.start - scene.slowBefore) to min(duration, it.start + scene.slowAfter) }.filter { it.second > it.first }.sortedBy { it.first }

@@ -186,4 +186,24 @@
     <string name="editor_start_options">Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.</string>
     <string name="editor_putt_curve">Putt curve</string>
     <string name="editor_hint_putt_curve">Drag the cyan midpoint or tap a curve position. Start and landing stay fixed.</string>
+    <string name="access_title">Subscription and access</string>
+    <string name="access_restore">Restore purchases</string>
+    <string name="access_manage">Manage subscription</string>
+    <string name="access_code">Special offer code</string>
+    <string name="access_redeem">Redeem code</string>
+    <string name="access_device">Tester device ID: %s</string>
+    <string name="access_terms">First launch includes 3 free days. After that, continued editing requires a monthly subscription. No charge starts without your purchase confirmation. A purchased subscription renews automatically until cancelled through your store account. Store prices and offer eligibility apply. Videos stay on your device.</string>
+    <string name="access_continue">Continue to app</string>
+    <string name="access_close">Close app</string>
+    <string name="access_available">Free access: %d hours remaining.</string>
+    <string name="access_expired">Free access has ended. Subscribe or redeem an eligible offer to continue.</string>
+    <string name="access_subscribed">Subscription access is active.</string>
+    <string name="access_subscribe">Subscribe — %s / month</string>
+    <string name="access_unavailable">Store purchase is not ready. Check connectivity and store product setup, or restore an existing purchase.</string>
+    <string name="access_extended">Tester access extended by 3 days.</string>
+    <string name="access_invalid_code">Invalid, expired, already used, or different-device tester code.</string>
+    <string name="access_expired_short">Free access ended. Open Subscription to continue.</string>
+    <string name="access_pending">Purchase is pending. Access updates after approval.</string>
+    <string name="access_reference_price">Requested US price: US$2.99 per month. Your storefront confirms the actual price before purchase.</string>
+    <string name="access_test_code">Tester extension code</string>
 </resources>
