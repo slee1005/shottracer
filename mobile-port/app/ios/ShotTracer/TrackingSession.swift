@@ -443,3 +443,14 @@ func placePopup(_ x: CGFloat,_ y: CGFloat,_ width: CGFloat,_ height: CGFloat,_ w
     } }
     return CGRect(x:sx,y:sy,width:width,height:height)
 }
+
+/// Source-frame exposure at a real-time playback clock, including variable-rate footage.
+func playbackFrame(_ times: [Double], _ sourceTime: Double) -> Int {
+    guard !times.isEmpty else { return 0 }
+    var left=0, right=times.count
+    while left<right {
+        let mid=(left+right)/2
+        if times[mid]<=sourceTime { left=mid+1 } else { right=mid }
+    }
+    return min(times.count-1,max(0,left-1))
+}

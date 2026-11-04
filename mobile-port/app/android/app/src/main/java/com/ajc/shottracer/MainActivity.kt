@@ -9,6 +9,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
+import android.os.SystemClock
 import android.os.Looper
 import android.provider.DocumentsContract
 import android.text.InputType
@@ -64,6 +65,8 @@ class MainActivity : Activity() {
     private var busy = false
     private var busyTicket = 0
     private var decoding = false
+    private var playStartedNs = 0L
+    private var playSourceStart = 0.0
     private var playing = false
     private var fullscreen = false
     private var timelineBefore: String?=null
@@ -164,7 +167,7 @@ class MainActivity : Activity() {
         })
         val transport = toolbar(root)
         icon(transport, "previous") { stopPlay(); refresh(frameIndex - 1) }
-        icon(transport, "play") { if (playing) stopPlay() else { playing = true; playNext() } }
+        icon(transport, "play") { if (playing) stopPlay() else startPlay() }
         icon(transport, "next") { stopPlay(); refresh(frameIndex + 1) }
         icon(transport, "analyze") { analyzeFromButton() }; icon(transport, "export") { exportVideo() }
         icon(transport, "review") { output?.let { review(it) } }; icon(transport, "save") { saveOutput() }
@@ -182,7 +185,8 @@ class MainActivity : Activity() {
     private fun controls() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && timelineBefore==null && when (key) {
-                "previous", "next", "play", "ball", "landing", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
+                "previous", "next", "ball", "landing", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
+                "play" -> source != null && (playing || !decoding)
                 "apex" -> source != null && (scene.shot.trackingMode != "putt" || scene.shot.hasGroundPath())
                 "analyze" -> scene.shot.ball != null
                 "undo" -> undo.isNotEmpty()
@@ -308,9 +312,25 @@ class MainActivity : Activity() {
         }
     }
     private fun stopPlay() { playing = false; main.removeCallbacksAndMessages("play"); buttons["play"]?.setImageDrawable(ToolIcon("play")) }
+    private fun startPlay() {
+        if (busy || decoding || source==null) return
+        playSourceStart=if(displayed>=times.lastIndex) times.first() else currentTime
+        playStartedNs=SystemClock.elapsedRealtimeNanos(); playing=true
+        buttons["play"]?.setImageDrawable(ToolIcon("pause")); playNext()
+    }
     private fun playNext() {
-        if (!playing || busy || frameIndex >= times.lastIndex) { stopPlay(); return }
-        buttons["play"]?.setImageDrawable(ToolIcon("pause")); refresh(frameIndex + 1)
+        main.removeCallbacksAndMessages("play")
+        if (!playing) return
+        if (busy || source==null) { stopPlay(); return }
+        if (decoding) return // Completion advances the same wall clock; no decode queue.
+        val now=playSourceStart+(SystemClock.elapsedRealtimeNanos()-playStartedNs)/1e9
+        val target=playbackFrame(times,now)
+        if (target!=displayed) { refresh(target); return }
+        val end=max(duration,times.last())
+        if(now>=end) { stopPlay(); return }
+        val next=if(target<times.lastIndex) times[target+1] else end
+        val delay=max(1L,ceil((next-now)*1000).toLong())
+        main.postAtTime({ playNext() },"play",SystemClock.uptimeMillis()+delay)
     }
     private fun work(action: () -> Unit) {
         val ticket = ++busyTicket
@@ -351,8 +371,7 @@ class MainActivity : Activity() {
                     if (token == generation) {
                         preview.image?.recycle(); preview.image = image; displayed = requested; decoding = false
                         overlay(); handles(); counter.text = getString(R.string.editor_frame_count, requested + 1, times.size, currentTime); controls()
-                        val factor = if (scene.slowmo && slowIntervals(scene, duration).any { currentTime >= it.first && currentTime < it.second }) scene.slowFactor else 1.0
-                        if (playing) main.postDelayed({ playNext() }, max(1L, ((times[min(times.lastIndex, requested + 1)] - currentTime) * 1000 * factor).toLong()))
+                        if (playing) playNext()
                     } else image.recycle()
                 }
             } catch (_: Exception) { ui { decoding = false; stopPlay(); controls(); status.setText(R.string.error_processing) } }

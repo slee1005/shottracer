@@ -50,6 +50,9 @@ final class EditorModel: ObservableObject {
     private var task: Task<Void, Never>?
     private var previewTask: Task<Void, Never>?
     private var playTask: Task<Void, Never>?
+    private var frameLoading=false
+    private var playStarted=0.0
+    private var playSourceStart=0.0
     private var previewGeneration = 0
     private var displayedTime = 0.0
     private var pending: EditPoint?
@@ -132,7 +135,7 @@ final class EditorModel: ObservableObject {
         let folders = Set(files.filter { known.contains($0) }.map { $0.deletingLastPathComponent().resolvingSymlinksInPath() })
             .filter { $0.deletingLastPathComponent() == root }
         guard !folders.isEmpty else { return }
-        pause(); previewTask?.cancel(); previewGeneration += 1; busy = true
+        pause(); previewTask?.cancel(); previewGeneration += 1; frameLoading=false; busy = true
         task = Task {
             let deleted = await Task.detached { folders.filter { folder in
                 do { try FileManager.default.removeItem(at: folder); return true } catch { return false }
@@ -189,7 +192,7 @@ final class EditorModel: ObservableObject {
         } catch { status = error.localizedDescription } }
     }
     private func beginImport() -> Bool {
-        guard !busy,!editingTimeline else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1
+        guard !busy,!editingTimeline else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1; frameLoading=false
         busy = true; status = NSLocalizedString("status.importing", comment: ""); return true
     }
     private func copyVideo(_ incoming: URL) async throws {
@@ -233,22 +236,34 @@ final class EditorModel: ObservableObject {
     }
     func seek(_ frame: Int) { frameIndex = min(max(0, frame), times.count - 1); time = times[frameIndex]; refreshFrame() }
     func step(_ delta: Int) { pause(); seek(frameIndex + delta) }
-    func play() { guard !busy, hasVideo else { return }; playing = true; advance() }
-    func pause() { playing = false; playTask?.cancel() }
+    func play() {
+        guard !busy, hasVideo else { return }
+        pause()
+        playSourceStart=displayedTime >= (times.last ?? 0)-0.000001 ? (times.first ?? 0) : displayedTime
+        playStarted=ProcessInfo.processInfo.systemUptime; playing=true; advance()
+    }
+    func pause() { playing=false; playTask?.cancel(); playTask=nil }
     private func advance() {
-        guard playing, frameIndex < times.count - 1 else { pause(); return }
-        let factor = scene.slowmo && slowIntervals(scene, duration).contains(where: { time >= $0.0 && time < $0.1 }) ? scene.slowFactor : 1.0
-        let delta = (times[frameIndex + 1] - times[frameIndex]) * factor
-        playTask = Task { try? await Task.sleep(for: .seconds(max(0.001, delta))); guard !Task.isCancelled, playing else { return }; seek(frameIndex + 1) }
+        playTask?.cancel(); playTask=nil
+        guard playing else { return }
+        guard !busy,hasVideo else { pause(); return }
+        if frameLoading { return }
+        let now=playSourceStart+ProcessInfo.processInfo.systemUptime-playStarted
+        let target=playbackFrame(times,now), shown=playbackFrame(times,displayedTime+0.000001)
+        if target != shown { seek(target); return }
+        let end=max(duration,times.last ?? 0)
+        if now>=end { pause(); return }
+        let next=target+1<times.count ? times[target+1] : end
+        playTask=Task { try? await Task.sleep(for:.seconds(max(0.001,next-now))); guard !Task.isCancelled,playing else { return }; advance() }
     }
     func refreshFrame() {
         guard let source, !busy else { return }
-        previewGeneration += 1; let generation = previewGeneration, requested = time; previewTask?.cancel()
+        previewGeneration += 1; let generation = previewGeneration, requested = time; previewTask?.cancel(); frameLoading=true
         previewTask = Task {
+            defer { if generation == previewGeneration { frameLoading=false; if playing { advance() } } }
             do { let (frame, actual) = try await Self.frame(source, at: requested)
                 guard !Task.isCancelled, generation == previewGeneration else { return }
                 image = UIImage(cgImage: frame); displayedTime = actual; overlay = renderer.overlay(actual)
-                if playing { advance() }
             } catch { if generation == previewGeneration { pause(); status = error.localizedDescription } }
         }
     }
