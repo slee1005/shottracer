@@ -9,5 +9,6 @@
   "ios_product_id": "com.ajc.shottracer.monthly",
   "test_extension_days": 3,
   "production_codes": "store_managed_only",
-  "store_setup_complete": false
+  "store_setup_complete": false,
+  "android_package_name": "com.ajc.shottracer"
 }

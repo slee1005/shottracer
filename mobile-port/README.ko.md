@@ -152,7 +152,7 @@ xcodebuild -project mobile-port/app/ios/ShotTracer.xcodeproj \
 
 현재 Mac에서 서명 없는 iOS 기기용 빌드가 성공했다. 실기기 설치에는 Xcode에서 본인 Team과 고유 Bundle ID를 설정해야 한다. 현재 ID `com.ajc.shottracer.dev`는 개발용이며 스토어 등록에 사용 확정한 ID가 아니다. CoreSimulator 서비스 버전 불일치로 시뮬레이터 실행은 검증하지 못했다.
 
-Android는 JDK 17, Android SDK 플랫폼 35·Build Tools 35.0.0·NDK 27.0.12077973·CMake 3.22.1로 구성한다. Gradle 8.11.1 wrapper와 배포 ZIP SHA-256 검증값을 포함한다. 개발 빌드의 compile/target SDK 35는 스토어 제출 적합성을 의미하지 않으며 출시 시 갱신한다.
+Android는 JDK 17, Android SDK 플랫폼 36·Build Tools 35.0.0 이상·NDK 27.0.12077973·CMake 3.22.1로 구성한다. Gradle 8.11.1 wrapper와 배포 ZIP SHA-256 검증값을 포함한다. Android Gradle Plugin 8.10.1과 compile/target API 36을 사용하며 NDK의 16KB 가변 페이지 지원을 활성화했다.
 
 ```bash
 cd mobile-port/app/android
@@ -314,3 +314,13 @@ Android는 Play Billing 8.3.0으로 구매 서명 검사, 승인 대기·구매 
 일반판은 자체 테스터 연장 코드를 거부한다. 별도 Android **ShotTracer 테스터**(`preview`, 앱 ID `.tester` 접미사)와 명시적으로 플래그를 지정한 별도 iPhone 테스터판에서만 운영자 서명·기기/플랫폼 지정·1회용 **3일 연장 코드**를 허용한다. 발급 후 7일 안에 사용하며 `max(현재 시각, 기존 만료)+72시간`으로 연장한다. 새로 발급한 코드는 추가 연장할 수 있다. 발급 개인키는 Git에서 제외한 `private/`에만 보관하며 앱에 포함하지 않는다. [구독 설정·코드 발급 안내](commerce/README.ko.md), [요청 상품 설정](commerce/products.json), [운영자 발급 도구](tools/issue_access_codes.py)를 참고한다. 로컬 체험·재사용 기록은 재설치나 루팅 변조까지 방지하지 못하며 출시 전 보강 사항은 안내에 명시했다.
 
 검증: **Python/공통 코어/발급기 테스트 79개**, **Android JVM 테스트 38개**, Android 일반·테스터 APK 빌드·린트, iPhone 일반·테스터 무서명 빌드 통과. Android 14에서 첫 실행 무료 72시간과 계속 사용 버튼을 확인했고, 만료된 테스트 기록에서는 계속 사용이 비활성화됐다. 별도 네이티브 검사에서 만료 차단, 서명 코드의 정확한 72시간 연장, 다른 기기 코드 거부, 다시 열기 후 재사용 거부와 일반판의 테스터 코드 거부를 확인했다. OpenSSL 발급기와 Swift CryptoKit의 서명·JSON 호환성도 통과했다. 실제/샌드박스 결제·갱신·환불 과정 및 iPhone 실기기 실행은 아직 검증하지 않았다.
+
+### Google Play 정식 패키지와 서명 AAB
+
+Android 정식 앱 ID를 **com.ajc.shottracer**, 버전 **0.0.1** / 코드 **1**, 최소 SDK **34**, compile/target **36**으로 변경했다. 개발판은 `.dev`, 별도 테스터판은 `.dev.tester`를 유지해 기존 개발·테스터 데이터를 덮어쓰지 않는다. iPhone 앱 ID·서명 설정은 변경하지 않았다.
+
+새 업로드 서명키와 비밀번호 설정은 Git에서 제외한 `private/`에 소유자 전용 권한으로 생성했다. 사용자가 제공한 Play 라이선스 RSA 공개키는 `private/play-billing-public-key.txt`에서 읽는다. 이는 업로드 서명 인증서와 다른 키다. 서명 자격 증명을 커밋하지 않으며 이후 업데이트를 위해 키 저장소와 설정 파일을 보관한다.
+
+검증된 로컬 업로드 파일은 **release/ShotTracer-0.0.1-play.aab**(43,612,838바이트)다. 옆에 SHA-256과 검증 JSON을 저장하며 빌드 결과는 Git에서 제외한다. `tools/build_play_bundle.py`는 정식 패키지·디버그 해제·API 36·업로드 인증서 일치/JAR 서명·모델 해시·실제 공개키 포함·bundletool 구조·64비트 네이티브 ELF 4개의 정렬을 검사한다. 공식 bundletool 1.18.3의 SHA-256을 고정했다. AAB는 16KB APK 정렬을 요청하며 추적 코어와 MediaPipe 모두 LOAD 구간의 16KB 정렬을 확인했다.
+
+검증: Python/공통 코어/발급기/아티팩트 테스트 85개, Android JVM 테스트 38개, 개발·출시 빌드와 린트, bundletool/JAR/매니페스트/네이티브/모델/공개키 검사 통과. AAB는 로컬에 생성했으며 Play 업로드·심사와 실제 구독 결제 전 과정은 별도로 진행해야 한다. [업로드·키 백업 안내](commerce/PLAY_RELEASE.ko.md)를 참고한다. [Google API 요구 사항](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en)과 [16KB 지원](https://developer.android.com/guide/practices/page-sizes)을 확인했다.

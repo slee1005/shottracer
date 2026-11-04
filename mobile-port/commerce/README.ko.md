@@ -13,9 +13,9 @@
 
 ## Google Play Console 준비
 
-1. 최종 앱 ID를 확정하고 앱·결제 프로필·약관·테스트 요구 사항을 준비한다. 현재 개발 ID는 `com.ajc.shottracer.dev`다.
+1. 최종 앱 ID를 확정하고 앱·결제 프로필·약관·테스트 요구 사항을 준비한다. 확정한 정식 앱 ID는 `com.ajc.shottracer`이며 개발판은 `com.ajc.shottracer.dev`를 유지한다.
 2. 구독 상품 `shottracer_monthly`, 기본 요금제 `monthly`, 기간 `P1M`, 미국 가격 USD 2.99로 등록·활성화한다. 앱이 이미 첫 72시간을 무료로 제공하므로 일반 요금제에는 무료 체험을 중복 추가하지 않는다.
-3. 앱의 라이선스 RSA **공개키**를 복사한다. 서비스 계정 개인키가 아니다. `-PshottracerPlayPublicKey=BASE64_PUBLIC_KEY`로 빌드하거나 커밋하지 않는 로컬 Gradle 설정에 넣는다. 공개키가 비어 있으면 구매 버튼은 비활성화된다. `verifyReleaseSubscription`은 RSA 공개키가 준비되지 않은 출시 빌드도 거부한다.
+3. 앱의 라이선스 RSA **공개키**를 복사한다. 서비스 계정 개인키가 아니다. 제공받은 공개키는 현재 로컬 `private/play-billing-public-key.txt`에 저장했으며 Gradle이 자동으로 읽는다. `-PshottracerPlayPublicKey=BASE64_PUBLIC_KEY`로 재지정할 수도 있다. 공개키가 비어 있으면 구매 버튼은 비활성화된다. `verifyReleaseSubscription`은 RSA 공개키가 준비되지 않은 출시 빌드도 거부한다.
 4. 서명한 앱을 Play 테스트 트랙에 등록하고 라이선스 테스터로 구매·승인 대기·확인 처리·복원·취소·갱신·유예/보류·환불/철회를 시험한다. 직접 설치한 APK와 로컬 정책 테스트만으로 실결제가 검증된 것은 아니다. 안정적인 출시 검증과 긴 오프라인 기간이 필요하면 서버 검증/RTDN을 검토한다.
 5. Console에서 개별 공식 프로모션 코드를 발급한다. 앱의 코드 사용은 Google Play로 연결하고 돌아오면 구매를 다시 조회한다. 사용 자격·지원 무료 기간·횟수 제한은 Google 정책을 따르며 자체 테스터 코드와 별개다.
 
@@ -59,3 +59,5 @@ xcodebuild -project app/ios/ShotTracer.xcodeproj -scheme ShotTracer -configurati
 최신 빌드·로컬 검증 결과는 상위 README 두 언어판을 참고한다. 실제 상품 활성화, 서명 배포, 개인정보/스토어 정보와 실제 결제 전 과정 검증이 출시 전에 남아 있다.
 
 현재 구독은 각 스토어 계정별이다. Android와 iPhone이 하나의 플랫폼 공통 유료 계정을 공유하지는 않으며, 이를 원하면 별도 계정·서버 설계가 필요하다. 구매 복원은 해당 스토어 계정에 적용한다.
+
+정식 업로드 AAB와 키 백업·재빌드 절차는 [PLAY_RELEASE.ko.md](PLAY_RELEASE.ko.md)에 정리했다. 공개키 설정은 로컬에서 완료했으며 상품 활성화와 실제 결제 테스트는 남아 있다.

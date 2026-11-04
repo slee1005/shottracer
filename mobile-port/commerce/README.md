@@ -13,9 +13,9 @@ Owner-confirmed model (2026-11-03): first launch starts 72 hours of free use. Th
 
 ## Required Play Console setup
 
-1. Register the intended Android application/package and complete its payments profile, agreements and testing requirements. The current development package is `com.ajc.shottracer.dev`; finalize the public ID before registering products.
+1. Register the intended Android application/package and complete its payments profile, agreements and testing requirements. The confirmed public package is `com.ajc.shottracer`; debug remains `com.ajc.shottracer.dev`.
 2. Create auto-renewing subscription **shottracer_monthly**, base plan **monthly**, **P1M**, US base price **USD 2.99**. Do not add another introductory free trial to the ordinary base plan: the app already gives the first 72 hours without a purchase. Activate the plan in intended countries.
-3. Copy the app's licensing RSA public key (public, not a service-account/private key). Build with `-PshottracerPlayPublicKey=BASE64_PUBLIC_KEY` or store that property in an uncommitted local Gradle properties file. With an empty key the purchase button deliberately remains disabled, and `verifyReleaseSubscription` rejects a release build until an RSA public key is configured.
+3. Copy the app's licensing RSA public key (public, not a service-account/private key). The provided public key is now saved locally in `private/play-billing-public-key.txt`. Gradle reads it automatically; `-PshottracerPlayPublicKey=BASE64_PUBLIC_KEY` can override it. With an empty key the purchase button deliberately remains disabled, and `verifyReleaseSubscription` rejects a release build until an RSA public key is configured.
 4. Upload a signed build to an appropriate Play testing track, configure license testers and validate purchase, pending approval, acknowledgement, restore, cancellation, renewal, grace/account hold and refund/revocation. Sideloaded APK builds and local policy tests are not proof of working store purchases. Consider server verification/RTDN for production and longer offline leases.
 5. Create individual official promo codes in Play Console. The in-app Redeem action routes to Google Play; returning to the app re-queries ownership. Eligibility, supported free durations and redemption limits are determined by Play, not by the local +3-day tester issuer.
 
@@ -59,3 +59,5 @@ Send the resulting `ST3...` code manually to that tester. Paste it into the test
 See the English/Korean mobile READMEs for the latest build and local-test results. Actual store-product activation, signed distribution, privacy/store metadata and real billing lifecycle tests remain release blockers.
 
 Subscriptions are currently storefront/account-specific. Android and iPhone do not share one cross-platform paid account; that would require an additional account/server design. Store restore applies to the corresponding store account.
+
+The production upload AAB and backup/rebuild procedure are documented in [PLAY_RELEASE.md](PLAY_RELEASE.md). The license-key provisioning step is complete locally; product activation and real billing tests still remain.

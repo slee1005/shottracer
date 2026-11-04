@@ -152,7 +152,7 @@ xcodebuild -project mobile-port/app/ios/ShotTracer.xcodeproj \
 
 An unsigned iOS device build succeeded on this Mac. To install on a device, configure your Team and unique Bundle ID in Xcode. `com.ajc.shottracer.dev` is a development identifier, not a confirmed store registration. Simulator execution remains unverified because of a CoreSimulator service version mismatch.
 
-Android uses JDK 17, SDK platform 35, Build Tools 35.0.0, NDK 27.0.12077973, and CMake 3.22.1. Gradle 8.11.1 wrapper and distribution ZIP SHA-256 are included. Development compile/target SDK 35 does not establish store submission eligibility; update before release.
+Android uses JDK 17, SDK platform 36, Build Tools 35.0.0+, NDK 27.0.12077973, and CMake 3.22.1. Gradle 8.11.1 wrapper and distribution ZIP SHA-256 are included. Android Gradle Plugin 8.10.1 builds compile/target API 36; NDK flexible page sizes are enabled for 16 KB devices.
 
 ```bash
 cd mobile-port/app/android
@@ -314,3 +314,13 @@ Android integrates Play Billing 8.3.0 with signed-purchase checks, pending/ackno
 Public builds reject proprietary tester extensions. The separate Android **ShotTracer Tester** (`preview`, application ID suffix `.tester`) and an explicitly flagged separate iPhone tester build accept owner-signed, device/platform-bound, one-time **+3-day** codes. Codes redeem within seven days and extend `max(now,current expiry)+72h`; newly issued codes can extend again. The issuer private key is under ignored `private/`, never committed or shipped. See [subscription setup and code issuance](commerce/README.md), [requested products](commerce/products.json), and [owner issuer tool](tools/issue_access_codes.py). Local-only trial/replay storage is not reinstall/root-tamper proof; production hardening is documented there.
 
 Validation: **79 Python/shared-core/issuer tests**, **38 Android JVM tests**, Android normal and tester APK builds/lint, iPhone normal and tester unsigned builds. Android 14 showed 72 free hours and a usable Continue action on first launch; an expired test record disabled Continue. An isolated native probe confirmed expiry denial, exact +72-hour signed grants, wrong-device rejection, reuse rejection after reopen and public-build rejection of tester codes. OpenSSL issuer → Swift CryptoKit signature/JSON interoperability passed. No real/sandbox payment, renewal/refund lifecycle or physical iPhone runtime was executed.
+
+### Google Play production package and signed AAB
+
+The Android production application ID is now **com.ajc.shottracer**, version **0.0.1** / code **1**, min SDK **34**, compile/target **36**. Debug keeps `.dev` and the separate tester keeps `.dev.tester`, so existing development/test data is not replaced. iPhone identifiers/signing settings are unchanged.
+
+A new owner upload key and password configuration were generated under ignored `private/` with owner-only permissions. The supplied Play licensing RSA public key is loaded from `private/play-billing-public-key.txt`. It is distinct from the upload signing certificate. Never commit signing credentials; preserve the upload keystore and properties for later updates.
+
+The verified local upload file is **release/ShotTracer-0.0.1-play.aab** (43,612,838 bytes). Its SHA-256 and verification JSON sit beside it; build outputs remain ignored. `tools/build_play_bundle.py` builds and checks the production package, non-debug manifest, API 36, upload certificate match/JAR signature, pinned model, actual billing-key embedding, bundletool structure and all four 64-bit native ELF load alignments. Official bundletool 1.18.3 is pinned by SHA-256. The production bundle requests 16 KB APK alignment, and both the tracking core and MediaPipe binaries have 16 KB-compatible LOAD segments.
+
+Validation: 85 Python/shared-core/issuer/artifact tests, 38 Android JVM tests, debug/release builds and lint, signed bundletool/JAR/manifest/native/model/key checks. The AAB was created locally; Play upload/review and actual subscription lifecycle tests are still owner-managed. See [release upload and key backup guide](commerce/PLAY_RELEASE.md). API/page-size requirements checked against [Google target requirements](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en) and [16 KB support](https://developer.android.com/guide/practices/page-sizes).

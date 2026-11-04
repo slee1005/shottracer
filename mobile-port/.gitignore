@@ -14,3 +14,5 @@ xcuserdata/
 __pycache__/
 private/
 *.pem
+*.p12
+release/
