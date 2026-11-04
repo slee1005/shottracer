@@ -43,10 +43,17 @@ internal data class EditShot(
         val p = NativeCore.curve(doubleArrayOf(a.x, a.y, b.x, b.y, c.x, c.y), flight, apexFraction, speed, time)
         return EditPoint(p[0], p[1])
     }
+    fun hasGroundPath() = ball != null && (base.size >= 2 || landing != null)
     fun ground(time: Double): EditPoint {
+        val f = (time / max(.01,flight)).coerceIn(0.0,1.0)
+        // A manually placed landing is a complete putt even without analysis.
+        // Never interpolate an empty observation list from the frame origin.
+        if (base.size < 2) {
+            val a = ball ?: EditPoint(0.0,0.0); val b = landing ?: a
+            return EditPoint(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f)
+        }
         val origin=base.firstOrNull()?.time ?: start
         val span = max(.01,(base.lastOrNull()?.time ?: origin)-origin)
-        val f = (time / max(.01,flight)).coerceIn(0.0,1.0)
         val p = interpolate(base,origin+f*span); val end = base.lastOrNull()
         val ease = ((f-.6)/.4).coerceIn(0.0,1.0).pow(2)
         return EditPoint(p.x + (landing?.x?.minus(end?.x ?: p.x) ?: 0.0)*ease,
@@ -176,7 +183,7 @@ internal class EditorRenderer(private val scene: EditorScene) {
             val elapsed = (time - s.start) * s.speed
             val visible = time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)
             val points = mutableListOf<EditPoint>()
-            if (visible && s.ball != null && (s.trackingMode != "putt" || s.base.size >= 2)) {
+            if (visible && s.ball != null && (s.trackingMode != "putt" || s.hasGroundPath())) {
                 val from = if (scene.preset == "comet") max(0.0, elapsed - .7) else 0.0
                 if (s.edited() || s.trackingMode == "putt") {
                     for (i in 0..128) { val t = duration * i / 128; if (t in from..min(duration, elapsed)) points.add(curve(t)) }

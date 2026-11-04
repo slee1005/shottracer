@@ -102,4 +102,30 @@ class EditorTimingTest {
         retimeShot(predicted,"landing",3,doubleArrayOf(0.0,.2,.5,.9,1.2))
         assertTrue(shotEvents(predicted,doubleArrayOf(0.0,.2,.5,.9,1.2),1.3).last().estimated)
     }
+    @Test fun manualPuttWithoutAnalysisDrawsFromSelectedBallToLanding() {
+        val shot=EditShot(ball=EditPoint(.2,.8),landing=EditPoint(.8,.6),flight=2.0,trackingMode="putt")
+        assertTrue(shot.hasGroundPath())
+        assertEquals(EditPoint(.2,.8),shot.ground(-1.0))
+        assertEquals(.5,shot.ground(1.0).x,1e-10)
+        assertEquals(.7,shot.ground(1.0).y,1e-10)
+        assertEquals(EditPoint(.8,.6),shot.ground(3.0))
+        assertTrue(shot.base.isEmpty()); assertNull(shot.baseModel)
+    }
+    @Test fun singleSeedPuttUsesManualEndpointsInsteadOfFrameOrigin() {
+        val seed=listOf(TimedPoint(4.0,.2,.8))
+        val shot=EditShot(start=4.0,ball=EditPoint(.2,.8),landing=EditPoint(.6,.8),flight=1.0,trackingMode="putt",base=seed)
+        assertTrue(shot.hasGroundPath())
+        assertEquals(.4,shot.ground(.5).x,1e-10)
+        assertEquals(.8,shot.ground(.5).y,1e-10)
+        assertSame(seed,shot.base)
+    }
+    @Test fun startOnlyPuttDoesNotInventAnEndpoint() {
+        val shot=EditShot(ball=EditPoint(.2,.8),trackingMode="putt")
+        assertFalse(shot.hasGroundPath())
+        assertEquals(shot.ball,shot.ground(2.0))
+        shot.base=listOf(TimedPoint(0.0,.2,.8),TimedPoint(.1,.3,.8))
+        assertTrue(shot.hasGroundPath())
+        shot.ball=null
+        assertFalse(shot.hasGroundPath())
+    }
 }

@@ -143,9 +143,16 @@ struct EditShot: Codable, Identifiable, Sendable {
     }
     var endpoint: EditPoint { landing ?? model.flatMap { NativeFlight.at($0, flight) } ?? base.last.map { EditPoint($0.x, $0.y) } ?? EditPoint(0.75, 0.65) }
     var peak: EditPoint { let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
+    var hasGroundPath: Bool { ball != nil && (base.count >= 2 || landing != nil) }
     func ground(_ time: Double) -> EditPoint {
+        let f = min(1,max(0,time/max(0.01,flight)))
+        // Manual putts need only a start and destination, not tracker samples.
+        if base.count < 2 {
+            let a = ball ?? EditPoint(0,0), b = landing ?? a
+            return EditPoint(a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f)
+        }
         let origin=base.first?.time ?? start
-        let span = max(0.01, (base.last?.time ?? origin)-origin), f = min(1,max(0,time/max(0.01,flight)))
+        let span = max(0.01, (base.last?.time ?? origin)-origin)
         let p = interpolated(base,origin+f*span), end = base.last
         let ease = pow(min(1,max(0,(f-0.6)/0.4)),2)
         return EditPoint(p.x + ((landing?.x ?? end?.x ?? p.x)-(end?.x ?? p.x))*ease,
@@ -207,7 +214,7 @@ final class EditorRenderer: @unchecked Sendable {
                 let duration = (s.edited || s.trackingMode == "putt") ? s.flight : max(0.01, (s.base.last?.time ?? s.start) - s.start)
                 let elapsed = (time - s.start) * s.speed
                 var points: [EditPoint] = []
-                if s.ball != nil && (s.trackingMode != "putt" || s.base.count >= 2) && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
+                if s.ball != nil && (s.trackingMode != "putt" || s.hasGroundPath) && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
                     let from = scene.preset == "comet" ? max(0, elapsed - 0.7) : 0
                     if s.edited || s.trackingMode == "putt" {
                         for i in 0...128 { let t = duration * Double(i) / 128; if t >= from && t <= min(duration, elapsed) { points.append(curve(t)) } }

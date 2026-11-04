@@ -260,3 +260,11 @@ Settings now includes **Observed video motion**: ball displacement and median pr
 Validation for this change: 76 Python/shared-core tests; Android debug build, JVM tests and lint; unsigned iPhone device-SDK build. Physical-phone accuracy and capture validation remain pending.
 
 Android 14 emulator workflow check: selecting the start saved its coordinates with zero observations and no fitted model. Selecting a landing then saved a manual endpoint with zero observations. In a fresh copy of the same synthetic 60-frame clip, pressing Analyze after selecting the start produced 55 observations and a 16-value base model. Python/shared-core tests (76), Android build/JVM tests/lint and unsigned iPhone build passed. Physical-phone tracking accuracy remains unverified.
+
+### Manual putt line visibility fix
+
+In Putt mode, a selected start plus a manual landing now renders a ground line without requiring automatic observations. Previously the compositor hid all putts with fewer than two samples; empty-sample interpolation also incorrectly used the image origin. Both native preview/export renderers now allow manual endpoints and interpolate directly from the selected ball to the landing when there are zero or one observations. Start-only putts remain hidden until a landing is selected or automatic tracking supplies a path; tracked ground curves and immutable observations keep their existing behavior.
+
+Use **Putt → Set start point → Landing tool → select destination**, then play or seek forward to see the growing line. Set landing time with the timeline marker as needed. Alternatively, use Analyze after selecting the start to track observed rolling motion.
+
+Validation: 76 Python/shared-core tests, 21 Android JVM tests (three new manual-putt regressions), Android debug assembly/lint, unsigned iPhone build. A separate synthetic Android 14 emulator project with zero observations showed the manual line in preview and a 60-frame/30fps MP4, with tracer pixels verified at the midpoint and landing; automatic photo-album saving completed. iPhone physical-device execution remains unverified.
