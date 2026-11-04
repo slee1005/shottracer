@@ -72,7 +72,6 @@ class LiveCameraActivity : Activity(), LiveShotEngine.Listener {
             actions.addView(this, LinearLayout.LayoutParams(0, (52 * resources.displayMetrics.density).toInt(), 1f))
         }
         recordButton = button(R.string.live_record, "record") {
-            if(!SubscriptionAccess.cachedAllowed(this)) { Toast.makeText(this,R.string.access_expired_short,Toast.LENGTH_LONG).show(); finish(); return@button }
             recording = true; output = null; controls()
             engine.record(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
         }

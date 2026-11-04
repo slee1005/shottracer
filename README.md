@@ -5,6 +5,8 @@
 A local editor that draws the ball flight (shot tracer), swing path and data pop-ups
 onto golf swing videos. Everything runs on your machine; videos never leave it.
 
+The [Android/iPhone port](mobile-port/README.md) is prepared for free distribution without subscriptions or trial expiry; device validation and store publication remain pending.
+
 - Semi-automatic: click the ball once, the rest is detected
 - Ball flight and putt/chip tracing, club-head swing path
 - Golfer cut-out (tracer passes behind the golfer), camera-shake compensation
@@ -340,6 +342,14 @@ tests/           trajectory, launch and putt tests
 ```bash
 uv run pytest
 ```
+
+Code structure, data model, coordinate systems and the analysis pipeline are documented in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); working rules and handoff notes for contributors and
+coding agents are in [AGENTS.md](AGENTS.md).
+
+For completed work, see the [project work log (Korean)](docs/WORK_LOG.ko.md).
+Mobile implementation, validation and release preparation are recorded separately in the
+[mobile work log (Korean)](mobile-port/WORK_LOG.ko.md).
 
 UI strings live in `src/shottracer/web/i18n.js`; add a language by adding a block there and an
 option to the language menu in `index.html`.

@@ -41,12 +41,20 @@ def certificate(data: str) -> bytes:
     if not match: raise ValueError('Missing upload certificate')
     return base64.b64decode(''.join(match[1].split()),validate=True)
 
-def verify(bundle: Path, bundletool: Path, java_home: Path, key: str, expected_certificate: Path) -> dict:
+def verify_free_manifest(manifest: ET.Element) -> None:
+    """Reject accidental reintroduction of store billing or network access in the free app."""
+    forbidden={'android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE','com.android.vending.BILLING'}
+    permissions={node.get(ANDROID+'name') for node in manifest if node.tag.startswith('uses-permission')}
+    if permissions & forbidden:
+        raise ValueError('Free offline bundle contains billing/network permissions: '+', '.join(sorted(permissions & forbidden)))
+
+def verify(bundle: Path, bundletool: Path, java_home: Path, expected_certificate: Path) -> dict:
     if hashlib.sha256(bundletool.read_bytes()).hexdigest()!=BUNDLETOOL_SHA256:
         raise ValueError('Use the SHA-256-pinned official bundletool-all-1.18.3.jar')
     java=str(java_home/'bin/java')
     capture([java,'-jar',str(bundletool),'validate','--bundle='+str(bundle)])
     manifest=ET.fromstring(capture([java,'-jar',str(bundletool),'dump','manifest','--bundle='+str(bundle),'--module=base']))
+    verify_free_manifest(manifest)
     if manifest.get('package')!='com.ajc.shottracer': raise ValueError('Wrong production package')
     sdk=manifest.find('uses-sdk'); app=manifest.find('application')
     if sdk is None or int(sdk.get(ANDROID+'targetSdkVersion','0'))<36: raise ValueError('API 36 target required')
@@ -69,8 +77,9 @@ def verify(bundle: Path, bundletool: Path, java_home: Path, key: str, expected_c
                 if name.split('/')[2] not in ('arm64-v8a','x86_64'): raise ValueError('Unexpected native ABI')
                 native[name]=min(elf_load_alignments(archive.read(name)))
         if not native: raise ValueError('Missing native tracking libraries')
-        if not any(key.encode() in archive.read(n) for n in names if n.startswith('base/dex/') and n.endswith('.dex')):
-            raise ValueError('Configured Play licensing public key missing from DEX')
+        for name in names:
+            if name.startswith('base/dex/') and name.endswith('.dex') and b'Lcom/android/billingclient/' in archive.read(name):
+                raise ValueError('Free bundle still includes the Play Billing SDK')
         pose=archive.read('base/assets/pose_landmarker_full.task')
         if hashlib.sha256(pose).hexdigest()!='5134a3aad27a58b93da0088d431f366da362b44e3ccfbe3462b3827a839011b1':
             raise ValueError('Bundled pose model checksum mismatch')
@@ -78,7 +87,8 @@ def verify(bundle: Path, bundletool: Path, java_home: Path, key: str, expected_c
             'version_code':int(manifest.get(ANDROID+'versionCode','0')),'target_sdk':int(sdk.get(ANDROID+'targetSdkVersion','0')),
             'min_sdk':int(sdk.get(ANDROID+'minSdkVersion','0')),'upload_certificate_sha256':actual,
             'sha256':hashlib.sha256(bundle.read_bytes()).hexdigest(),'native_load_alignment':native,
-            'signature_verified':True,'bundletool_validated':True,'billing_key_embedded':True}
+            'signature_verified':True,'bundletool_validated':True,'distribution':'free',
+            'billing_sdk_absent':True,'billing_and_network_permissions_absent':True}
 
 def main() -> None:
     parser=argparse.ArgumentParser(description=__doc__)
@@ -87,18 +97,14 @@ def main() -> None:
     parser.add_argument('--java-home',type=Path,default=os.environ.get('JAVA_HOME'))
     args=parser.parse_args()
     if args.java_home is None: parser.error('JAVA_HOME or --java-home is required')
-    key_file=ROOT/'private/play-billing-public-key.txt'
-    if not key_file.is_file(): parser.error('Save the real Play Console licensing RSA public key in mobile-port/private/play-billing-public-key.txt; a placeholder key is not accepted.')
-    key=''.join(key_file.read_text().split())
-    if not key: parser.error('Play licensing public key is empty')
     signing=ROOT/'private/android-upload.properties'; cert=ROOT/'private/android-upload-certificate.pem'
     if not signing.is_file() or not cert.is_file(): parser.error('Configure the upload signing files first')
     env=dict(os.environ,JAVA_HOME=str(args.java_home))
     subprocess.run([args.gradle,'-p',str(ROOT/'app/android'),':app:bundleRelease',':app:testDebugUnitTest',':app:lintRelease','--no-daemon'],env=env,check=True)
     bundle=ROOT/'app/android/app/build/outputs/bundle/release/app-release.aab'
-    report=verify(bundle,args.bundletool.resolve(),args.java_home.resolve(),key,cert)
+    report=verify(bundle,args.bundletool.resolve(),args.java_home.resolve(),cert)
     output=ROOT/'release';output.mkdir(exist_ok=True)
-    destination=output/f'ShotTracer-{report["version_name"]}-play.aab'
+    destination=output/f'ShotTracer-{report["version_name"]}-free-play.aab'
     shutil.copy2(bundle,destination)
     destination.with_suffix('.aab.sha256').write_text(report['sha256']+'  '+destination.name+'\n')
     destination.with_suffix('.verification.json').write_text(json.dumps(report,indent=2)+'\n')

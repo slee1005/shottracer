@@ -5,6 +5,8 @@
 골프 스윙 동영상에 공의 비행 궤적(트레이서), 스윙 경로, 데이터 팝업을 입히는 로컬 편집기.
 영상은 이 컴퓨터 밖으로 나가지 않습니다.
 
+[Android·iPhone 포팅 앱](mobile-port/README.ko.md)은 구독·체험 만료 없는 무료 배포판으로 준비했습니다. 실기기 검증과 스토어 공개는 남아 있습니다.
+
 ## 독립 실행 앱
 
 Shot Tracer는 독립 실행 앱으로 만들 수 있습니다. Python, uv, ffmpeg 설치가 필요 없고, ffmpeg와 자세 인식 모델까지
@@ -267,6 +269,12 @@ uv run shottracer --project <ID> -o out.mp4     # UI에서 편집한 프로젝�
 ```bash
 uv run pytest
 ```
+
+코드 구조, 데이터 모델, 좌표계, 분석 파이프라인은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)에,
+기여자와 코딩 에이전트를 위한 작업 규칙과 인수인계 내용은 [AGENTS.md](AGENTS.md)에 정리되어 있습니다.
+
+지금까지의 작업은 [전체 작업 정리](docs/WORK_LOG.ko.md)를 참고하세요.
+모바일 구현·검증·출시 준비 내역은 [mobile-port 작업 정리](mobile-port/WORK_LOG.ko.md)에 별도로 모았습니다.
 
 ## 후원
 
