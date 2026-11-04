@@ -10,7 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.provider.MediaStore
+import android.provider.DocumentsContract
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -109,7 +109,17 @@ class MainActivity : Activity() {
         }
         flightModeButton=modeButton("mode_flight","flight"); puttModeButton=modeButton("putt","putt")
         val upper = toolbar(root); top = upper.parent as HorizontalScrollView
-        icon(upper, "import") { startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).setType("video/*").putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 4), 1) }
+        icon(upper, "import") {
+            stopPlay()
+            // DocumentsUI opens device videos instead of the cloud-enabled Photo Picker.
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                type = "video/*"; addCategory(Intent.CATEGORY_OPENABLE)
+                putExtra(Intent.EXTRA_LOCAL_ONLY, true)
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+                    DocumentsContract.buildRootUri("com.android.providers.media.documents", "videos_root"))
+            }, 1)
+        }
         icon(upper, "camera") { stopPlay(); startActivity(Intent(this, LiveCameraActivity::class.java)) }
         icon(upper, "projects") { projects() }
         icon(upper, "undo") { restore(undo, redo) }; icon(upper, "redo") { restore(redo, undo) }
@@ -355,7 +365,7 @@ class MainActivity : Activity() {
             val uris = data?.clipData?.let { clip -> (0 until clip.itemCount).map { clip.getItemAt(it).uri } } ?: listOfNotNull(uri)
             work {
                 var first: File? = null
-                for (u in uris) { val folder = File(filesDir, "projects/${UUID.randomUUID()}").apply { mkdirs() }; val file = File(folder, "source.mp4")
+                for (u in uris.distinct().take(4)) { val folder = File(filesDir, "projects/${UUID.randomUUID()}").apply { mkdirs() }; val file = File(folder, "source.mp4")
                     contentResolver.openInputStream(u)!!.use { input -> file.outputStream().use { input.copyTo(it) } }; if (first == null) first = file }
                 ui { busy = false; first?.let { load(it) } }
             }

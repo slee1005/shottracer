@@ -41,7 +41,7 @@
     <string name="editor_shot_number">Shot %d</string>
     <string name="editor_frame_count">Frame %1$d / %2$d · %3$.3f s</string>
     <string name="editor_review">Review finished video</string>
-    <string name="editor_import">Add videos</string>
+    <string name="editor_import">Open videos from device gallery</string>
     <string name="editor_camera">Live camera</string>
     <string name="editor_projects">Projects</string>
     <string name="editor_undo">Undo</string>
