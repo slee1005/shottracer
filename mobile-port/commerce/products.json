@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "currency": "USD",
+  "monthly_reference_price": "2.99",
+  "trial_days": 3,
+  "trial_start": "first_launch",
+  "android_product_id": "shottracer_monthly",
+  "android_base_plan_id": "monthly",
+  "ios_product_id": "com.ajc.shottracer.monthly",
+  "test_extension_days": 3,
+  "production_codes": "store_managed_only",
+  "store_setup_complete": false,
+  "android_package_name": "com.ajc.shottracer"
+}

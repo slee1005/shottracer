@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.22)
+project(shottracer_mobile LANGUAGES CXX)
+add_library(shottracer_core SHARED src/shottracer.cpp)
+target_include_directories(shottracer_core PUBLIC include)
+target_compile_features(shottracer_core PUBLIC cxx_std_17)
+target_compile_options(shottracer_core PRIVATE -Wall -Wextra -Wpedantic)

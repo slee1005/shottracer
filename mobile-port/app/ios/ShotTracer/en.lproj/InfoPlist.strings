@@ -1,0 +1,3 @@
+"NSCameraUsageDescription" = "ShotTracer uses the camera to record golf shots for on-device ball tracking.";
+"NSMicrophoneUsageDescription" = "ShotTracer records the sound of your golf shot with the video.";
+"NSPhotoLibraryAddUsageDescription" = "Save your finished golf videos to your photo album.";

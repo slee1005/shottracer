@@ -1,0 +1,57 @@
+{
+  "identifier": "DA153DCA-3464-4257-A91F-9B18E6F68E84",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [
+    {
+      "id": "0A13E2E2-59D4-4B02-B991-F5DCFC444D39",
+      "localizations": [
+        {
+          "description": "Full offline shot editing",
+          "displayName": "ShotTracer",
+          "locale": "en_US"
+        }
+      ],
+      "name": "ShotTracer",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "2.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "31C72FB8-BA32-4260-A252-4C30212C06D4",
+          "introductoryOffer": null,
+          "localizations": [
+            {
+              "description": "Full video editing and shot tracking",
+              "displayName": "ShotTracer Monthly",
+              "locale": "en_US"
+            },
+            {
+              "description": "영상 편집 및 샷 추적 전체 이용",
+              "displayName": "ShotTracer 월 구독",
+              "locale": "ko"
+            }
+          ],
+          "productID": "com.ajc.shottracer.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "ShotTracer Monthly",
+          "subscriptionGroupID": "0A13E2E2-59D4-4B02-B991-F5DCFC444D39",
+          "type": "RecurringSubscription",
+          "winBackOffers": []
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}
