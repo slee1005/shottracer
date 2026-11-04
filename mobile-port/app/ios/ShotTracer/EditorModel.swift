@@ -166,7 +166,7 @@ final class EditorModel: ObservableObject {
         guard !busy, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); analyze()
+        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); status=NSLocalizedString("editor.startOptions",comment:"")
         case "landing", "apex":
             checkpoint(); if scene.shot.ball == nil { scene.shot.ball = EditPoint(0.2, 0.8); scene.shot.start = displayedTime }
             moveHandle(tool, p); persist()

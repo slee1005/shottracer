@@ -194,3 +194,5 @@
 "editor.motionMissing" = "Ball motion unavailable: need 3 continuous observations.";
 "editor.motionClubMissing" = "Club motion unavailable: insufficient continuous detections.";
 "editor.motionCalibration" = "Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.";
+
+"editor.startOptions" = "Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.";

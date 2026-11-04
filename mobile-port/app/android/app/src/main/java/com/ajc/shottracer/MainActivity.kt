@@ -289,7 +289,7 @@ class MainActivity : Activity() {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); analyze() }
+            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); status.text=text("start_options") }
             "landing", "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
             "path" -> { remember(); if (pending == null) { s.ball = p; s.start = currentTime; s.manual = true; pending = p } else { s.landing = r; pending = null }; changed() }
             "circle", "line" -> { if (pending == null) { pending = p; status.text = text("second_point") } else { remember(); scene.shapes.add(EditShape(tool, pending!!, p)); pending = null; changed() } }
