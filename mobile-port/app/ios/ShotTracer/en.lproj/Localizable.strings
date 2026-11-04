@@ -175,3 +175,14 @@
 "editor.albumFailed" = "Video kept in the app. Photo album save failed; tap Save to retry.";
 "editor.albumDenied" = "Video kept in the app. Allow adding photos in Settings, then tap Save again.";
 "editor.timelineDrag" = "Drag to change time. Start holds landing time; landing holds start time.";
+
+"editor.popupOutside" = "No video frame falls in this popup’s display interval. Choose a screen corner or change its delay/time.";
+"editor.popupPreviewing" = "Showing the popup at its display time.";
+"editor.popupEdit" = "Edit";
+"editor.popupNew" = "New popup";
+"editor.popupUpdate" = "Save changes and preview";
+"editor.popupSavePreview" = "Save and preview";
+"editor.popupPreview" = "Preview";
+"editor.popupDelete" = "Delete popup";
+"editor.popupSummary" = "%@ · %@";
+"editor.popupUnreachableSuffix" = " (outside display interval)";

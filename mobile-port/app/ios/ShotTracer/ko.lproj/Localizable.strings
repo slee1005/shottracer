@@ -175,3 +175,14 @@
 "editor.albumFailed" = "영상은 앱에 보관했습니다. 앨범 저장에 실패했으니 저장 버튼으로 다시 시도하세요.";
 "editor.albumDenied" = "영상은 앱에 보관했습니다. 설정에서 사진 추가를 허용한 뒤 저장 버튼을 다시 누르세요.";
 "editor.timelineDrag" = "드래그해 시간을 변경합니다. 시작을 옮겨도 착지 시각은 유지하고, 착지를 옮겨도 시작 시각은 유지합니다.";
+
+"editor.popupOutside" = "영상 안에 팝업 표시 프레임이 없습니다. 화면 모서리 위치를 선택하거나 지연·표시 시간을 바꾸세요.";
+"editor.popupPreviewing" = "팝업이 표시되는 시각으로 이동했습니다.";
+"editor.popupEdit" = "편집";
+"editor.popupNew" = "새 팝업";
+"editor.popupUpdate" = "수정 저장 및 미리보기";
+"editor.popupSavePreview" = "저장 및 미리보기";
+"editor.popupPreview" = "미리보기";
+"editor.popupDelete" = "팝업 삭제";
+"editor.popupSummary" = "%@ · %@";
+"editor.popupUnreachableSuffix" = " (표시 구간 확인 필요)";

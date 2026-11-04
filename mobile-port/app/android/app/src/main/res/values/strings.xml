@@ -166,4 +166,14 @@
     <string name="editor_album_failed">Video kept in the app. Photo album save failed; tap Save to retry.</string>
     <string name="editor_album_denied">Video kept in the app. Allow adding photos in Settings, then tap Save again.</string>
     <string name="editor_timeline_drag">Drag to change time. Start holds landing time; landing holds start time.</string>
+    <string name="editor_popup_outside">No video frame falls in this popup’s display interval. Choose a screen corner or change its delay/time.</string>
+    <string name="editor_popup_previewing">Showing the popup at its display time.</string>
+    <string name="editor_popup_edit">Edit</string>
+    <string name="editor_popup_new">New popup</string>
+    <string name="editor_popup_update">Save changes and preview</string>
+    <string name="editor_popup_save_preview">Save and preview</string>
+    <string name="editor_popup_preview">Preview</string>
+    <string name="editor_popup_delete">Delete popup</string>
+    <string name="editor_popup_summary">%1$s · %2$s</string>
+    <string name="editor_popup_unreachable_suffix"> (outside display interval)</string>
 </resources>

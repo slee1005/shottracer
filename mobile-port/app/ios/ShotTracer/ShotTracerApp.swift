@@ -280,7 +280,9 @@ struct EditorSettings: View {
     @State private var popupKind = "text"
     @State private var popupLabel = ""
     @State private var popupValue = ""
-    @State private var popupAnchor = "landing"
+    @State private var popupAnchor = "top-left"
+    @State private var popupEditing: Int?
+    @State private var popupWarning=false
     @State private var popupHide = "after_shot"
     @State private var popupDelay = 0.0
     @State private var popupDuration = 3.0
@@ -335,20 +337,40 @@ struct EditorSettings: View {
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.reset", role: .destructive) { model.reset(); dismiss() } }
         }
     }
+    private func editPopup(_ i: Int) {
+        let p=model.scene.shot.popups[i]; popupEditing=i; popupKind=p.kind; popupLabel=p.label; popupValue=p.value
+        popupAnchor=p.anchor; popupHide=p.hide; popupDelay=p.delay; popupDuration=p.duration; popupWarning=false
+    }
     private var popupSection: some View {
         Section("editor.popup") {
-            ForEach(model.scene.shot.popups.indices, id: \.self) { i in Text(model.scene.shot.popups[i].label + " " + model.scene.shot.popups[i].value) }
-                .onDelete { model.scene.shot.popups.remove(atOffsets: $0) }
+            ForEach(model.scene.shot.popups.indices,id:\.self) { i in
+                HStack {
+                    VStack(alignment:.leading) {
+                        Text(model.scene.shot.popups[i].label+" "+model.scene.shot.popups[i].value).font(.caption)
+                        if !model.popupIsReachable(i) { Text("editor.popupOutside").font(.caption2).foregroundStyle(.orange) }
+                    }
+                    Spacer()
+                    Button("editor.popupPreview") { if model.previewPopup(i) { dismiss() } else { editPopup(i); popupWarning=true } }.buttonStyle(.borderless)
+                    Button("editor.popupEdit") { editPopup(i) }.buttonStyle(.borderless)
+                }
+            }.onDelete { model.scene.shot.popups.remove(atOffsets:$0); popupEditing=nil; popupWarning=false }
+            Button("editor.popupNew") { popupEditing=nil; popupLabel=""; popupValue=""; popupAnchor="top-left"; popupDelay=0; popupHide="after_shot"; popupDuration=3; popupWarning=false }
             Picker("editor.popup.kind", selection: $popupKind) { ForEach(["distance", "carry", "speed", "apex", "hangtime", "club", "player", "text"], id: \.self) { Text(LocalizedStringKey("editor.popup." + $0)).tag($0) } }
             TextField("editor.popup.label", text: $popupLabel); TextField("editor.popup.value", text: $popupValue)
             Picker("editor.anchor", selection: $popupAnchor) { ForEach(["landing", "apex", "start", "top-left", "top-right", "bottom-left", "bottom-right"], id: \.self) { Text(LocalizedStringKey("editor." + $0)).tag($0) } }
             Picker("editor.popup.hide", selection: $popupHide) { ForEach(["after_shot", "end", "time"], id: \.self) { Text(LocalizedStringKey("editor.popup." + $0)).tag($0) } }
             number("delay", value: $popupDelay, range: -5...15); number("popupDuration", value: $popupDuration, range: 0.1...30)
-            Button("editor.popup.add") {
-                var popup = EditPopup(); popup.kind = popupKind; popup.label = popupLabel.isEmpty ? NSLocalizedString("editor.popup." + popupKind, comment: "") : popupLabel
-                popup.value = popupValue; popup.anchor = popupAnchor; popup.hide = popupHide; popup.delay = popupDelay; popup.duration = popupDuration
-                model.scene.shot.popups.append(popup); popupLabel = ""; popupValue = ""
-            }
+            Button {
+                var popup=EditPopup(); popup.kind=popupKind
+                popup.label=popupLabel.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? NSLocalizedString("editor.popup."+popupKind,comment:"") : popupLabel.trimmingCharacters(in:.whitespacesAndNewlines)
+                popup.value=popupValue.trimmingCharacters(in:.whitespacesAndNewlines); popup.anchor=popupAnchor; popup.hide=popupHide; popup.delay=popupDelay; popup.duration=popupDuration
+                let index: Int
+                if let editing=popupEditing,model.scene.shot.popups.indices.contains(editing) { index=editing; model.scene.shot.popups[index]=popup }
+                else { model.scene.shot.popups.append(popup); index=model.scene.shot.popups.count-1 }
+                popupEditing=index
+                if model.previewPopup(index) { dismiss() } else { popupWarning=true }
+            } label: { Text(LocalizedStringKey(popupEditing == nil ? "editor.popup.add" : "editor.popupUpdate")) }
+            if popupWarning { Text("editor.popupOutside").font(.footnote).foregroundStyle(.orange) }
             Text("editor.popup.note").font(.footnote).foregroundStyle(.secondary)
         }
     }

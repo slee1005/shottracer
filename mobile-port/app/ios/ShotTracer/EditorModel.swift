@@ -300,6 +300,17 @@ final class EditorModel: ObservableObject {
             if data.5 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
         } catch { status=error.localizedDescription } }
     }
+    @discardableResult func previewPopup(_ index: Int) -> Bool {
+        guard !busy,hasVideo,scene.shot.popups.indices.contains(index) else { return false }
+        pause(); commitEdits()
+        guard let frame=popupFrame(scene.shot,scene.shot.popups[index],times,frameIndex) else {
+            status=NSLocalizedString("editor.popupOutside",comment:""); return false
+        }
+        seek(frame); status=NSLocalizedString("editor.popupPreviewing",comment:""); return true
+    }
+    func popupIsReachable(_ index: Int) -> Bool {
+        scene.shot.popups.indices.contains(index) && popupFrame(scene.shot,scene.shot.popups[index],times,frameIndex) != nil
+    }
     func saveToAlbum() {
         guard !busy,!editingTimeline,let output else { return }
         pause(); busy=true

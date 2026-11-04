@@ -530,6 +530,7 @@ class MainActivity : Activity() {
     private fun settings() {
         stopPlay(); val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
         val edits = mutableListOf<() -> Unit>()
+        var settingsDialog: AlertDialog?=null
         fun number(label: String, value: Double, min: Double, max: Double, set: (Double) -> Unit) {
             layout.addView(TextView(this).apply { text = text(label) })
             val field = EditText(this).apply { inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED; setText(value.toString()) }; layout.addView(field)
@@ -558,28 +559,56 @@ class MainActivity : Activity() {
         number("logo_size", scene.logoSize, .02, .5) { scene.logoSize = it }; number("logo_opacity", scene.logoOpacity, 0.0, 1.0) { scene.logoOpacity = it }
         choice("anchor", listOf("top-left", "top-right", "bottom-left", "bottom-right"), scene.logoCorner) { scene.logoCorner = it }
         fun action(key: String, invoke: () -> Unit) { layout.addView(Button(this).apply { text = text(key); setOnClickListener { invoke() } }) }
-        action("popup") { popup() }; action("popup_clear") { remember(); scene.shot.popups.clear(); changed() }
+        action("popup") { remember(); edits.forEach { it() }; changed(); settingsDialog?.dismiss(); popups() }; action("popup_clear") { remember(); scene.shot.popups.clear(); changed() }
         action("logo") { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE), 3) }
         action("logo_clear") { remember(); scene.logo = null; changed() }
         action("delete_shot") { deleteShot() }
-        AlertDialog.Builder(this).setTitle(text("settings")).setView(ScrollView(this).apply { addView(layout) }).setPositiveButton(android.R.string.ok) { _, _ -> remember(); edits.forEach { it() }; changed() }.setNegativeButton(android.R.string.cancel, null).show()
+        settingsDialog=AlertDialog.Builder(this).setTitle(text("settings")).setView(ScrollView(this).apply { addView(layout) }).setPositiveButton(android.R.string.ok) { _, _ -> remember(); edits.forEach { it() }; changed() }.setNegativeButton(android.R.string.cancel, null).show()
     }
-    private fun popup() {
-        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), 0, dp(16), 0) }
-        val kinds = listOf("distance", "carry", "speed", "apex", "hangtime", "club", "player", "text")
-        val kind = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, kinds.map { text("popup_$it") }) }; layout.addView(kind)
-        val label = EditText(this).apply { hint = text("popup_label") }; val value = EditText(this).apply { hint = text("popup_value") }; layout.addView(label); layout.addView(value)
-        val anchors = listOf("landing", "apex", "start", "top-left", "top-right", "bottom-left", "bottom-right")
-        val anchor = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, anchors.map { text(it) }) }; layout.addView(anchor)
-        val delay = EditText(this).apply { hint = text("delay"); inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }; layout.addView(delay)
-        val hides = listOf("after_shot", "end", "time")
-        val hide = Spinner(this).apply { adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, hides.map { text("hide_$it") }) }; layout.addView(hide)
-        val duration = EditText(this).apply { hint = text("popup_duration"); setText("3"); inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }; layout.addView(duration)
-        AlertDialog.Builder(this).setTitle(text("popup")).setView(layout).setPositiveButton(android.R.string.ok) { _, _ ->
-            remember(); val k = kinds[kind.selectedItemPosition]
-            scene.shot.popups.add(EditPopup(k, label.text.toString().ifEmpty { text("popup_$k") }, value.text.toString(), anchors[anchor.selectedItemPosition], delay.text.toString().toDoubleOrNull() ?: 0.0,
-                hides[hide.selectedItemPosition], (duration.text.toString().toDoubleOrNull() ?: 3.0).coerceIn(.1, 30.0))); changed()
-        }.setNegativeButton(android.R.string.cancel, null).show()
+    private fun previewPopup(index: Int): Boolean {
+        val p=scene.shot.popups.getOrNull(index) ?: return false
+        val frame=popupFrame(scene.shot,p,times,displayed)
+        if(frame==null) { status.text=text("popup_outside"); return false }
+        stopPlay(); refresh(frame); status.text=text("popup_previewing"); return true
+    }
+    private fun popups() {
+        if(scene.shot.popups.isEmpty()) { popup(); return }
+        val rows=scene.shot.popups.map { p -> getString(R.string.editor_popup_summary,p.label,p.value) +
+            (if(popupFrame(scene.shot,p,times,displayed)==null) getString(R.string.editor_popup_unreachable_suffix) else "") }+text("popup_new")
+        AlertDialog.Builder(this).setTitle(text("popup")).setItems(rows.toTypedArray()) { _,i -> popup(i.takeIf { it<scene.shot.popups.size }) }
+            .setNegativeButton(android.R.string.cancel,null).show()
+    }
+    private fun popup(index: Int?=null) {
+        val original=index?.let { scene.shot.popups.getOrNull(it) } ?: EditPopup(anchor="top-left")
+        var editing=index
+        val layout=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(dp(16),0,dp(16),0) }
+        val warning=TextView(this).apply { text=text("popup_outside"); setTextColor(Color.rgb(251,191,36)); visibility=View.GONE }; layout.addView(warning)
+        val kinds=listOf("distance","carry","speed","apex","hangtime","club","player","text")
+        val kind=Spinner(this).apply { adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,kinds.map { text("popup_$it") }); setSelection(max(0,kinds.indexOf(original.kind))) }; layout.addView(kind)
+        val label=EditText(this).apply { hint=text("popup_label"); setText(original.label) }
+        val value=EditText(this).apply { hint=text("popup_value"); setText(original.value) }; layout.addView(label); layout.addView(value)
+        val anchors=listOf("top-left","top-right","bottom-left","bottom-right","landing","apex","start")
+        val anchor=Spinner(this).apply { adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,anchors.map { text(it) }); setSelection(max(0,anchors.indexOf(original.anchor))) }; layout.addView(anchor)
+        val delay=EditText(this).apply { hint=text("delay"); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL or InputType.TYPE_NUMBER_FLAG_SIGNED; setText(original.delay.toString()) }; layout.addView(delay)
+        val hides=listOf("after_shot","end","time")
+        val hide=Spinner(this).apply { adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,hides.map { text("hide_$it") }); setSelection(max(0,hides.indexOf(original.hide))) }; layout.addView(hide)
+        val duration=EditText(this).apply { hint=text("popup_duration"); setText(original.duration.toString()); inputType=InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }; layout.addView(duration)
+        val builder=AlertDialog.Builder(this).setTitle(text(if(index==null) "popup" else "popup_edit"))
+            .setView(ScrollView(this).apply { addView(layout) }).setPositiveButton(text("popup_save_preview"),null).setNegativeButton(android.R.string.cancel,null)
+        if(index!=null) builder.setNeutralButton(text("popup_delete")) { _,_ -> remember(); scene.shot.popups.removeAt(index); changed() }
+        val dialog=builder.create()
+        dialog.setOnShowListener { dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val k=kinds[kind.selectedItemPosition]
+            val delta=delay.text.toString().toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
+            val seconds=(duration.text.toString().toDoubleOrNull()?.takeIf { it.isFinite() } ?: 3.0).coerceIn(.1,30.0)
+            val p=EditPopup(k,label.text.toString().trim().ifEmpty { text("popup_$k") },value.text.toString().trim(),anchors[anchor.selectedItemPosition],delta,hides[hide.selectedItemPosition],seconds)
+            remember(); val i=editing
+            if(i!=null && i in scene.shot.popups.indices) scene.shot.popups[i]=p
+            else { scene.shot.popups.add(p); editing=scene.shot.popups.lastIndex }
+            changed()
+            if(previewPopup(editing!!)) dialog.dismiss() else warning.visibility=View.VISIBLE
+        } }
+        dialog.show()
     }
     override fun onPause() { if(timelineBefore!=null) endTimeEdit(true); stopPlay(); super.onPause() }
     override fun onDestroy() { transformer?.cancel(); worker.shutdownNow(); super.onDestroy() }

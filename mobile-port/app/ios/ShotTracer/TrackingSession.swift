@@ -200,6 +200,7 @@ final class EditorRenderer: @unchecked Sendable {
             }
             func pos(_ p: EditPoint, _ motion: EditPoint = EditPoint(0, 0)) -> CGPoint { CGPoint(x: (p.x + motion.x) * w, y: (p.y + motion.y) * h) }
             ctx.setLineCap(.round); ctx.setLineJoin(.round)
+            var occupied: [CGRect]=[]
             for s in scene.shots {
                 func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" || (models[s.id] == nil && !s.manual && s.apex == nil && !s.base.isEmpty) { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
                 let motion = interpolated(s.camera, time)
@@ -251,15 +252,12 @@ final class EditorRenderer: @unchecked Sendable {
                 if scene.personOcclusion != false, let m = s.masks?.min(by: { abs($0.time-time) < abs($1.time-time) }), abs(m.time-time) <= 0.11 {
                     if let mask = maskCache.object(forKey:m.path as NSString) ?? UIImage(contentsOfFile:m.path) {
                         maskCache.setObject(mask,forKey:m.path as NSString); maskCache.countLimit=6
-                        mask.draw(in:CGRect(x:0,y:0,width:w,height:h),blendMode:.destinationOut,alpha:1)
+                        ctx.saveGState(); mask.draw(in:CGRect(x:0,y:0,width:w,height:h),blendMode:.destinationOut,alpha:1); ctx.restoreGState()
                     }
                 }
                 ctx.endTransparencyLayer()
                 for p in s.popups {
-                    let event = p.anchor == "landing" ? s.flight : p.anchor == "apex" ? s.flight * s.apexFraction : 0
-                    let begins = s.start + event + p.delay
-                    let ends = p.hide == "end" ? .infinity : p.hide == "time" ? begins + p.duration : s.start + s.flight + 1
-                    if time < begins || time > ends { continue }
+                    guard let window=popupWindow(s,p),window.contains(time) else { continue }
                     let at: CGPoint
                     switch p.anchor {
                     case "start": at = pos(s.ball ?? EditPoint(0.1, 0.8), motion)
@@ -271,14 +269,20 @@ final class EditorRenderer: @unchecked Sendable {
                     default: at = CGPoint(x: w * 0.04, y: h * 0.08)
                     }
                     let value = p.kind == "hangtime" && p.value.isEmpty ? String(format: "%.2f s", s.flight) : p.value
-                    let text = NSString(string: p.label + " " + value)
-                    let font = UIFont.boldSystemFont(ofSize: max(10, h * 0.027))
-                    let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
-                    let size = text.size(withAttributes: attributes), bw = min(w * 0.9, size.width + 16), bh = font.pointSize * 2
-                    let x = min(max(4, at.x), max(4, w - bw - 4)), y = min(max(4, at.y), max(4, h - bh - 4))
-                    UIColor(white: 0.06, alpha: 0.9).setFill(); UIBezierPath(roundedRect: CGRect(x: x, y: y, width: bw, height: bh), cornerRadius: 5).fill()
-                    ctx.setFillColor(color(s.color).cgColor); ctx.fill(CGRect(x: x, y: y, width: 3, height: bh))
-                    text.draw(at: CGPoint(x: x + 8, y: y + (bh - size.height) / 2), withAttributes: attributes)
+                    if p.label.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty && value.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty { continue }
+                    let labelFont=UIFont.boldSystemFont(ofSize:max(10,h*0.025)),valueFont=UIFont.boldSystemFont(ofSize:max(15,h*0.044))
+                    let labelWidth=(p.label as NSString).size(withAttributes:[.font:labelFont]).width
+                    let valueWidth=(value as NSString).size(withAttributes:[.font:valueFont]).width
+                    let bw=min(w*0.9,max(labelWidth,valueWidth)+24),bh=max(40,h*0.12)
+                    let box=placePopup(at.x,at.y,bw,bh,w,h,occupied,p.anchor.hasPrefix("bottom")); occupied.append(box)
+                    UIColor(white:0.06,alpha:0.92).setFill(); UIBezierPath(roundedRect:box,cornerRadius:6).fill()
+                    ctx.setFillColor(color(s.color).cgColor); ctx.fill(CGRect(x:box.minX,y:box.minY,width:3,height:bh))
+                    func text(_ line: String,_ font: UIFont,_ top: CGFloat,_ ink: UIColor) {
+                        let paragraph=NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
+                        (line as NSString).draw(in:CGRect(x:box.minX+10,y:box.minY+top,width:max(1,bw-20),height:font.lineHeight),withAttributes:[.font:font,.foregroundColor:ink,.paragraphStyle:paragraph])
+                    }
+                    if value.isEmpty { text(p.label,valueFont,(bh-valueFont.lineHeight)/2,.white) }
+                    else { text(p.label,labelFont,bh*0.08,.lightGray); text(value,valueFont,bh*0.43,.white) }
                 }
             }
             for s in scene.shapes {
@@ -391,4 +395,37 @@ final class PersonAnalysis {
         }
         before=previous; previous=current
     }
+}
+
+struct PopupWindow {
+    let begins: Double, ends: Double
+    func contains(_ time: Double) -> Bool { time+0.000001>=begins && time<=ends+0.000001 }
+}
+func popupWindow(_ shot: EditShot,_ popup: EditPopup) -> PopupWindow? {
+    let event=popup.anchor == "landing" ? shot.flight : popup.anchor == "apex" ? shot.flight*shot.apexFraction : 0
+    let begins=shot.start+event+popup.delay
+    guard begins.isFinite else { return nil }
+    let end: Double
+    if popup.hide == "end" { end = .infinity }
+    else if popup.hide == "time" { end=begins+max(0.1,popup.duration.isFinite ? popup.duration : 3) }
+    else { end=max(shot.start+shot.flight+1,begins+1) }
+    return PopupWindow(begins:begins,ends:end)
+}
+func popupFrame(_ shot: EditShot,_ popup: EditPopup,_ times: [Double],_ current: Int) -> Int? {
+    guard !times.isEmpty,let window=popupWindow(shot,popup) else { return nil }
+    if times.indices.contains(current),window.contains(times[current]) { return current }
+    var lo=0,hi=times.count
+    while lo<hi { let mid=(lo+hi)/2; if times[mid]+0.000001<window.begins { lo=mid+1 } else { hi=mid } }
+    return lo<times.count && window.contains(times[lo]) ? lo : nil
+}
+func placePopup(_ x: CGFloat,_ y: CGFloat,_ width: CGFloat,_ height: CGFloat,_ w: CGFloat,_ h: CGFloat,_ used: [CGRect],_ bottom: Bool) -> CGRect {
+    let right=max(4,w-width-4),end=max(4,h-height-4),sx=min(max(4,x),right),sy=min(max(4,y),end),step=height+4
+    let count=Int(ceil(h/step))+1, direction: CGFloat=bottom ? -1 : 1
+    let ys=([sy]+(1...count).map { sy+direction*CGFloat($0)*step }+(1...count).map { sy-direction*CGFloat($0)*step }+(0...count).map { 4+CGFloat($0)*step }).filter { $0>=4 && $0<=end }
+    for cx in [sx,4,right] { for cy in ys {
+        let box=CGRect(x:cx,y:cy,width:width,height:height)
+        let overlaps=used.contains { b in !(box.maxX+4<=b.minX || b.maxX+4<=box.minX || box.maxY+4<=b.minY || b.maxY+4<=box.minY) }
+        if !overlaps { return box }
+    } }
+    return CGRect(x:sx,y:sy,width:width,height:height)
 }

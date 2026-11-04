@@ -167,6 +167,7 @@ internal class EditorRenderer(private val scene: EditorScene) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeJoin = Paint.Join.ROUND; strokeCap = Paint.Cap.ROUND }
         fun color(text: String) = try { Color.parseColor(text) } catch (_: Exception) { Color.RED }
         fun pos(p: EditPoint, motion: EditPoint = EditPoint(0.0, 0.0)) = PointF(((p.x + motion.x) * w).toFloat(), ((p.y + motion.y) * h).toFloat())
+        val occupied=mutableListOf<PopupBox>()
         for (s in scene.shots) {
             val motion = s.motion(time)
             val model = models[s.id]
@@ -223,10 +224,8 @@ internal class EditorRenderer(private val scene: EditorScene) {
             }
             canvas.restore()
             for (p in s.popups) {
-                val event = when (p.anchor) { "landing" -> s.flight; "apex" -> s.flight * s.apexFraction; else -> 0.0 }
-                val begins = s.start + event + p.delay
-                val ends = when (p.hide) { "end" -> Double.POSITIVE_INFINITY; "time" -> begins + p.duration; else -> s.start + s.flight + 1 }
-                if (time < begins || time > ends) continue
+                val window=popupWindow(s,p) ?: continue
+                if(!window.contains(time)) continue
                 val at = when (p.anchor) {
                     "start" -> pos(s.ball ?: EditPoint(.1, .8), motion)
                     "apex" -> pos(s.peak(), motion)
@@ -236,13 +235,27 @@ internal class EditorRenderer(private val scene: EditorScene) {
                     "bottom-right" -> PointF(w * .72f, h * .8f)
                     else -> PointF(w * .04f, h * .08f)
                 }
-                val text = p.label + " " + if (p.kind == "hangtime" && p.value.isEmpty()) String.format(java.util.Locale.ROOT, "%.2f s", s.flight) else p.value
-                paint.style = Paint.Style.FILL; paint.textSize = max(10f, h * .027f); paint.typeface = Typeface.DEFAULT_BOLD
-                val bw = min(w * .9f, paint.measureText(text) + 16); val bh = paint.textSize * 2
-                val x = at.x.coerceIn(4f, max(4f, w - bw - 4)); val y = at.y.coerceIn(4f, max(4f, h - bh - 4))
-                paint.color = Color.argb(225, 18, 20, 26); canvas.drawRoundRect(x, y, x + bw, y + bh, 5f, 5f, paint)
-                paint.color = color(s.color); canvas.drawRect(x, y, x + 3, y + bh, paint)
-                paint.color = Color.WHITE; canvas.drawText(text, x + 8, y + bh * .67f, paint)
+                val value=if(p.kind=="hangtime" && p.value.isEmpty()) String.format(java.util.Locale.ROOT,"%.2f s",s.flight) else p.value
+                if(p.label.isBlank() && value.isBlank()) continue
+                paint.style=Paint.Style.FILL; paint.alpha=255; paint.typeface=Typeface.DEFAULT_BOLD
+                val labelSize=max(10f,h*.025f); val valueSize=max(15f,h*.044f)
+                paint.textSize=labelSize; val labelWidth=paint.measureText(p.label)
+                paint.textSize=valueSize; val valueWidth=paint.measureText(value)
+                val bw=min(w*.9f,max(labelWidth,valueWidth)+24); val bh=max(40f,h*.12f)
+                val box=placePopup(at.x.toDouble(),at.y.toDouble(),bw.toDouble(),bh.toDouble(),w.toDouble(),h.toDouble(),occupied,p.anchor.startsWith("bottom"))
+                occupied.add(box); val x=box.x.toFloat(); val y=box.y.toFloat()
+                paint.color=Color.argb(235,18,20,26); canvas.drawRoundRect(x,y,x+bw,y+bh,6f,6f,paint)
+                paint.color=color(s.color); canvas.drawRect(x,y,x+3,y+bh,paint)
+                fun text(line: String,size: Float,baseline: Float,ink: Int) {
+                    paint.textSize=size; paint.color=ink
+                    val clipped=android.text.TextUtils.ellipsize(line,android.text.TextPaint(paint),max(1f,bw-20),android.text.TextUtils.TruncateAt.END).toString()
+                    canvas.drawText(clipped,x+10,y+baseline,paint)
+                }
+                if(value.isBlank()) text(p.label,valueSize,bh*.66f,Color.WHITE)
+                else {
+                    text(p.label,labelSize,bh*.34f,Color.LTGRAY)
+                    text(value,valueSize,bh*.82f,Color.WHITE)
+                }
             }
         }
         for (shape in scene.shapes) {
