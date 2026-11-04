@@ -19,6 +19,8 @@ struct EditorView: View {
     @State private var pan = CGSize.zero
     @State private var lastPan = CGSize.zero
     @State private var dragHandle: String?
+    @State private var dragPanning = false
+    @State private var pinchOriginPan = CGSize.zero
     @State private var dragging = false
     @State private var pinching = false
     @State private var transformedGesture = false
@@ -101,12 +103,21 @@ struct EditorView: View {
             Button { model.pause(); resetConfirm = true } label: { Label("editor.resetAction", systemImage: "arrow.counterclockwise") }
         }.font(.caption).buttonStyle(.glass).disabled(model.busy || !model.hasVideo)
     }
+    private func viewportPan(_ value: CGSize, _ fitted: CGSize) -> CGSize {
+        let x=fitted.width*max(0,zoom-1)/2, y=fitted.height*max(0,zoom-1)/2
+        return CGSize(width:min(x,max(-x,value.width)),height:min(y,max(-y,value.height)))
+    }
+    private func videoPoint(_ location: CGPoint, _ viewport: CGSize, _ fitted: CGSize) -> EditPoint {
+        EditPoint((location.x-(viewport.width-fitted.width*zoom)/2-pan.width)/(fitted.width*zoom),
+                  (location.y-(viewport.height-fitted.height*zoom)/2-pan.height)/(fitted.height*zoom))
+    }
     @ViewBuilder private var preview: some View {
         if let image = model.image {
             GeometryReader { area in
                 let size = image.size
                 let fit = min(area.size.width / size.width, area.size.height / size.height)
                 let width = size.width * fit, height = size.height * fit
+                let fitted=CGSize(width:width,height:height)
                 ZStack {
                     ZStack(alignment: .topLeading) {
                         Image(uiImage: image).resizable()
@@ -124,29 +135,46 @@ struct EditorView: View {
                                 }.position(x: point.x * width, y: point.y * height)
                         }
                     }
-                    .frame(width: width, height: height).contentShape(Rectangle())
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                        guard !model.busy, !pinching else { return }
-                        if model.tool == "pan" { pan = CGSize(width: lastPan.width + value.translation.width, height: lastPan.height + value.translation.height); return }
-                        let point = EditPoint(value.location.x / width, value.location.y / height)
+                    .frame(width: width, height: height)
+                    .scaleEffect(zoom).offset(pan)
+                }.frame(width: area.size.width, height: area.size.height).contentShape(Rectangle())
+                    .coordinateSpace(name:"videoViewport")
+                    .gesture(DragGesture(minimumDistance:0,coordinateSpace:.named("videoViewport")).onChanged { value in
+                        guard !model.busy, !pinching, !transformedGesture else { return }
+                        let point=videoPoint(value.location,area.size,fitted)
                         if !dragging {
-                            dragging = true
-                            dragHandle = model.handles.min { hypot($0.1.x - point.x, $0.1.y - point.y) < hypot($1.1.x - point.x, $1.1.y - point.y) }
-                                .flatMap { key, p in hypot((p.x - point.x) * width, (p.y - point.y) * height) < 25 / zoom ? key : nil }
+                            dragging=true; dragPanning=false; lastPan=pan
+                            let start=videoPoint(value.startLocation,area.size,fitted)
+                            dragHandle = model.tool == "pan" ? nil : model.handles.min {
+                                hypot(($0.1.x-start.x)*width,($0.1.y-start.y)*height) < hypot(($1.1.x-start.x)*width,($1.1.y-start.y)*height)
+                            }.flatMap { key,p in hypot((p.x-start.x)*width*zoom,(p.y-start.y)*height*zoom)<25 ? key : nil }
                             if dragHandle != nil { model.checkpoint() }
                         }
-                        if let dragHandle { model.moveHandle(dragHandle, point) }
+                        if let dragHandle {
+                            model.moveHandle(dragHandle,EditPoint(min(1,max(0,point.x)),min(1,max(0,point.y))))
+                        } else if (model.tool == "pan" || zoom>1) && hypot(value.translation.width,value.translation.height)>6 {
+                            dragPanning=true
+                            pan=viewportPan(CGSize(width:lastPan.width+value.translation.width,height:lastPan.height+value.translation.height),fitted)
+                        }
                     }.onEnded { value in
-                        defer { dragging = false; dragHandle = nil; transformedGesture = false }
-                        if model.tool == "pan" { lastPan = pan; return }
-                        if pinching || transformedGesture { return }
-                        if dragHandle != nil { model.persist() }
-                        else { model.tap(EditPoint(value.location.x / width, value.location.y / height)) }
+                        defer { dragging=false; dragHandle=nil; transformedGesture=false; dragPanning=false; lastPan=pan }
+                        guard !model.busy, !pinching, !transformedGesture else { return }
+                        if dragHandle != nil { model.persist(); return }
+                        if dragPanning || model.tool == "pan" || hypot(value.translation.width,value.translation.height)>6 { return }
+                        let point=videoPoint(value.location,area.size,fitted)
+                        if point.x>=0 && point.x<=1 && point.y>=0 && point.y<=1 { model.tap(point) }
                     })
-                    .simultaneousGesture(MagnifyGesture().onChanged { value in pinching = true; transformedGesture = true; zoom = min(6, max(1, lastZoom * value.magnification)) }.onEnded { _ in lastZoom = zoom; pinching = false })
-                    .onTapGesture(count: 2) { zoom = 1; lastZoom = 1; pan = .zero; lastPan = .zero }
-                    .scaleEffect(zoom).offset(pan)
-                }.frame(width: area.size.width, height: area.size.height)
+                    .simultaneousGesture(MagnifyGesture().onChanged { value in
+                        if !pinching { pinchOriginPan=pan; if dragHandle != nil { model.persist(); dragHandle=nil } }
+                        pinching=true; transformedGesture=true
+                        let next=min(6,max(1,lastZoom*value.magnification)), ratio=next/lastZoom
+                        let fx=(value.startAnchor.x-0.5)*area.size.width, fy=(value.startAnchor.y-0.5)*area.size.height
+                        zoom=next
+                        pan=viewportPan(CGSize(width:fx-(fx-pinchOriginPan.width)*ratio,height:fy-(fy-pinchOriginPan.height)*ratio),fitted)
+                    }.onEnded { _ in lastZoom=zoom; lastPan=pan; pinching=false })
+                    .onTapGesture(count:2) { zoom=1; lastZoom=1; pan = .zero; lastPan = .zero }
+                    .onChange(of:fitted) { _,size in pan=viewportPan(pan,size); lastPan=pan }
+
             }.accessibilityLabel(Text("preview.label"))
         } else { Image("Brand").resizable().scaledToFit().padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel(Text("app.title")) }
     }

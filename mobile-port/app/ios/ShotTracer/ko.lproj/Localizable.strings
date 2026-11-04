@@ -69,7 +69,7 @@
 "editor.hint.circle" = "중심과 원둘레를 차례로 누르세요.";
 "editor.hint.line" = "선의 양 끝점을 차례로 누르세요.";
 "editor.hint.swing" = "클럽 헤드나 손을 누르면 2프레임 전진합니다.";
-"editor.hint.pan" = "드래그로 이동, 핀치로 확대, 두 번 눌러 화면에 맞춥니다.";
+"editor.hint.pan" = "핀치로 확대 후 빈 영상 영역을 드래그하면 상하좌우로 이동합니다. 조절점은 드래그로 수정하고 두 번 누르면 화면에 맞춥니다.";
 "editor.shotSettings" = "설정";
 "editor.flight" = "체공 시간 (초)";
 "editor.apexFraction" = "정점까지 시간 (체공 시간의 35~62%)";

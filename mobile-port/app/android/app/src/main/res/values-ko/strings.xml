@@ -72,7 +72,7 @@
     <string name="editor_hint_circle">중심과 원둘레를 차례로 누르세요.</string>
     <string name="editor_hint_line">선의 양 끝점을 차례로 누르세요.</string>
     <string name="editor_hint_swing">클럽 헤드나 손을 누르면 2프레임 전진합니다.</string>
-    <string name="editor_hint_pan">드래그로 이동, 핀치로 확대, 두 번 눌러 화면에 맞춥니다.</string>
+    <string name="editor_hint_pan">핀치로 확대 후 빈 영상 영역을 드래그하면 상하좌우로 이동합니다. 조절점은 드래그로 수정하고 두 번 누르면 화면에 맞춥니다.</string>
     <string name="editor_second_point">두 번째 점을 누르세요.</string>
     <string name="editor_batch">모든 프로젝트 내보내기</string>
     <string name="editor_preset">궤적 스타일</string>

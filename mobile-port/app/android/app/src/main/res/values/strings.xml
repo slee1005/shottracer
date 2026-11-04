@@ -72,7 +72,7 @@
     <string name="editor_hint_circle">Tap the center, then the rim.</string>
     <string name="editor_hint_line">Tap the two line endpoints.</string>
     <string name="editor_hint_swing">Tap the club head / hands; advances two frames.</string>
-    <string name="editor_hint_pan">Drag to pan, pinch to zoom, double-tap to fit.</string>
+    <string name="editor_hint_pan">Pinch to zoom, then drag empty video areas to pan in any direction. Drag markers to edit; double-tap to fit.</string>
     <string name="editor_second_point">Tap the second point.</string>
     <string name="editor_batch">Export all projects</string>
     <string name="editor_preset">Tracer preset</string>

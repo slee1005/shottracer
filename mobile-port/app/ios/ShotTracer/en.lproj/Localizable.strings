@@ -69,7 +69,7 @@
 "editor.hint.circle" = "Tap the center, then the rim.";
 "editor.hint.line" = "Tap the two line endpoints.";
 "editor.hint.swing" = "Tap the club head / hands; advances two frames.";
-"editor.hint.pan" = "Drag to pan, pinch to zoom, double-tap to fit.";
+"editor.hint.pan" = "Pinch to zoom, then drag empty video areas to pan in any direction. Drag markers to edit; double-tap to fit.";
 "editor.shotSettings" = "Settings";
 "editor.flight" = "Flight time (seconds)";
 "editor.apexFraction" = "Time to apex (seconds, 35–62% of flight)";

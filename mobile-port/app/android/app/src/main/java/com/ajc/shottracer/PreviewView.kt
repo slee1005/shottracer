@@ -6,6 +6,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import kotlin.math.hypot
 
 internal data class EditorHandle(val key: String, val point: PointF, val label: String = "")
@@ -26,10 +27,30 @@ internal class PreviewView(context: Context) : View(context) {
     private var activeHandle: String? = null
     private var transformed = false
     private var lastX = 0f; private var lastY = 0f
+    private var downX = 0f; private var downY = 0f
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private fun boundPan() {
+        val bitmap=image ?: return
+        val fit=minOf(width.toFloat()/bitmap.width,height.toFloat()/bitmap.height)
+        panX=viewportPan(panX,bitmap.width*fit,zoom)
+        panY=viewportPan(panY,bitmap.height*fit,zoom)
+    }
+    private fun updateRectangle() {
+        val bitmap=image ?: return
+        boundPan()
+        val fit=minOf(width.toFloat()/bitmap.width,height.toFloat()/bitmap.height)*zoom
+        val w=bitmap.width*fit; val h=bitmap.height*fit
+        rectangle.set((width-w)/2+panX,(height-h)/2+panY,(width+w)/2+panX,(height+h)/2+panY)
+    }
     private val scale = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             if (!zoomEnabled) return false
-            zoom = (zoom * detector.scaleFactor).coerceIn(1f, 6f); transformed = true; invalidate(); return true
+            val previous=zoom
+            zoom = (zoom * detector.scaleFactor).coerceIn(1f, 6f)
+            val ratio=zoom/previous
+            val fx=detector.focusX-width/2f; val fy=detector.focusY-height/2f
+            panX=fx-(fx-panX)*ratio; panY=fy-(fy-panY)*ratio
+            boundPan(); transformed = true; invalidate(); return true
         }
     })
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -44,8 +65,7 @@ internal class PreviewView(context: Context) : View(context) {
         super.onDraw(canvas)
         val bitmap = image ?: return
         val scale = minOf(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height) * zoom
-        val w = bitmap.width * scale; val h = bitmap.height * scale
-        rectangle.set((width - w) / 2 + panX, (height - h) / 2 + panY, (width + w) / 2 + panX, (height + h) / 2 + panY)
+        updateRectangle()
         canvas.save(); canvas.clipRect(0, 0, width, height)
         canvas.drawBitmap(bitmap, null, rectangle, paint)
         overlay?.let { canvas.drawBitmap(it, null, rectangle, paint) }
@@ -71,11 +91,16 @@ internal class PreviewView(context: Context) : View(context) {
         ((e.y - rectangle.top) / rectangle.height()).coerceIn(0f, 1f))
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!isEnabled || image == null) return false
+        updateRectangle()
+        // Track the centroid, excluding the lifted pointer, so fingers never jump the view.
+        val indices=(0 until event.pointerCount).filter { event.actionMasked != MotionEvent.ACTION_POINTER_UP || it != event.actionIndex }
+        val cx=indices.map { event.getX(it).toDouble() }.average().toFloat()
+        val cy=indices.map { event.getY(it).toDouble() }.average().toFloat()
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            transformed = false; lastX = event.x; lastY = event.y
-            activeHandle = handles.minByOrNull {
-                hypot(event.x - rectangle.left - it.point.x * rectangle.width(), event.y - rectangle.top - it.point.y * rectangle.height())
-            }?.takeIf { hypot(event.x - rectangle.left - it.point.x * rectangle.width(), event.y - rectangle.top - it.point.y * rectangle.height()) < 26 * resources.displayMetrics.density }?.key
+            transformed = false; downX=cx; downY=cy; lastX=cx; lastY=cy
+            activeHandle = if(panEnabled) null else handles.minByOrNull {
+                hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height())
+            }?.takeIf { hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height()) < 26 * resources.displayMetrics.density }?.key
             if (activeHandle != null) onHandleStart?.invoke()
             parent?.requestDisallowInterceptTouchEvent(true)
         }
@@ -87,18 +112,25 @@ internal class PreviewView(context: Context) : View(context) {
         if (zoomEnabled) { scale.onTouchEvent(event); gestures.onTouchEvent(event) }
         if (event.actionMasked == MotionEvent.ACTION_MOVE) {
             if (activeHandle != null && !scale.isInProgress) onHandle?.invoke(activeHandle!!, normalized(event))
-            else if (panEnabled && zoomEnabled) { panX += event.x - lastX; panY += event.y - lastY; transformed = true; invalidate() }
-            lastX = event.x; lastY = event.y
+            else if (zoomEnabled && (panEnabled || zoom > 1f) &&
+                (transformed || hypot(cx-downX,cy-downY) > touchSlop)) {
+                panX += cx-lastX; panY += cy-lastY; boundPan()
+                transformed = true; updateRectangle(); invalidate()
+            }
         }
+        lastX=cx; lastY=cy
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             if (activeHandle != null) { onHandle?.invoke(activeHandle!!, normalized(event)); onHandleEnd?.invoke() }
-            else if (!transformed && rectangle.contains(event.x, event.y)) {
+            else if (!transformed && !panEnabled && rectangle.contains(event.x, event.y)) {
                 val p = normalized(event); val bitmap = image!!
                 onBall?.invoke(PointF(p.x * bitmap.width, p.y * bitmap.height)); performClick()
             }
             activeHandle = null; parent?.requestDisallowInterceptTouchEvent(false)
         }
-        if (event.actionMasked == MotionEvent.ACTION_CANCEL) { activeHandle = null; onHandleEnd?.invoke() }
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            if(activeHandle != null) onHandleEnd?.invoke()
+            activeHandle = null; parent?.requestDisallowInterceptTouchEvent(false)
+        }
         return true
     }
     override fun performClick(): Boolean { super.performClick(); return true }
