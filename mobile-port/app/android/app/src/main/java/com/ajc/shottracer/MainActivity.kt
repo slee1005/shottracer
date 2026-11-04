@@ -101,6 +101,7 @@ class MainActivity : Activity() {
         }
         setContentView(root)
         branding = row(); root.addView(branding,LinearLayout.LayoutParams(-1,dp(44)))
+        branding.addView(ImageView(this).apply { setImageResource(R.drawable.brand_logo); importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO },LinearLayout.LayoutParams(dp(40),dp(40)).apply { marginEnd=dp(8) })
         branding.addView(TextView(this).apply { setText(R.string.app_name); textSize=22f; setTextColor(Color.WHITE); typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL) },LinearLayout.LayoutParams(0,-2,1f))
         fun modeButton(label: String, mode: String) = Button(this).apply {
             text=text(label); textSize=11f; minWidth=0; setPadding(dp(6),0,dp(6),0); isAllCaps=false
@@ -288,7 +289,7 @@ class MainActivity : Activity() {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed() }
+            "ball" -> { remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); analyze() }
             "landing", "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
             "path" -> { remember(); if (pending == null) { s.ball = p; s.start = currentTime; s.manual = true; pending = p } else { s.landing = r; pending = null }; changed() }
             "circle", "line" -> { if (pending == null) { pending = p; status.text = text("second_point") } else { remember(); scene.shapes.add(EditShape(tool, pending!!, p)); pending = null; changed() } }
@@ -527,6 +528,18 @@ class MainActivity : Activity() {
                 if (folders.isNotEmpty()) next(0)
             }.setNegativeButton(text("delete_projects")) { _, _ -> if (folders.isNotEmpty()) chooseDeletions(folders) }.setPositiveButton(android.R.string.cancel, null).show()
     }
+    private fun motionReport(): String {
+        val shot=scene.shot
+        val impact=shot.baseModel?.get(3) ?: shot.base.firstOrNull()?.time ?: shot.start
+        fun summary(rows: List<TimedPoint>): DoubleArray? = NativeCore.motion(rows.flatMap { listOf(it.time,it.x*scene.width,it.y*scene.height) }.toDoubleArray())
+        val ballRows=shot.base.drop(1).filter { it.time>=impact && it.time<=impact+2 }
+        val ball=summary(ballRows)
+        val launch=summary(ballRows.takeWhile { it.time <= (ballRows.firstOrNull()?.time ?: 0.0)+.25 })
+        val club=summary(shot.autoClub.filter { it.time>=impact-.25 && it.time<=impact+.05 })
+        return text("motion_title")+"\n"+(ball?.let { getString(R.string.editor_motion_ball,it[0],hypot(it[1],it[2]),it[3]) } ?: text("motion_missing"))+"\n"+
+            (launch?.takeIf { hypot(it[1],it[2])>=2 }?.let { getString(R.string.editor_motion_direction,atan2(-it[2],it[1])*180/Math.PI) } ?: "")+"\n"+
+            (club?.let { getString(R.string.editor_motion_club,it[3],it[4].toInt()) } ?: text("motion_club_missing"))+"\n"+text("motion_calibration")
+    }
     private fun settings() {
         stopPlay(); val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
         val edits = mutableListOf<() -> Unit>()
@@ -542,6 +555,7 @@ class MainActivity : Activity() {
             spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, options.map { text(if (it == "flight") "mode_flight" else it) }); spinner.setSelection(max(0, options.indexOf(selected)))
             layout.addView(spinner); edits.add { set(options[spinner.selectedItemPosition]) }
         }
+        layout.addView(TextView(this).apply { text=motionReport(); setPadding(0,0,0,dp(12)); setTextIsSelectable(true) })
         choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.timingLandingEstimated=null; scene.shot.apex=null; scene.shot.manual=false } }
         check("person_occlusion",scene.personOcclusion) { scene.personOcclusion=it }
         choice("auto_swing",listOf("both","hands","club","off"),scene.autoSwing) { scene.autoSwing=it }

@@ -272,3 +272,40 @@ def test_club_requires_motion_attached_to_hands_and_excludes_body(core):
     mask[:]=0
     args[1]=previous.ctypes.data
     assert core.st_club_point(*args) == 0
+
+
+def motion_summary(core, rows):
+    core.st_motion_summary.argtypes = [c.c_void_p, c.c_int, c.c_void_p]
+    samples = np.asarray(rows, dtype=np.float64)
+    result = np.full(5, np.nan)
+    status = core.st_motion_summary(samples.ctypes.data, len(samples), result.ctypes.data)
+    return status, result
+
+
+def test_motion_summary_uses_source_pts_and_image_pixels(core):
+    times = np.array([4, 4.04, 4.1, 4.18])
+    rows = np.column_stack([times, 10+30*(times-4), 20-40*(times-4)])
+    status, result = motion_summary(core, rows)
+    assert status == 0
+    np.testing.assert_allclose(result, [.18, 5.4, -7.2, 50, 4], atol=1e-10)
+    # Translation does not change evidence; pixel scaling does, so never call it m/s.
+    rows[:, 1:] = rows[:, 1:]*2 + 500
+    assert motion_summary(core, rows)[1][3] == pytest.approx(100)
+
+
+@pytest.mark.parametrize('rows', [
+    [[0,0,0],[.03,1,1]],
+    [[0,0,0],[.1,1,1],[.4,2,2]],
+    [[0,0,0],[0,1,1],[.1,2,2]],
+    [[0,0,0],[-.1,1,1],[.1,2,2]],
+    [[0,0,0],[.01,1,1],[.02,2,2]],
+    [[0,0,0],[.05,float('nan'),1],[.1,2,2]],
+])
+def test_motion_summary_withholds_missing_or_invalid_evidence(core, rows):
+    assert motion_summary(core, rows)[0] == -1
+
+
+def test_motion_summary_median_limits_single_speed_outlier(core):
+    status, result = motion_summary(core, [[0,0,0],[.05,1,0],[.1,2,0],[.15,12,0]])
+    assert status == 0
+    assert result[3] == pytest.approx(20)

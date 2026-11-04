@@ -186,3 +186,11 @@
 "editor.popupDelete" = "Delete popup";
 "editor.popupSummary" = "%@ · %@";
 "editor.popupUnreachableSuffix" = " (outside display interval)";
+
+"editor.motionTitle" = "Observed video motion";
+"editor.motionBall" = "Ball: %.2f s · %.1f px displacement · %.1f px/s median";
+"editor.motionDirection" = "Early screen direction: %.1f° (right 0°, up 90°)";
+"editor.motionClub" = "Club near impact: %.1f px/s median · %d observations";
+"editor.motionMissing" = "Ball motion unavailable: need 3 continuous observations.";
+"editor.motionClubMissing" = "Club motion unavailable: insufficient continuous detections.";
+"editor.motionCalibration" = "Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.";

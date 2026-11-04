@@ -166,7 +166,7 @@ final class EditorModel: ObservableObject {
         guard !busy, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits()
+        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); analyze()
         case "landing", "apex":
             checkpoint(); if scene.shot.ball == nil { scene.shot.ball = EditPoint(0.2, 0.8); scene.shot.start = displayedTime }
             moveHandle(tool, p); persist()
@@ -257,6 +257,20 @@ final class EditorModel: ObservableObject {
         checkpoint(); scene.shot.trackingMode=mode; scene.shot.base=[]; scene.shot.baseModel=nil
         scene.shot.landing=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
         chooseTool("ball"); commitEdits(); status=NSLocalizedString("editor.modeChanged",comment:"")
+    }
+    func motionReport() -> String {
+        let shot=scene.shot, impact=scene.shot.baseModel?[3] ?? scene.shot.base.first?.time ?? scene.shot.start
+        func summary(_ rows: [EditSample]) -> [Double]? {
+            let points=rows.flatMap { [$0.time,$0.x*Double(scene.width),$0.y*Double(scene.height)] }; var out=[Double](repeating:0,count:5)
+            return points.withUnsafeBufferPointer { st_motion_summary($0.baseAddress,Int32(rows.count),&out) } == 0 ? out : nil
+        }
+        let rows=Array(shot.base.dropFirst()).filter { $0.time>=impact && $0.time<=impact+2 }
+        let ball=summary(rows), launch=summary(rows.filter { $0.time <= (rows.first?.time ?? 0)+0.25 })
+        let club=summary((shot.autoClub ?? []).filter { $0.time>=impact-0.25 && $0.time<=impact+0.05 })
+        var lines=[ball.map { String(format:NSLocalizedString("editor.motionBall",comment:""),$0[0],hypot($0[1],$0[2]),$0[3]) } ?? NSLocalizedString("editor.motionMissing",comment:"")]
+        if let launch, hypot(launch[1],launch[2])>=2 { lines.append(String(format:NSLocalizedString("editor.motionDirection",comment:""),atan2(-launch[2],launch[1])*180/Double.pi)) }
+        lines.append(club.map { String(format:NSLocalizedString("editor.motionClub",comment:""),$0[3],Int($0[4])) } ?? NSLocalizedString("editor.motionClubMissing",comment:""))
+        lines.append(NSLocalizedString("editor.motionCalibration",comment:"")); return lines.joined(separator:"\n")
     }
     func analyze() {
         guard !busy,!editingTimeline, let source, let ball = scene.shot.ball else { return }

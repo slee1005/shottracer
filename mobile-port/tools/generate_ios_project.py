@@ -29,20 +29,22 @@ def main() -> None:
     localized = add(f'isa = PBXVariantGroup; children = ({", ".join(languages)}); name = Localizable.strings; sourceTree = "<group>";')
     usage_languages = [file(f"ShotTracer/{lang}.lproj/InfoPlist.strings", "text.plist.strings") for lang in ("en", "ko")]
     usage = add(f'isa = PBXVariantGroup; children = ({", ".join(usage_languages)}); name = InfoPlist.strings; sourceTree = "<group>";')
+    assets = file("ShotTracer/Assets.xcassets", "folder.assetcatalog")
+    asset_resource = add(f"isa = PBXBuildFile; fileRef = {assets};")
     product = add('isa = PBXFileReference; explicitFileType = wrapper.application; path = ShotTracer.app; sourceTree = BUILT_PRODUCTS_DIR;')
     builds = [add(f"isa = PBXBuildFile; fileRef = {source};") for source in sources]
     resource = add(f"isa = PBXBuildFile; fileRef = {localized};")
     usage_resource = add(f"isa = PBXBuildFile; fileRef = {usage};")
     source_phase = add(f'isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ({", ".join(builds)}); runOnlyForDeploymentPostprocessing = 0;')
-    resource_phase = add(f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({resource}, {usage_resource}); runOnlyForDeploymentPostprocessing = 0;')
+    resource_phase = add(f'isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ({resource}, {usage_resource}, {asset_resource}); runOnlyForDeploymentPostprocessing = 0;')
     frameworks = add('isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;')
     products = add(f'isa = PBXGroup; children = ({product}); name = Products; sourceTree = "<group>";')
-    group = add(f'isa = PBXGroup; children = ({", ".join(sources + headers + [localized, usage, products])}); sourceTree = "<group>";')
+    group = add(f'isa = PBXGroup; children = ({", ".join(sources + headers + [localized, usage, assets, products])}); sourceTree = "<group>";')
     common = '''CLANG_ENABLE_MODULES = YES; CLANG_CXX_LANGUAGE_STANDARD = "c++17";
         IPHONEOS_DEPLOYMENT_TARGET = 26.6.2; SDKROOT = iphoneos; SWIFT_VERSION = 5.0;
         SWIFT_OBJC_BRIDGING_HEADER = "ShotTracer/Bridge.h";
         HEADER_SEARCH_PATHS = "$(SRCROOT)/../../core/include";
-        PRODUCT_BUNDLE_IDENTIFIER = com.ajc.shottracer.dev; PRODUCT_NAME = ShotTracer;
+        PRODUCT_BUNDLE_IDENTIFIER = com.ajc.shottracer.dev; PRODUCT_NAME = ShotTracer; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
         MARKETING_VERSION = 0.0.1; CURRENT_PROJECT_VERSION = 1;
         GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = ShotTracer;
         INFOPLIST_KEY_NSCameraUsageDescription = "Record golf shots for on-device ball tracking.";

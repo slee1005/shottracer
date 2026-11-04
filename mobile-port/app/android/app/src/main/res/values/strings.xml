@@ -176,4 +176,11 @@
     <string name="editor_popup_delete">Delete popup</string>
     <string name="editor_popup_summary">%1$s · %2$s</string>
     <string name="editor_popup_unreachable_suffix"> (outside display interval)</string>
+    <string name="editor_motion_title">Observed video motion</string>
+    <string name="editor_motion_ball">Ball: %1$.2f s · %2$.1f px displacement · %3$.1f px/s median</string>
+    <string name="editor_motion_direction">Early screen direction: %1$.1f° (right 0°, up 90°)</string>
+    <string name="editor_motion_club">Club near impact: %1$.1f px/s median · %2$d observations</string>
+    <string name="editor_motion_missing">Ball motion unavailable: need 3 continuous observations.</string>
+    <string name="editor_motion_club_missing">Club motion unavailable: insufficient continuous detections.</string>
+    <string name="editor_motion_calibration">Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.</string>
 </resources>

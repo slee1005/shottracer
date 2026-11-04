@@ -141,3 +141,16 @@ Java_com_ajc_shottracer_NativeCore_club(JNIEnv *env, jobject, jbyteArray previou
     if (st_club_point(p.data(),c.data(),q.data(),m.data(),w,h,a[0],a[1],a[2],d[0],d[1],d[2],d[3],&point) != 1) return nullptr;
     const double xy[2] = {point.x/w, point.y/h}; auto out=env->NewDoubleArray(2); if(out) env->SetDoubleArrayRegion(out,0,2,xy); return out;
 }
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_motion(JNIEnv *env, jobject, jdoubleArray points) {
+    if (!points) return nullptr;
+    const int n=env->GetArrayLength(points);
+    if (n%3 || n<9 || n>6000) return nullptr;
+    std::vector<double> samples(n); double result[5];
+    env->GetDoubleArrayRegion(points,0,n,samples.data());
+    if (env->ExceptionCheck() || st_motion_summary(samples.data(),n/3,result)) return nullptr;
+    auto output=env->NewDoubleArray(5);
+    if(output) env->SetDoubleArrayRegion(output,0,5,result);
+    return output;
+}

@@ -57,11 +57,12 @@ struct EditorView: View {
     private var header: some View {
         VStack(spacing:6) {
             HStack {
-                VStack(alignment:.leading,spacing:1) { Text("app.title").font(.title2.bold()); Text("editor.onDevice").font(.system(size:9,weight:.bold,design:.rounded)).tracking(2).foregroundStyle(.mint) }
+                Image("Brand").resizable().scaledToFit().frame(width:36,height:36).clipShape(RoundedRectangle(cornerRadius:8)).accessibilityHidden(true)
+                VStack(alignment:.leading,spacing:1) { Text("app.title").font(.title3.bold()); Text("editor.onDevice").font(.system(size:9,weight:.bold,design:.rounded)).tracking(2).foregroundStyle(.mint) }
                 Spacer()
                 Picker("editor.trackingMode",selection:Binding(get:{ model.scene.shot.trackingMode ?? "flight" },set:{ model.setTrackingMode($0) })) {
                     Text("editor.modeFlight").tag("flight"); Text("editor.putt").tag("putt")
-                }.pickerStyle(.segmented).frame(width:170).disabled(model.busy || !model.hasVideo)
+                }.pickerStyle(.segmented).frame(width:150).disabled(model.busy || !model.hasVideo)
             }
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
             PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
@@ -147,7 +148,7 @@ struct EditorView: View {
                     .scaleEffect(zoom).offset(pan)
                 }.frame(width: area.size.width, height: area.size.height)
             }.accessibilityLabel(Text("preview.label"))
-        } else { Image(systemName: "figure.golf").font(.system(size: 70)).foregroundStyle(.red).frame(maxWidth: .infinity, maxHeight: .infinity) }
+        } else { Image("Brand").resizable().scaledToFit().padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel(Text("app.title")) }
     }
     private var timeline: some View {
         VStack(spacing: 2) {
@@ -293,6 +294,7 @@ struct EditorSettings: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("editor.motionTitle") { Text(model.motionReport()).font(.footnote).textSelection(.enabled) }
                 Section("editor.autoSwing") {
                     Toggle("editor.personOcclusion",isOn:Binding(get:{ model.scene.personOcclusion != false },set:{ model.scene.personOcclusion=$0 }))
                     Picker("editor.autoSwing",selection:Binding(get:{ model.scene.autoSwing ?? "both" },set:{ model.scene.autoSwing=$0 })) {

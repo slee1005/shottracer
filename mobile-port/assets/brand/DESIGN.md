@@ -9,3 +9,10 @@
 ## Final generation prompt
 
 Use case: logo-brand. Create ONE finished production app icon for ShotTracer, an offline golf ball flight tracking and video editing app for Android and iPhone. Square 1:1, high resolution. Full-bleed opaque deep midnight navy background (#0B121B), with a very subtle elegant dark gradient. A bold, clean, distinctive mint-teal (#2DD4BF) golf ball flight tracer rises smoothly from lower left to a high apex then gently turns down toward the right, terminating in a small bright white golf ball near upper right. The ball is circular and clearly a golf ball, with only 3–5 restrained large dimple details, readable at small app-icon size. The tapering trajectory and circular ball should form a single cohesive memorable mark, with deliberate negative space and crisp vector-like contours. Contemporary premium sports video app identity, confident, simple, balanced, flat graphic design with minimal depth. Keep the entire essential symbol centered within the middle 65% of the canvas so Android and iOS icon masks cannot cut it. Background fills the entire square; no border, no inset rounded-square tile, no outer transparent padding. No letters, no words, no monogram, no numbers, no camera, no person, no grass, no golf club, no extra symbols, no watermark, no mockup or phone device. Return only the single icon artwork, not a presentation sheet.
+
+## Owner-selected representative image (2026-11-03)
+
+- Original / 원본: `shottracer-user-logo.jpg`, copied unchanged from the owner-supplied JPEG (1408×768).
+- Preparation / 준비: center crop to 768×768; resize to opaque 1024×1024 PNG for iOS AppIcon and 256×256 for Android launcher/header and iOS Brand image. No design redraw or background removal. 중앙 크롭·크기 조정만 적용했다.
+- Applied / 적용: native app launcher icon and editor branding on Android and iPhone; iPhone empty editor. Source v1 above is retained but is not the active icon. 양쪽 앱 대표 이미지에 적용했으며 기존 v1은 보관한다.
+- Reproduce with macOS `sips --cropToHeightWidth 768 768`, then PNG conversion/resizing. Keep the original source unchanged. Store publication remains separate.

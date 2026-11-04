@@ -455,3 +455,28 @@ extern "C" int st_club_point(const uint8_t *prev, const uint8_t *cur, const uint
     }
     return found ? 1 : 0;
 }
+
+extern "C" int st_motion_summary(const double *samples, int count, double *out) {
+    // Image-plane evidence only. Never apply flight priors or a pixel-to-metre guess.
+    if (!samples || !out || count < 3 || count > 2000) return -1;
+    std::vector<double> speeds;
+    for (int i = 0; i < count; ++i) {
+        for (int j = 0; j < 3; ++j) if (!std::isfinite(samples[i*3+j])) return -1;
+        if (!i) continue;
+        const double dt = samples[i*3] - samples[(i-1)*3];
+        // Do not bridge missing detections or accept duplicate/out-of-order PTS.
+        if (dt <= 0 || dt > .125) return -1;
+        speeds.push_back(std::hypot(samples[i*3+1]-samples[(i-1)*3+1],
+                                    samples[i*3+2]-samples[(i-1)*3+2])/dt);
+    }
+    const double span = samples[(count-1)*3] - samples[0];
+    if (span < .04 || span > 2.001) return -1;
+    std::sort(speeds.begin(),speeds.end());
+    const auto n = speeds.size();
+    out[0] = span;
+    out[1] = samples[(count-1)*3+1] - samples[1];
+    out[2] = samples[(count-1)*3+2] - samples[2];
+    out[3] = (speeds[(n-1)/2]+speeds[n/2])/2;
+    out[4] = count;
+    return 0;
+}

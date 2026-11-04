@@ -10,6 +10,7 @@ internal object NativeCore {
     external fun create(width: Int, height: Int, x: Double, y: Double): Long
     external fun mode(handle: Long, mode: Int): Int
     external fun club(previous: ByteArray, current: ByteArray, next: ByteArray, mask: ByteArray, width: Int, height: Int, pose: DoubleArray, motion: DoubleArray): DoubleArray?
+    external fun motion(points: DoubleArray): DoubleArray?
     external fun destroy(handle: Long)
     external fun push(handle: Long, pixels: IntArray, time: Double): Int
     external fun count(handle: Long): Int

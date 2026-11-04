@@ -49,6 +49,10 @@ int st_fit_model(const double *samples, int count, double x, double y, double ho
 int st_refit_model(const STModel *base, const double *samples, int count,
                    const double *landing, double flight, STModel *model);
 int st_with_apex(const STModel *base, const double *samples, int count, double apex_time, STModel *model);
+/* Contiguous observed (seconds, image pixel x/y), at most two seconds.
+   Returns [span, dx, dy, median projected speed px/s, count], or -1 missing/invalid.
+   This is NOT a physical launch angle, club speed or carry measurement. */
+int st_motion_summary(const double *samples, int count, double *summary);
 #ifdef __cplusplus
 }
 #endif
