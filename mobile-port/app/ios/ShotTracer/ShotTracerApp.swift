@@ -115,9 +115,9 @@ struct EditorView: View {
                             Circle().stroke(key == "landing" ? Color.green : key == "apex" ? Color.cyan : Color.yellow, lineWidth: 2 / zoom)
                                 .frame(width: 18 / zoom, height: 18 / zoom)
                                 .overlay(alignment:point.x > 0.7 ? .topTrailing : .topLeading) {
-                                    if key == "ball" || key == "landing" {
-                                        Text(LocalizedStringKey(key == "ball" ? "editor.timelineStart" : "editor.timelineLanding"))
-                                            .font(.system(size:10/zoom,weight:.bold)).foregroundStyle(key == "ball" ? Color.yellow : Color.green)
+                                    if key == "ball" || key == "landing" || (key == "apex" && model.scene.shot.trackingMode == "putt") {
+                                        Text(LocalizedStringKey(key == "ball" ? "editor.timelineStart" : key == "apex" ? "editor.puttCurve" : "editor.timelineLanding"))
+                                            .font(.system(size:10/zoom,weight:.bold)).foregroundStyle(key == "ball" ? Color.yellow : key == "apex" ? Color.cyan : Color.green)
                                             .padding(3/zoom).background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:3/zoom)).fixedSize()
                                             .offset(x:(point.x > 0.7 ? -20 : 20)/zoom,y:(point.y < 0.08 ? 20 : -14)/zoom)
                                     }
@@ -216,7 +216,7 @@ struct EditorView: View {
     private var tools: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
             ForEach([("ball", "scope"), ("landing", "flag.fill"), ("apex", "arrow.up.to.line"), ("path", "scribble.variable"), ("circle", "circle"), ("line", "line.diagonal"), ("swing", "figure.golf"), ("pan", "hand.point.up.left")], id: \.0) { key, symbol in
-                icon("editor." + key, symbol, disabled: !model.hasVideo || (key == "apex" && model.scene.shot.trackingMode == "putt")) { model.chooseTool(key) }.tint(model.tool == key ? .mint : .white)
+                icon(key == "apex" && model.scene.shot.trackingMode == "putt" ? "editor.puttCurve" : "editor." + key, symbol, disabled: !model.hasVideo || (key == "apex" && model.scene.shot.trackingMode == "putt" && !model.scene.shot.hasGroundPath)) { model.chooseTool(key) }.tint(model.tool == key ? .mint : .white)
             }
             icon("editor.delete", "trash", disabled: !model.hasVideo) { model.deleteShape() }
             icon("editor.landingFrame", "flag.checkered", disabled: model.scene.shot.ball == nil) { model.landOnFrame() }

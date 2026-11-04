@@ -170,7 +170,7 @@ class MainActivity : Activity() {
         icon(transport, "review") { output?.let { review(it) } }; icon(transport, "save") { saveOutput() }
         val lower = toolbar(root); tools = lower.parent as HorizontalScrollView
         for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing", "pan")) icon(lower, key) {
-            tool = key; pending = null; preview.panEnabled = key == "pan"; status.text = text("hint_$key"); handles(); controls()
+            tool = key; pending = null; preview.panEnabled = key == "pan"; status.text = text(if(key=="apex" && scene.shot.trackingMode=="putt") "hint_putt_curve" else "hint_$key"); handles(); controls()
         }
         icon(lower, "delete") { if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() } else deleteShot() }
         icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; preview.panEnabled = false; status.text = text("hint_landing"); changed() } }
@@ -183,13 +183,14 @@ class MainActivity : Activity() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && timelineBefore==null && when (key) {
                 "previous", "next", "play", "ball", "landing", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
-                "apex" -> source != null && scene.shot.trackingMode != "putt"
+                "apex" -> source != null && (scene.shot.trackingMode != "putt" || scene.shot.hasGroundPath())
                 "analyze" -> scene.shot.ball != null
                 "undo" -> undo.isNotEmpty()
                 "redo" -> redo.isNotEmpty()
                 "review", "save" -> output?.isFile == true
                 else -> true
             }
+            if(key=="apex") { val label=text(if(scene.shot.trackingMode=="putt") "putt_curve" else "apex"); button.contentDescription=label; button.tooltipText=label }
             button.alpha = if (button.isEnabled) 1f else .35f
             button.imageTintList = android.content.res.ColorStateList.valueOf(if (key == tool) Color.rgb(45,212,191) else Color.WHITE)
             if (key == "play") button.setImageDrawable(ToolIcon(if (playing) "pause" else "play"))
@@ -288,10 +289,10 @@ class MainActivity : Activity() {
     }
     private fun handles() {
         val s = scene.shot; val m = s.motion(currentTime)
-        fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()),if(key=="ball") text("timeline_start") else if(key=="landing") text("timeline_landing") else "")
+        fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()),if(key=="ball") text("timeline_start") else if(key=="landing") text("timeline_landing") else if(key=="apex" && s.trackingMode=="putt") text("putt_curve") else "")
         val points = mutableListOf<EditorHandle>()
         s.ball?.let { points.add(handle("ball", it)) }
-        if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt") points.add(handle("apex", s.peak())) }
+        if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt" || s.hasGroundPath()) points.add(handle("apex", s.peak())) }
         if (tool in listOf("line", "circle")) scene.shapes.forEachIndexed { i, shape -> points.add(EditorHandle("shape:$i:a", PointF(shape.a.x.toFloat(), shape.a.y.toFloat()))); points.add(EditorHandle("shape:$i:b", PointF(shape.b.x.toFloat(), shape.b.y.toFloat()))) }
         preview.ball = null; preview.handles = points; preview.invalidate()
     }

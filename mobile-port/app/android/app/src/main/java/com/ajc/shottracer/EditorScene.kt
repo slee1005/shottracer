@@ -35,6 +35,7 @@ internal data class EditShot(
     fun motion(time: Double): EditPoint = interpolate(camera, time).let { EditPoint(it.x, it.y) }
     fun endpoint() = landing ?: modelPoint(flight) ?: base.lastOrNull()?.let { EditPoint(it.x, it.y) } ?: EditPoint(.75, .65)
     fun peak(): EditPoint {
+        if (trackingMode == "putt") return apex ?: ground(flight*.5)
         val a = ball ?: EditPoint(.2, .8); val b = endpoint()
         return apex ?: modelPoint(flight * apexFraction) ?: EditPoint((a.x + b.x) / 2, min(a.y, b.y) - .25)
     }
@@ -45,6 +46,13 @@ internal data class EditShot(
     }
     fun hasGroundPath() = ball != null && (base.size >= 2 || landing != null)
     fun ground(time: Double): EditPoint {
+        val p=unbentGround(time); val middle=apex ?: return p
+        val reference=unbentGround(flight*.5)
+        val f=(time/max(.01,flight)).coerceIn(0.0,1.0); val weight=4*f*(1-f)
+        // Pass through the editable midpoint, keeping endpoints and observations exact.
+        return EditPoint(p.x+(middle.x-reference.x)*weight,p.y+(middle.y-reference.y)*weight)
+    }
+    private fun unbentGround(time: Double): EditPoint {
         val f = (time / max(.01,flight)).coerceIn(0.0,1.0)
         // A manually placed landing is a complete putt even without analysis.
         // Never interpolate an empty observation list from the frame origin.

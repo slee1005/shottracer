@@ -128,4 +128,36 @@ class EditorTimingTest {
         shot.ball=null
         assertFalse(shot.hasGroundPath())
     }
+    @Test fun manualPuttBendPassesThroughHandleAndKeepsBothEndpoints() {
+        val shot=EditShot(ball=EditPoint(.2,.8),landing=EditPoint(.8,.6),flight=2.0,trackingMode="putt")
+        assertEquals(.5,shot.peak().x,1e-10); assertEquals(.7,shot.peak().y,1e-10)
+        shot.apex=EditPoint(.6,.4)
+        assertEquals(shot.ball,shot.ground(0.0))
+        assertEquals(shot.apex,shot.ground(1.0))
+        assertEquals(shot.landing,shot.ground(2.0))
+        assertEquals(.425,shot.ground(.5).x,1e-10)
+        assertEquals(.525,shot.ground(.5).y,1e-10)
+        assertTrue(shot.base.isEmpty()); assertNull(shot.baseModel)
+    }
+    @Test fun trackedPuttBendPreservesObservationsAndLandingCorrection() {
+        val rows=listOf(TimedPoint(1.0,.1,.8),TimedPoint(2.0,.3,.7),TimedPoint(3.0,.5,.8))
+        val shot=EditShot(start=1.0,ball=EditPoint(.1,.8),landing=EditPoint(.7,.9),flight=2.0,trackingMode="putt",base=rows)
+        val original=shot.ground(.5)
+        shot.apex=EditPoint(.4,.5)
+        assertEquals(shot.ball,shot.ground(0.0))
+        assertEquals(shot.apex,shot.ground(1.0))
+        assertEquals(shot.landing,shot.ground(2.0))
+        assertSame(rows,shot.base)
+        shot.apex=null
+        assertEquals(original,shot.ground(.5))
+    }
+    @Test fun retimedPuttKeepsSpatialMidpointAndCurve() {
+        val shot=EditShot(start=0.0,ball=EditPoint(.2,.8),landing=EditPoint(.8,.6),apex=EditPoint(.5,.4),flight=1.0,trackingMode="putt")
+        val quarter=shot.ground(.25)
+        retimeShot(shot,"landing",4,doubleArrayOf(0.0,.25,.5,1.0,2.0))
+        assertEquals(2.0,shot.flight,1e-10)
+        assertEquals(quarter,shot.ground(.5))
+        assertEquals(shot.apex,shot.ground(1.0))
+        assertEquals(shot.landing,shot.ground(2.0))
+    }
 }

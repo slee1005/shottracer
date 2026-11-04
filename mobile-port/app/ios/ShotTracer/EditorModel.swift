@@ -88,7 +88,7 @@ final class EditorModel: ObservableObject {
         func point(_ p: EditPoint) -> EditPoint { EditPoint(p.x + m.x, p.y + m.y) }
         var result: [(String, EditPoint)] = []
         if let ball = shot.ball { result.append(("ball", point(ball)))
-            if shot.edited || !shot.base.isEmpty { result.append(("landing", point(shot.endpoint))); if shot.trackingMode != "putt" { result.append(("apex", point(shot.peak))) } }
+            if shot.edited || !shot.base.isEmpty { result.append(("landing", point(shot.endpoint))); if shot.trackingMode != "putt" || shot.hasGroundPath { result.append(("apex", point(shot.peak))) } }
         }
         if tool == "line" || tool == "circle" { for i in scene.shapes.indices { result.append(("shape:\(i):a", scene.shapes[i].a)); result.append(("shape:\(i):b", scene.shapes[i].b)) } }
         return result
@@ -111,7 +111,7 @@ final class EditorModel: ObservableObject {
         output = nil; renderer = EditorRenderer(scene); overlay = renderer.overlay(displayedTime)
         if save { persist() }
     }
-    func chooseTool(_ key: String) { tool = key; pending = nil; status = NSLocalizedString("editor.hint." + key, comment: "") }
+    func chooseTool(_ key: String) { tool = key; pending = nil; status = NSLocalizedString(key == "apex" && scene.shot.trackingMode == "putt" ? "editor.hint.puttCurve" : "editor.hint." + key, comment: "") }
     func addShot() {
         guard hasVideo, scene.shots.count < 4 else { status = NSLocalizedString("editor.maxShots", comment: ""); return }
         checkpoint(); var shot = EditShot(); shot.start = displayedTime

@@ -196,3 +196,6 @@
 "editor.motionCalibration" = "Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.";
 
 "editor.startOptions" = "Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.";
+
+"editor.puttCurve" = "Putt curve";
+"editor.hint.puttCurve" = "Drag the cyan midpoint or tap a curve position. Start and landing stay fixed.";

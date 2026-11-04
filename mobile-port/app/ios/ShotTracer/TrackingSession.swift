@@ -142,9 +142,16 @@ struct EditShot: Codable, Identifiable, Sendable {
         return abs(apexFraction - NativeFlight.apex(baseModel) / baseModel[10]) > 0.001 ? NativeFlight.reshape(result, base, flight * apexFraction) ?? result : result
     }
     var endpoint: EditPoint { landing ?? model.flatMap { NativeFlight.at($0, flight) } ?? base.last.map { EditPoint($0.x, $0.y) } ?? EditPoint(0.75, 0.65) }
-    var peak: EditPoint { let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
+    var peak: EditPoint { if trackingMode == "putt" { return apex ?? ground(flight*0.5) }; let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
     var hasGroundPath: Bool { ball != nil && (base.count >= 2 || landing != nil) }
     func ground(_ time: Double) -> EditPoint {
+        let p=unbentGround(time)
+        guard let middle=apex else { return p }
+        let reference=unbentGround(flight*0.5), f=min(1,max(0,time/max(0.01,flight))), weight=4*f*(1-f)
+        // Ground-plane bend only: never change the endpoints or automatic observations.
+        return EditPoint(p.x+(middle.x-reference.x)*weight,p.y+(middle.y-reference.y)*weight)
+    }
+    private func unbentGround(_ time: Double) -> EditPoint {
         let f = min(1,max(0,time/max(0.01,flight)))
         // Manual putts need only a start and destination, not tracker samples.
         if base.count < 2 {

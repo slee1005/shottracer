@@ -184,4 +184,6 @@
     <string name="editor_motion_club_missing">Club motion unavailable: insufficient continuous detections.</string>
     <string name="editor_motion_calibration">Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.</string>
     <string name="editor_start_options">Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.</string>
+    <string name="editor_putt_curve">Putt curve</string>
+    <string name="editor_hint_putt_curve">Drag the cyan midpoint or tap a curve position. Start and landing stay fixed.</string>
 </resources>
