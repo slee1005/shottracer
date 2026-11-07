@@ -37,14 +37,39 @@ struct EditorView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 4) {
-                if !fullscreen { header; shotBar; workflow }
-                ZStack(alignment: .topTrailing) {
-                    preview.frame(maxWidth: .infinity, maxHeight: .infinity).background(.black).clipShape(RoundedRectangle(cornerRadius:22)).overlay { RoundedRectangle(cornerRadius:22).stroke(.white.opacity(0.08)) }
-                    if fullscreen { icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen = false }.padding(8) }
+                if fullscreen {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen = false }
+                            transport
+                        }
+                    }.fixedSize(horizontal: false, vertical: true)
+                } else {
+                    header
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            workflow.frame(width: 252)
+                            shotBar.fixedSize(horizontal: true, vertical: false)
+                        }
+                    }.fixedSize(horizontal: false, vertical: true)
+                    tools
                 }
-                timeline
-                if !fullscreen { tools; Text(model.status).font(.caption2).foregroundStyle(.secondary).lineLimit(3).padding(8).frame(maxWidth: .infinity, alignment: .leading).background(.white.opacity(0.04),in:RoundedRectangle(cornerRadius:12)) }
-                if model.busy { ProgressView() }
+                HStack {
+                    Text(model.status).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    if model.hasVideo {
+                        Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time))
+                            .monospacedDigit().lineLimit(1).minimumScaleFactor(0.75)
+                    }
+                    if model.busy { ProgressView().controlSize(.small) }
+                }.font(.caption2).foregroundStyle(.secondary)
+                GeometryReader { area in
+                    let timelineHeight = model.hasVideo ? area.size.height * 0.2 : 0
+                    VStack(spacing: 0) {
+                        preview.frame(width: area.size.width, height: area.size.height - timelineHeight)
+                            .background(.black).clipShape(RoundedRectangle(cornerRadius: 18))
+                        if model.hasVideo { filmstrip.frame(height: timelineHeight) }
+                    }
+                }
             }
             .padding(.horizontal, 8).background(LinearGradient(colors:[Color(red:0.04,green:0.09,blue:0.12),Color(red:0.03,green:0.05,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing)).preferredColorScheme(.dark).tint(.mint)
             .toolbar(.hidden, for: .navigationBar)
@@ -76,10 +101,11 @@ struct EditorView: View {
             icon("action.import", "folder.badge.plus") { picking = true }
             icon("camera.open", "camera.fill") { model.pause(); showingCamera = true }
             icon("editor.projects", "square.stack") { model.reloadProjects(); showingProjects = true }
+            icon("editor.fullscreen", "arrow.up.left.and.arrow.down.right") { fullscreen = true }
+            transport
             icon("editor.undo", "arrow.uturn.backward", disabled: !model.canUndo) { model.undoEdit() }
             icon("editor.redo", "arrow.uturn.forward", disabled: !model.canRedo) { model.redoEdit() }
             icon("editor.settings", "slider.horizontal.3", disabled: !model.hasVideo) { settings = true }
-            icon("editor.fullscreen", "arrow.up.left.and.arrow.down.right") { fullscreen = true }
         } }
         }
     }
@@ -181,34 +207,28 @@ struct EditorView: View {
             }.accessibilityLabel(Text("preview.label"))
         } else { Image("Brand").resizable().scaledToFit().padding(40).frame(maxWidth: .infinity, maxHeight: .infinity).accessibilityLabel(Text("app.title")) }
     }
-    private var timeline: some View {
-        VStack(spacing: 2) {
-            if model.hasVideo {
-                filmstrip
-                HStack(spacing: 4) { eventButton("ball"); eventButton("apex"); eventButton("landing") }
-                Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time)).font(.caption2).monospacedDigit()
-            }
-            ScrollView(.horizontal,showsIndicators:false) { HStack(spacing: 6) {
-                icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
-                icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
-                icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
-                icon("action.analyze", "sparkle.magnifyingglass", disabled: model.scene.shot.ball == nil) { model.analyze() }
-                icon("action.export", "square.and.arrow.up", disabled: !model.canExport) { model.export() }
-                icon("editor.review", "play.rectangle.fill", disabled: model.output == nil) { reviewing = true }
-                if model.output != nil { icon("editor.albumSave","square.and.arrow.down") { model.saveToAlbum() } }
-            } }
-        }
+    @ViewBuilder private var transport: some View {
+        icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
+        icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
+        icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
+        icon("action.analyze", "sparkle.magnifyingglass", disabled: model.scene.shot.ball == nil) { model.analyze() }
+        icon("action.export", "square.and.arrow.up", disabled: !model.canExport) { model.export() }
+        icon("editor.review", "play.rectangle.fill", disabled: model.output == nil) { reviewing = true }
+        if model.output != nil { icon("editor.albumSave","square.and.arrow.down") { model.saveToAlbum() } }
     }
     private var filmstrip: some View {
         let tile: CGFloat = timelineSize == .regular ? 108 : 72
-        let snapshot: CGFloat = timelineSize == .regular ? 64 : 44
         let interval = model.snapshotInterval
         return GeometryReader { area in
             let center = area.size.width / 2
             let clock = model.time
             let events = model.timelineEvents
             let px = tile / interval
-            let lane = snapshot + 18
+            let laneHeight = min(66, area.size.height * 0.56)
+            let lane = area.size.height - laneHeight
+            let ruler = min(18, area.size.height * 0.18)
+            let snapshot = lane - ruler
+            let labelSize = min(10, laneHeight * 0.21)
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(Color(red: 0.06, green: 0.09, blue: 0.13))
                     .contentShape(Rectangle())
@@ -236,8 +256,8 @@ struct EditorView: View {
                         let x = center + (time - clock) * px
                         if abs(x - center) <= center + tile {
                             VStack(alignment: .leading, spacing: 0) {
-                                Text(filmClock(time)).font(.system(size: 10)).monospacedDigit().padding(.leading, 3)
-                                    .frame(height: 18)
+                                Text(filmClock(time)).font(.system(size: labelSize)).monospacedDigit().padding(.leading, 3)
+                                    .frame(height: ruler)
                                 ZStack {
                                     Color.white.opacity(0.08)
                                     if let image = model.thumbnails[index] {
@@ -249,7 +269,7 @@ struct EditorView: View {
                         }
                     }
                 }
-                Rectangle().fill(.white.opacity(0.06)).frame(height: 66).offset(y: lane).allowsHitTesting(false)
+                Rectangle().fill(.white.opacity(0.06)).frame(height: laneHeight).offset(y: lane).allowsHitTesting(false)
                 if let first = events.first, let last = events.last, events.count > 1 {
                     let left = max(0, center + (first.time - clock) * px)
                     let right = min(area.size.width, center + (last.time - clock) * px)
@@ -258,17 +278,19 @@ struct EditorView: View {
                             .offset(x: left, y: lane + 2).allowsHitTesting(false)
                     }
                 }
-                Text("editor.timelineTracer").font(.system(size: 10)).foregroundStyle(.secondary)
-                    .offset(x: 5, y: lane + 52).allowsHitTesting(false)
+                if laneHeight >= 58 {
+                    Text("editor.timelineTracer").font(.system(size: 10)).foregroundStyle(.secondary)
+                        .offset(x: 5, y: area.size.height - 13).allowsHitTesting(false)
+                }
                 ForEach(events) { event in
                     if let firstTime = model.times.first, let lastTime = model.times.last {
                         let row = event.key == "ball" ? 0 : event.key == "apex" ? 1 : 2
                         let edgeTime = min(lastTime, max(firstTime, event.time))
                         let x = center + (edgeTime - clock) * px
-                        Text("▴ " + eventLabel(event, compact: true)).font(.system(size: 10, weight: .medium)).monospacedDigit()
+                        Text("▴ " + eventLabel(event, compact: true)).font(.system(size: labelSize, weight: .medium)).monospacedDigit()
                             .padding(.horizontal, 4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
                             .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).fixedSize().contentShape(Rectangle())
-                            .position(x: x, y: lane + 13 + CGFloat(row) * 15)
+                            .position(x: x, y: lane + laneHeight * (0.20 + CGFloat(row) * 0.25))
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip")).onChanged { value in
                                 guard !model.busy, panOrigin == nil else { return }
                                 if draggingTime == nil && abs(value.translation.width) > 3 {
@@ -293,7 +315,7 @@ struct EditorView: View {
                 Rectangle().fill(.white).frame(width: 2, height: area.size.height)
                     .position(x: center, y: area.size.height / 2).allowsHitTesting(false).accessibilityHidden(true)
             }.coordinateSpace(name: "shotFilmstrip").clipped()
-        }.frame(height: snapshot + 84)
+        }
     }
     private func filmClock(_ time: Double) -> String {
         let cs = max(0, Int((time * 100).rounded()))
@@ -322,7 +344,7 @@ struct EditorView: View {
         return Button { if let event { jump(event) } } label: {
             Text(event.map { eventLabel($0) } ?? NSLocalizedString(key == "ball" ? "editor.timelineStartUnset" : key == "apex" ? "editor.timelineApexUnset" : "editor.timelineLandingUnset",comment:""))
                 .font(.system(size:10,weight:.medium)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.75)
-                .frame(maxWidth:.infinity,minHeight:40).background(.white.opacity(0.06),in:RoundedRectangle(cornerRadius:12))
+                .frame(width: 108, height: 44).background(.white.opacity(0.06),in:RoundedRectangle(cornerRadius:12))
         }.buttonStyle(.plain).foregroundStyle(eventColor(key)).disabled(model.busy || event?.inClip != true)
     }
     private var tools: some View {
@@ -332,6 +354,7 @@ struct EditorView: View {
             }
             icon("editor.delete", "trash", disabled: !model.hasVideo) { model.deleteShape() }
             icon("editor.landingFrame", "flag.checkered", disabled: model.scene.shot.ball == nil) { model.landOnFrame() }
+            if model.hasVideo { eventButton("ball"); eventButton("apex"); eventButton("landing") }
         } }
     }
 }

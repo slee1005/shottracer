@@ -45,7 +45,7 @@ class MainActivity : Activity() {
     private lateinit var apexTimeButton: Button
     private lateinit var shotBar: LinearLayout
     private lateinit var tools: HorizontalScrollView
-    private lateinit var top: HorizontalScrollView
+    private lateinit var shotMenuScroll: View
     private lateinit var branding: LinearLayout
     private lateinit var flightModeButton: Button
     private lateinit var puttModeButton: Button
@@ -113,7 +113,7 @@ class MainActivity : Activity() {
             setOnClickListener { switchMode(mode) }; branding.addView(this,LinearLayout.LayoutParams(dp(78),dp(42)))
         }
         flightModeButton=modeButton("mode_flight","flight"); puttModeButton=modeButton("putt","putt")
-        val upper = toolbar(root); top = upper.parent as HorizontalScrollView
+        val upper = toolbar(root)
         icon(upper, "import") {
             stopPlay()
             // DocumentsUI opens device videos instead of the cloud-enabled Photo Picker.
@@ -127,11 +127,20 @@ class MainActivity : Activity() {
         }
         icon(upper, "camera") { stopPlay(); startActivity(Intent(this, LiveCameraActivity::class.java)) }
         icon(upper, "projects") { projects() }
+        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotMenuScroll.visibility = if (fullscreen) View.GONE else View.VISIBLE; branding.visibility = if (fullscreen) View.GONE else View.VISIBLE }
+        icon(upper, "previous") { stopPlay(); refresh(frameIndex - 1) }
+        icon(upper, "play") { if (playing) stopPlay() else startPlay() }
+        icon(upper, "next") { stopPlay(); refresh(frameIndex + 1) }
+        icon(upper, "analyze") { analyzeFromButton() }; icon(upper, "export") { exportVideo() }
+        icon(upper, "review") { output?.let { review(it) } }; icon(upper, "save") { saveOutput() }
         icon(upper, "undo") { restore(undo, redo) }; icon(upper, "redo") { restore(redo, undo) }
         icon(upper, "settings") { settings() }
-        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotBar.visibility = if (fullscreen) View.GONE else View.VISIBLE; workflow.visibility = if (fullscreen) View.GONE else View.VISIBLE; branding.visibility = if (fullscreen) View.GONE else View.VISIBLE }
-        shotBar = row(); root.addView(shotBar, LinearLayout.LayoutParams(-1, dp(38)))
-        workflow = row(); root.addView(workflow, LinearLayout.LayoutParams(-1, dp(44)))
+        val shotMenu = toolbar(root)
+        shotMenuScroll = shotMenu.parent as View
+        workflow = row()
+        shotMenu.addView(workflow, LinearLayout.LayoutParams(dp(252), dp(44)))
+        shotBar = row()
+        shotMenu.addView(shotBar, LinearLayout.LayoutParams(-2, dp(44)))
         fun actionButton(key: String, action: () -> Unit) = Button(this).apply {
             text = text(key); isAllCaps=false; textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
@@ -140,7 +149,6 @@ class MainActivity : Activity() {
         analyzeButton = actionButton("analyze_action") { analyzeFromButton() }
         resetButton = actionButton("reset_action") { confirmReset() }
         preview = PreviewView(this).apply { zoomEnabled = true; background=GradientDrawable().apply { setColor(Color.BLACK); cornerRadius=dp(20).toFloat(); setStroke(dp(1),Color.rgb(35,50,63)) }; clipToOutline=true }
-        root.addView(preview, LinearLayout.LayoutParams(-1, 0, 1f))
         preview.onBall = { p -> touch(EditPoint(p.x / scene.width.toDouble(), p.y / scene.height.toDouble())) }
         preview.onHandleStart = { remember() }
         preview.onHandle = { key, p -> handle(key, EditPoint(p.x.toDouble(), p.y.toDouble())); changed(false) }
@@ -153,32 +161,28 @@ class MainActivity : Activity() {
             onDrag = { key, frame -> dragTime(key, frame) }
             onEnd = { cancel -> endTimeEdit(cancel) }
         }
-        val timelineHeight = if (resources.configuration.smallestScreenWidthDp >= 600) 148 else 128
-        root.addView(timeline, LinearLayout.LayoutParams(-1, dp(timelineHeight)))
-        root.addView(counter)
-        val eventRow=row(); root.addView(eventRow,LinearLayout.LayoutParams(-1,dp(44)))
-        fun eventButton()=Button(this).apply {
-            isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
-            background=GradientDrawable().apply { setColor(Color.rgb(23,32,43)); cornerRadius=dp(12).toFloat() }
-            eventRow.addView(this,LinearLayout.LayoutParams(0,-1,1f).apply { setMargins(dp(2),0,dp(2),0) })
-        }
-        startTimeButton=eventButton().apply { setTextColor(Color.YELLOW); setOnClickListener { timeline.events.firstOrNull { it.key=="ball" }?.let { jumpToEvent(it) } } }
-        apexTimeButton=eventButton().apply { setTextColor(0xff58d9ed.toInt()); setOnClickListener { timeline.events.firstOrNull { it.key=="apex" }?.let { jumpToEvent(it) } } }
-        landingTimeButton=eventButton().apply { setTextColor(Color.GREEN); setOnClickListener { timeline.events.firstOrNull { it.key=="landing" }?.let { jumpToEvent(it) } } }
-        val transport = toolbar(root)
-        icon(transport, "previous") { stopPlay(); refresh(frameIndex - 1) }
-        icon(transport, "play") { if (playing) stopPlay() else startPlay() }
-        icon(transport, "next") { stopPlay(); refresh(frameIndex + 1) }
-        icon(transport, "analyze") { analyzeFromButton() }; icon(transport, "export") { exportVideo() }
-        icon(transport, "review") { output?.let { review(it) } }; icon(transport, "save") { saveOutput() }
         val lower = toolbar(root); tools = lower.parent as HorizontalScrollView
         for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing", "pan")) icon(lower, key) {
             tool = key; pending = null; preview.panEnabled = key == "pan"; status.text = text(if(key=="apex" && scene.shot.trackingMode=="putt") "hint_putt_curve" else "hint_$key"); handles(); controls()
         }
         icon(lower, "delete") { if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() } else deleteShot() }
         icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; preview.panEnabled = false; status.text = text("hint_landing"); changed() } }
-        status = TextView(this).apply { setText(R.string.hint_import); setTextColor(Color.LTGRAY); textSize = 11f; maxLines = 3; setPadding(dp(8),dp(5),dp(8),dp(5)) }
-        root.addView(status); renderShots(); controls()
+        fun eventButton()=Button(this).apply {
+            isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
+            background=GradientDrawable().apply { setColor(Color.rgb(23,32,43)); cornerRadius=dp(12).toFloat() }
+            lower.addView(this,LinearLayout.LayoutParams(dp(108),dp(44)).apply { setMargins(dp(2),0,dp(2),0) })
+        }
+        startTimeButton=eventButton().apply { setTextColor(Color.YELLOW); setOnClickListener { timeline.events.firstOrNull { it.key=="ball" }?.let { jumpToEvent(it) } } }
+        apexTimeButton=eventButton().apply { setTextColor(0xff58d9ed.toInt()); setOnClickListener { timeline.events.firstOrNull { it.key=="apex" }?.let { jumpToEvent(it) } } }
+        landingTimeButton=eventButton().apply { setTextColor(Color.GREEN); setOnClickListener { timeline.events.firstOrNull { it.key=="landing" }?.let { jumpToEvent(it) } } }
+        status = TextView(this).apply { setText(R.string.hint_import); setTextColor(Color.LTGRAY); textSize = 11f; maxLines = 2; setPadding(dp(4),dp(3),dp(4),dp(3)) }
+        val info = row()
+        info.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
+        info.addView(counter, LinearLayout.LayoutParams(-2, -2))
+        root.addView(info, LinearLayout.LayoutParams(-1, -2))
+        root.addView(preview, LinearLayout.LayoutParams(-1, 0, 4f))
+        root.addView(timeline, LinearLayout.LayoutParams(-1, 0, 1f))
+        renderShots(); controls()
         // Restore the last local project without accessing the user's original video.
         File(filesDir, "projects").listFiles()?.filter { File(it, "source.mp4").isFile }?.maxByOrNull { File(it, "mobile-project.json").lastModified() }?.let { load(File(it, "source.mp4")) }
     }
@@ -231,6 +235,7 @@ class MainActivity : Activity() {
     }
     private fun updateTimeline() {
         val events=if(source != null) shotEvents(scene.shot,times,duration) else emptyList()
+        timeline.visibility = if (source == null) View.GONE else View.VISIBLE
         timeline.events=events; timeline.times=if (source != null) times else doubleArrayOf(); timeline.currentFrame=frameIndex; timeline.isEnabled=!busy; timeline.invalidate()
         for ((button,key) in listOf(startTimeButton to "ball", apexTimeButton to "apex", landingTimeButton to "landing")) {
             val event=events.firstOrNull { it.key==key }

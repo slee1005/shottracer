@@ -104,7 +104,11 @@ internal class ShotTimelineView(context: Context) : View(context) {
     private val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
     private val tablet = resources.configuration.smallestScreenWidthDp >= 600
     private val tile get() = (if (tablet) 108 else 72) * density
-    private val snapshotBottom get() = height - 66 * density
+    private val laneHeight get() = minOf(66 * density, height * .56f)
+    private val snapshotBottom get() = height - laneHeight
+    private val ruler get() = minOf(18 * density, height * .18f)
+    private val labelSize get() = minOf(10 * density, laneHeight * .21f)
+    private fun markerY(key: String) = snapshotBottom + laneHeight * (.20f + row(key) * .25f)
     private val interval get() = if (times.isEmpty()) 1.0 else max(1.0, ceil((times.last() - times.first()) / 60))
     private val clock get() = times.getOrElse(currentFrame) { 0.0 }
     private fun x(time: Double) = width / 2f + ((time - clock) * tile / interval).toFloat()
@@ -149,13 +153,12 @@ internal class ShotTimelineView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         if (times.isEmpty()) return
         canvas.drawColor(0xff101721.toInt())
-        val ruler = 18 * density
-        paint.textSize = 10 * density
+        paint.textSize = labelSize
         for (index in filmFrames(times, interval)) {
             val at = x(times[index])
             if (at + tile < 0 || at - tile > width) continue
             paint.color = Color.LTGRAY
-            canvas.drawText(filmTime(times[index]), at - tile / 2 + 3 * density, 12 * density, paint)
+            canvas.drawText(filmTime(times[index]), at - tile / 2 + 3 * density, ruler * .78f, paint)
             val box = RectF(at - tile / 2, ruler, at + tile / 2 - density, snapshotBottom)
             paint.color = 0xff232c38.toInt()
             canvas.drawRect(box, paint)
@@ -174,14 +177,14 @@ internal class ShotTimelineView(context: Context) : View(context) {
         for (event in events) {
             val at = eventX(event)
             if (at < -tile || at > width + tile) continue
-            val y = snapshotBottom + (17 + row(event.key) * 14) * density
+            val y = markerY(event.key) + labelSize * .35f
             paint.color = color(event.key)
             if (!event.inClip) paint.alpha = 135
             canvas.drawCircle(at, y - 3 * density, 2.5f * density, paint)
             canvas.drawText(label(event), at + 5 * density, y, paint)
         }
         paint.color = Color.LTGRAY
-        canvas.drawText(context.getString(R.string.editor_timeline_tracer), 5 * density, height - 3 * density, paint)
+        if (laneHeight >= 58 * density) canvas.drawText(context.getString(R.string.editor_timeline_tracer), 5 * density, height - 3 * density, paint)
         paint.color = Color.WHITE; paint.strokeWidth = 2 * density
         canvas.drawLine(width / 2f, 0f, width / 2f, height.toFloat(), paint)
     }
@@ -191,8 +194,8 @@ internal class ShotTimelineView(context: Context) : View(context) {
             MotionEvent.ACTION_DOWN -> {
                 active = events.firstOrNull {
                     val at = eventX(it)
-                    val y = snapshotBottom + (10 + row(it.key) * 14) * density
-                    abs(event.y - y) <= 7 * density && event.x in (at - 16 * density)..(at + paint.measureText(label(it)) + 10 * density)
+                    val y = markerY(it.key)
+                    abs(event.y - y) <= laneHeight / 8 && event.x in (at - 16 * density)..(at + paint.measureText(label(it)) + 10 * density)
                 }
                 downX = event.x
                 origin = active?.time?.coerceIn(times.first(), times.last()) ?: clock
