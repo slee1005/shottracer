@@ -226,6 +226,8 @@ The server only listens on `127.0.0.1`.
 
 ## Features
 
+- The filmstrip below the video shows source-frame snapshots on a time ruler. Drag the strip or use the mouse wheel to scrub beneath the centered playhead. Drag Start, Apex, or Landing in the separate tracer lane to edit the selected shot. Edits snap to source frames and can be undone. Putts show Start and Landing.
+
 | Tab | What you can do |
 | --- | --- |
 | Shot | Ball flight or putt/chip mode, shot type (bounds the flight time), manual impact frame, edit flight time, time to apex, height and landing spot, tracer drawing speed (×0.5–×4) |

@@ -17,6 +17,7 @@ class Shot(BaseModel):
     ball: Point | None = None  # video pixels on `ball_frame`
     landing: Point | None = None  # video pixels on `ball_frame` (flight only)
     impact: int | None = None
+    timeline_start: int | None = Field(None, ge=0)  # render timing, independent of the fitted impact
     shot: Literal["chip", "pitch", "full", "drive"] = "full"
     horizon: float | None = None
     flight_time: float | None = None  # user override (seconds)

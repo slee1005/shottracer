@@ -139,10 +139,11 @@ struct EditShot: Codable, Identifiable, Sendable {
     var model: [Double]? {
         guard trackingMode != "putt", let baseModel, baseModel.count == 16, !manual, apex == nil else { return nil }
         guard let result = landing == nil && abs(flight - baseModel[10]) < 1e-8 ? baseModel : NativeFlight.refit(baseModel, base, landing, flight) else { return nil }
-        return abs(apexFraction - NativeFlight.apex(baseModel) / baseModel[10]) > 0.001 ? NativeFlight.reshape(result, base, flight * apexFraction) ?? result : result
+        return abs(flight * apexFraction - NativeFlight.apex(result)) > 1e-5 ? NativeFlight.reshape(result, base, flight * apexFraction) ?? result : result
     }
+    var apexSeconds: Double { model.map(NativeFlight.apex) ?? flight * apexFraction }
     var endpoint: EditPoint { landing ?? model.flatMap { NativeFlight.at($0, flight) } ?? base.last.map { EditPoint($0.x, $0.y) } ?? EditPoint(0.75, 0.65) }
-    var peak: EditPoint { if trackingMode == "putt" { return apex ?? ground(flight*0.5) }; let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, flight * apexFraction) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
+    var peak: EditPoint { if trackingMode == "putt" { return apex ?? ground(flight*0.5) }; let a = ball ?? EditPoint(0.2, 0.8), b = endpoint; return apex ?? model.flatMap { NativeFlight.at($0, NativeFlight.apex($0)) } ?? EditPoint((a.x + b.x) / 2, min(a.y, b.y) - 0.25) }
     var hasGroundPath: Bool { ball != nil && (base.count >= 2 || landing != nil) }
     func ground(_ time: Double) -> EditPoint {
         let p=unbentGround(time)
@@ -416,7 +417,7 @@ struct PopupWindow {
     func contains(_ time: Double) -> Bool { time+0.000001>=begins && time<=ends+0.000001 }
 }
 func popupWindow(_ shot: EditShot,_ popup: EditPopup) -> PopupWindow? {
-    let event=popup.anchor == "landing" ? shot.flight : popup.anchor == "apex" ? shot.flight*shot.apexFraction : 0
+    let event=popup.anchor == "landing" ? shot.flight : popup.anchor == "apex" ? shot.apexSeconds : 0
     let begins=shot.start+event+popup.delay
     guard begins.isFinite else { return nil }
     let end: Double

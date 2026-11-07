@@ -26,6 +26,9 @@ struct EditorView: View {
     @State private var transformedGesture = false
     @State private var resetConfirm = false
     @State private var draggingTime: String?
+    @State private var markerOrigin: Double?
+    @State private var panOrigin: Double?
+    @Environment(\.horizontalSizeClass) private var timelineSize
     @Environment(\.scenePhase) private var editorPhase
     private func icon(_ key: String, _ symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) }
@@ -52,8 +55,8 @@ struct EditorView: View {
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
             .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in if case .success(let url) = result { model.importVideo(url) } }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
-            .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil }
-            .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil } }
+            .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil }
+            .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil } }
         }
     }
     private var header: some View {
@@ -180,38 +183,10 @@ struct EditorView: View {
     }
     private var timeline: some View {
         VStack(spacing: 2) {
-            Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time)).font(.caption2).monospacedDigit()
-            GeometryReader { area in
-                ForEach(model.timelineEvents) { event in
-                    let x = 16 + max(0,area.size.width-32)*Double(event.frame)/Double(max(1,model.frameCount-1))
-                    VStack(spacing:0) {
-                        Image(systemName:event.key == "ball" ? "circle.fill" : "flag.fill").font(.system(size:10))
-                        Rectangle().frame(width:1,height:event.key == "ball" ? 10 : 3)
-                    }.frame(width:36,height:22,alignment:event.key == "ball" ? .top : .bottom).contentShape(Rectangle())
-                        .foregroundStyle(event.key == "ball" ? Color.yellow : Color.green).opacity(event.inClip ? 1 : 0.4).position(x:x,y:event.key == "ball" ? 11 : 33)
-                        .gesture(DragGesture(minimumDistance:0,coordinateSpace:.named("shotTimeline")).onChanged { value in
-                            guard !model.busy else { return }
-                            if draggingTime == nil && abs(value.translation.width)>3 {
-                                draggingTime=event.key; model.beginTimeEdit(); zoom=1; lastZoom=1; pan = .zero; lastPan = .zero
-                            }
-                            if draggingTime == event.key {
-                                let fraction=min(1,max(0,(value.location.x-16)/max(1,area.size.width-32)))
-                                model.dragTime(event.key,Int((fraction*Double(max(0,model.frameCount-1))).rounded()))
-                            }
-                        }.onEnded { _ in
-                            if draggingTime != nil { model.endTimeEdit(); draggingTime=nil } else { jump(event) }
-                        })
-                        .accessibilityElement().accessibilityLabel(eventLabel(event)).accessibilityHint(Text("editor.timelineDrag"))
-                        .accessibilityAdjustableAction { direction in
-                            guard !model.busy else { return }
-                            model.beginTimeEdit()
-                            model.dragTime(event.key,event.frame+(direction == .increment ? 1 : -1)); model.endTimeEdit()
-                        }
-                }
-            }.frame(height:44).coordinateSpace(name:"shotTimeline")
-            Slider(value: Binding(get: { Double(model.frameIndex) }, set: { model.pause(); model.seek(Int($0)) }), in: 0...Double(max(1, model.frameCount - 1)), step: 1).disabled(!model.hasVideo || model.busy || model.editingTimeline)
-            HStack(spacing:4) {
-                eventButton("ball"); eventButton("landing")
+            if model.hasVideo {
+                filmstrip
+                HStack(spacing: 4) { eventButton("ball"); eventButton("apex"); eventButton("landing") }
+                Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time)).font(.caption2).monospacedDigit()
             }
             ScrollView(.horizontal,showsIndicators:false) { HStack(spacing: 6) {
                 icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
@@ -224,22 +199,131 @@ struct EditorView: View {
             } }
         }
     }
+    private var filmstrip: some View {
+        let tile: CGFloat = timelineSize == .regular ? 108 : 72
+        let snapshot: CGFloat = timelineSize == .regular ? 64 : 44
+        let interval = model.snapshotInterval
+        return GeometryReader { area in
+            let center = area.size.width / 2
+            let clock = model.time
+            let events = model.timelineEvents
+            let px = tile / interval
+            let lane = snapshot + 18
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Color(red: 0.06, green: 0.09, blue: 0.13))
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip"))
+                        .onChanged { value in
+                            guard !model.busy, draggingTime == nil, abs(value.translation.width) > 3 else { return }
+                            if panOrigin == nil { panOrigin = clock; model.pause() }
+                            let frame = nearestSourceFrame(model.times, (panOrigin ?? clock) - value.translation.width / px)
+                            if frame != model.frameIndex { model.seek(frame) }
+                        }.onEnded { value in
+                            if panOrigin == nil, !model.busy, draggingTime == nil {
+                                model.pause()
+                                model.seek(nearestSourceFrame(model.times, clock + (value.location.x - center) / px))
+                            }
+                            panOrigin = nil
+                        })
+                    .accessibilityLabel(Text("editor.timelineSeek"))
+                    .accessibilityValue(filmClock(clock))
+                    .accessibilityAdjustableAction { direction in
+                        if !model.busy { model.step(direction == .increment ? 1 : -1) }
+                    }
+                ForEach(model.snapshotFrames, id: \.self) { index in
+                    if model.times.indices.contains(index) {
+                        let time = model.times[index]
+                        let x = center + (time - clock) * px
+                        if abs(x - center) <= center + tile {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(filmClock(time)).font(.system(size: 10)).monospacedDigit().padding(.leading, 3)
+                                    .frame(height: 18)
+                                ZStack {
+                                    Color.white.opacity(0.08)
+                                    if let image = model.thumbnails[index] {
+                                        Image(uiImage: image).resizable().scaledToFit()
+                                    }
+                                }.frame(width: tile - 1, height: snapshot).clipped()
+                            }.frame(width: tile).position(x: x, y: lane / 2)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+                }
+                Rectangle().fill(.white.opacity(0.06)).frame(height: 66).offset(y: lane).allowsHitTesting(false)
+                if let first = events.first, let last = events.last, events.count > 1 {
+                    let left = max(0, center + (first.time - clock) * px)
+                    let right = min(area.size.width, center + (last.time - clock) * px)
+                    if right > left {
+                        Capsule().fill(.yellow.opacity(0.65)).frame(width: right - left, height: 3)
+                            .offset(x: left, y: lane + 2).allowsHitTesting(false)
+                    }
+                }
+                Text("editor.timelineTracer").font(.system(size: 10)).foregroundStyle(.secondary)
+                    .offset(x: 5, y: lane + 52).allowsHitTesting(false)
+                ForEach(events) { event in
+                    if let firstTime = model.times.first, let lastTime = model.times.last {
+                        let row = event.key == "ball" ? 0 : event.key == "apex" ? 1 : 2
+                        let edgeTime = min(lastTime, max(firstTime, event.time))
+                        let x = center + (edgeTime - clock) * px
+                        Text("▴ " + eventLabel(event, compact: true)).font(.system(size: 10, weight: .medium)).monospacedDigit()
+                            .padding(.horizontal, 4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
+                            .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).fixedSize().contentShape(Rectangle())
+                            .position(x: x, y: lane + 13 + CGFloat(row) * 15)
+                            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip")).onChanged { value in
+                                guard !model.busy, panOrigin == nil else { return }
+                                if draggingTime == nil && abs(value.translation.width) > 3 {
+                                    draggingTime = event.key; markerOrigin = edgeTime; model.beginTimeEdit()
+                                }
+                                if draggingTime == event.key, let origin = markerOrigin {
+                                    model.dragTime(event.key, nearestSourceFrame(model.times, origin + value.translation.width / px))
+                                }
+                            }.onEnded { _ in
+                                if draggingTime == event.key { model.endTimeEdit(); draggingTime = nil; markerOrigin = nil }
+                                else { jump(event) }
+                            })
+                            .accessibilityLabel(eventLabel(event)).accessibilityHint(Text("editor.timelineDrag"))
+                            .accessibilityAdjustableAction { direction in
+                                guard !model.busy else { return }
+                                model.beginTimeEdit()
+                                model.dragTime(event.key, event.frame + (direction == .increment ? 1 : -1))
+                                model.endTimeEdit()
+                            }
+                    }
+                }
+                Rectangle().fill(.white).frame(width: 2, height: area.size.height)
+                    .position(x: center, y: area.size.height / 2).allowsHitTesting(false).accessibilityHidden(true)
+            }.coordinateSpace(name: "shotFilmstrip").clipped()
+        }.frame(height: snapshot + 84)
+    }
+    private func filmClock(_ time: Double) -> String {
+        let cs = max(0, Int((time * 100).rounded()))
+        return String(format: "%02d:%02d.%02d", cs / 6000, cs / 100 % 60, cs % 100)
+    }
+    private func eventColor(_ key: String) -> Color {
+        switch key {
+        case "ball": .yellow
+        case "apex": .cyan
+        default: .green
+        }
+    }
     private func jump(_ event: ShotEvent) {
         zoom=1; lastZoom=1; pan = .zero; lastPan = .zero
         model.jumpToEvent(event)
     }
-    private func eventLabel(_ event: ShotEvent) -> String {
-        let name=NSLocalizedString(event.key == "ball" ? "editor.timelineStart" : event.estimated ? "editor.timelineEstimated" : "editor.timelineLanding",comment:"")
-        return event.inClip ? String(format:NSLocalizedString("editor.timelineEvent",comment:""),name,event.time,event.frame+1)
-            : String(format:NSLocalizedString("editor.timelineOutside",comment:""),name,event.time)
+    private func eventLabel(_ event: ShotEvent, compact: Bool = false) -> String {
+        let key = event.key == "ball" ? "editor.timelineStart" : event.key == "apex" ? "editor.timelineApex"
+            : event.estimated ? "editor.timelineEstimated" : "editor.timelineLanding"
+        let name = NSLocalizedString(key, comment: "")
+        return (compact || event.inClip) ? name + " " + filmClock(event.time)
+            : String(format: NSLocalizedString("editor.timelineOutside", comment: ""), name, event.time)
     }
     private func eventButton(_ key: String) -> some View {
         let event=model.timelineEvents.first { $0.key == key }
         return Button { if let event { jump(event) } } label: {
-            Text(event.map { eventLabel($0) } ?? NSLocalizedString(key == "ball" ? "editor.timelineStartUnset" : "editor.timelineLandingUnset",comment:""))
+            Text(event.map { eventLabel($0) } ?? NSLocalizedString(key == "ball" ? "editor.timelineStartUnset" : key == "apex" ? "editor.timelineApexUnset" : "editor.timelineLandingUnset",comment:""))
                 .font(.system(size:10,weight:.medium)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.75)
                 .frame(maxWidth:.infinity,minHeight:40).background(.white.opacity(0.06),in:RoundedRectangle(cornerRadius:12))
-        }.buttonStyle(.plain).foregroundStyle(key == "ball" ? Color.yellow : Color.green).disabled(model.busy || event?.inClip != true)
+        }.buttonStyle(.plain).foregroundStyle(eventColor(key)).disabled(model.busy || event?.inClip != true)
     }
     private var tools: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {

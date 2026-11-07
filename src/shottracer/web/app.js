@@ -43,8 +43,9 @@ function toast(msg, ms = 2600) {
 
 // ---------------------------------------------------------------- projects
 async function refresh() {
+  const version = S.version;
   S.projects = await api("GET", "/api/projects");
-  if (S.cur) {
+  if (S.cur && S.version === version) {
     const fresh = S.projects.find((p) => p.id === S.cur.id);
     if (fresh) {
       // A shot whose analysis just finished.
@@ -56,6 +57,8 @@ async function refresh() {
   if (S.cur) $("timeline").max = S.cur.info.frames - 1;  // final count once frames are extracted
   renderList();
   renderBusy();
+  renderFilmstrip();
+  loadFilmTimes();
 }
 
 function statusBadge(p) {
@@ -111,16 +114,18 @@ async function resetProject(p) {
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function select(id) {
+  await flush();
   stop();
   S.cur = S.projects.find((p) => p.id === id) || (await api("GET", `/api/projects/${id}`));
   S.trace = S.cur.traces[0].key; S.draft = null; S.sel = null;
-  S.frame = TR().shot.ball_frame || 0;
+  S.frame = Math.round(TR().result?.impact ?? TR().shot.timeline_start ?? TR().shot.ball_frame ?? 0);
   S.tool = TR().shot.ball || TR().shot.manual ? null : "ball";
   $("stage").classList.remove("empty");
   setZoom(1);
   $("timeline").max = S.cur.info.frames - 1;
   await loadOverlay();
   showFrame(); renderList(); renderPanel(); renderTools(); renderMarks();
+  loadFilmTimes();
 }
 
 // Browser: the file contents are sent to the local server (it cannot see file paths).
@@ -165,7 +170,7 @@ async function switchTrace(key) {
   S.trace = key; S.draft = null; S.drag = null;
   const tr = TR();
   S.tool = tr.shot.ball || tr.shot.manual ? null : "ball";
-  if (tr.shot.ball) S.frame = tr.shot.ball_frame;
+  if (tr.shot.ball || tr.result) S.frame = Math.round(tr.result?.impact ?? tr.shot.timeline_start ?? tr.shot.ball_frame);
   await loadOverlay(); showFrame(); renderPanel(); renderTools(); renderMarks();
 }
 
@@ -280,17 +285,32 @@ function patch(part, immediate = false) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flush, immediate ? 0 : 250);
 }
-async function flush() {
-  if (!S.cur) return;
-  const body = pending; pending = {}; editOpen = false;
+let saveInFlight = Promise.resolve();
+function flush() {
+  clearTimeout(saveTimer);
+  if (!S.cur || !Object.keys(pending).length) return saveInFlight;
+  const id = S.cur.id, body = pending;
+  pending = {}; editOpen = false;
   const states = () => S.cur.traces.map((x) => x.status).join();
-  const status = states();
-  try {
-    S.cur = await api("PUT", `/api/projects/${S.cur.id}`, body);
-    S.version++;
-    await loadOverlay(); showFrame(); renderStats(); renderList();
-    if (states() !== status) { renderPanel(); renderTools(); renderMarks(); } // e.g. a drawn line made it renderable
-  } catch (e) { toast(t("toast.saveFailed", { msg: serverText(e.message) })); }
+  saveInFlight = saveInFlight.then(async () => {
+    try {
+      const status = S.cur?.id === id ? states() : "";
+      const saved = await api("PUT", `/api/projects/${id}`, body);
+      S.projects = S.projects.map(project => project.id === id ? saved : project);
+      if (S.cur?.id !== id) return;
+      S.cur = saved;
+      S.version++;
+      if (body.timeline_edit && TR().key === body.trace) {
+        const event = filmEvents().find((item) => item.key === body.timeline_edit.key);
+        if (event) S.frame = filmClipFrame(Math.round(event.frame));
+        renderPanel();
+      }
+      await loadOverlay();
+      showFrame(); renderStats(); renderList();
+      if (states() !== status) { renderPanel(); renderTools(); }
+    } catch (e) { toast(t("toast.saveFailed", { msg: serverText(e.message) })); }
+  });
+  return saveInFlight;
 }
 
 // ---------------------------------------------------------------- frame display
@@ -306,8 +326,9 @@ let loading = false, queued = null;
 function showFrame() {
   if (!S.cur) return;
   $("timeline").value = S.frame;
-  const fps = S.cur.info.fps, n = S.cur.info.frames;
-  $("time").textContent = `${S.frame} / ${n - 1}  ${(S.frame / fps).toFixed(2)}s`;
+  renderFilmstrip();
+  const n = S.cur.info.frames;
+  $("time").textContent = `${S.frame} / ${n - 1}  ${filmTime(frameTime(S.frame))}`;
   const url = frameUrl(S.frame);
   if (loading) { queued = url; return; }
   loading = true;
@@ -323,10 +344,22 @@ view.onload = () => {
   sizeCanvas(); drawOverlay();
   if (S.playing) setTimeout(tick, 0);
 };
-view.onerror = () => { loading = false; };
+view.onerror = () => {
+  const next = queued;
+  queued = null;
+  loading = Boolean(next);
+  if (next) view.src = next;
+};
 
+let overlayRequest = 0;
 async function loadOverlay() {
-  S.overlay = S.cur && TR().result ? await api("GET", `/api/projects/${S.cur.id}/overlay/${S.frame}?trace=${TR().key}`) : null;
+  const request = ++overlayRequest;
+  if (!S.cur || !TR().result) { S.overlay = null; return; }
+  const id = S.cur.id, frame = S.frame, key = TR().key;
+  const overlay = await api("GET", `/api/projects/${id}/overlay/${frame}?trace=${key}`);
+  if (request === overlayRequest && S.cur?.id === id && S.frame === frame && TR().key === key) {
+    S.overlay = overlay;
+  }
 }
 
 // ---------------------------------------------------------------- zoom
@@ -589,7 +622,7 @@ function play() {
 function stop() { S.playing = false; $("play").textContent = "▶︎"; if (S.cur) loadOverlay().then(drawOverlay); }
 function tick() {
   if (!S.playing || loading) return;
-  const wait = 1000 / S.cur.info.fps - (performance.now() - lastTick);
+  const wait = 1000 * (frameTime(S.frame + 1) - frameTime(S.frame)) - (performance.now() - lastTick);
   setTimeout(() => {
     if (!S.playing) return;
     lastTick = performance.now();
@@ -632,7 +665,7 @@ canvas.addEventListener("mousedown", (e) => {
     return;
   }
   if (S.tool === "ball") {
-    patchTrace({ shot: { ball: [vx, vy], ball_frame: S.frame } }, true);
+    patchTrace({ shot: { ball: [vx, vy], ball_frame: S.frame, timeline_start: null } }, true);
     S.tool = null; renderTools(); drawOverlay(); renderList(); renderPanel(); renderMarks();
     toast(t("toast.ballSet"));
     return;
@@ -722,17 +755,188 @@ function renderTools() {
   $("hint").textContent = S.tool ? t(S.tool === "path" && S.draft ? "hint.path2" : `hint.${S.tool}`) : S.cur && TR().result && TR().result.mode !== "manual" ? t("hint.edit") : "";
   canvas.style.cursor = S.tool ? "crosshair" : "default";
 }
-function renderMarks() {
-  const m = $("marks"); m.innerHTML = "";
-  if (!S.cur) return;
-  const n = Math.max(1, S.cur.info.frames - 1);
-  const add = (f, cls) => { const s = document.createElement("span"); s.className = cls; s.style.left = `${(f / n) * 100}%`; m.appendChild(s); };
-  for (const tr of S.cur.traces) {
-    const dim = tr.key === TR().key ? "" : " other";
-    if (tr.shot.ball) add(tr.shot.ball_frame, "ball" + dim);
-    if (tr.result) add(tr.result.impact, "impact" + dim);
+const film = $("filmstrip"), tiles = new Map();
+let filmProject = "", filmDrag = null;
+let timestampProject = "", timestamps = [], timeRequest = 0;
+let sampledTimes = null, sampledFrames = [], sampledCount = 0, sampledProject = "";
+async function loadFilmTimes() {
+  if (!S.cur?.previews_ready || timestampProject === S.cur.id) return;
+  const id = S.cur.id, request = ++timeRequest;
+  timestampProject = id; timestamps = [];
+  try {
+    const times = await api("GET", `/api/projects/${id}/timeline-times`);
+    if (timeRequest !== request) return;
+    timestamps = times;
+    if (S.cur?.id === id) {
+      renderFilmstrip();
+      $("time").textContent = `${S.frame} / ${S.cur.info.frames - 1}  ${filmTime(frameTime(S.frame))}`;
+    }
+  } catch {
+    if (timeRequest === request) timestampProject = "";
   }
 }
+function sourceTimes() {
+  return timestampProject === S.cur.id && timestamps.length === S.cur.info.frames ? timestamps : null;
+}
+function frameTime(frame) {
+  const times = sourceTimes();
+  const i = Math.floor(frame);
+  if (!times) return frame / S.cur.info.fps;
+  if (i < 0) return frame / S.cur.info.fps;
+  if (i >= times.length - 1) return times.at(-1) + (frame - times.length + 1) / S.cur.info.fps;
+  return times[i] + (frame - i) * (times[i + 1] - times[i]);
+}
+function frameAt(time) {
+  const times = sourceTimes();
+  if (!times) return Math.max(0, Math.min(S.cur.info.frames - 1, Math.round(time * S.cur.info.fps)));
+  let low = 0, high = times.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (times[middle] < time) low = middle + 1;
+    else high = middle;
+  }
+  return low > 0 && time - times[low - 1] < times[low] - time ? low - 1 : low;
+}
+const eventKeys = ["start", "apex", "landing"];
+const eventColors = ["#ffdb57", "#58d9ed", "#75e893"];
+function filmEvents() {
+  if (!S.cur) return [];
+  const {shot, result} = TR();
+  const frames = [result?.impact ?? shot.timeline_start ?? (shot.ball ? shot.ball_frame : null),
+    result?.apex_frame, result?.landing_frame];
+  return eventKeys.flatMap((key, i) => frames[i] == null ? [] : [{key, frame: frames[i], row: i}]);
+}
+function filmTime(seconds) {
+  const cs = Math.max(0, Math.round(seconds * 100));
+  return [Math.floor(cs / 6000), Math.floor(cs / 100) % 60].map(n => String(n).padStart(2, "0")).join(":")
+    + "." + String(cs % 100).padStart(2, "0");
+}
+function filmClipFrame(frame) {
+  return Math.max(0, Math.min(S.cur.info.frames - 1, frame));
+}
+function filmDragFrame(key, frame) {
+  const result = TR().result, fps = S.cur.info.fps;
+  if (!result || !key) return filmClipFrame(frame);
+  const {impact, landing_frame: end, apex_range: apex} = result;
+  const [lo, hi] = key === "start" ? [end - 15 * fps, end - .2 * fps]
+    : key === "apex" ? [impact + apex[0] * fps, impact + apex[1] * fps]
+    : [impact + .2 * fps, impact + 15 * fps];
+  const first = Math.max(0, Math.ceil(lo - 1e-7));
+  const last = Math.min(S.cur.info.frames - 1, Math.floor(hi + 1e-7));
+  return first <= last ? Math.max(first, Math.min(last, frame)) : S.frame;
+}
+function filmScale() {
+  const interval = Math.max(1, Math.ceil(frameTime(S.cur.info.frames - 1) / 60));
+  const width = $("filmFrames").clientWidth;
+  const tile = Math.min(108, Math.max(64, window.innerWidth * .1));
+  return {interval, width, px: tile / interval};
+}
+function filmSamples(interval) {
+  const times = sourceTimes(), {id, info: {frames}} = S.cur;
+  if (sampledTimes !== times || sampledCount !== frames || sampledProject !== id) {
+    const count = Math.ceil(frameTime(frames - 1) / interval);
+    sampledFrames = [...new Set(Array.from({length: count + 1}, (_, index) => frameAt(index * interval)))];
+    sampledTimes = times; sampledCount = frames; sampledProject = id;
+  }
+  return sampledFrames;
+}
+function renderFilmstrip() {
+  film.hidden = !S.cur;
+  if (!S.cur) return;
+  const {id} = S.cur;
+  const {interval, width, px} = filmScale();
+  if (filmProject !== id) { tiles.clear(); $("filmFrames").replaceChildren(); filmProject = id; }
+  const clock = frameTime(S.frame);
+  const x = (frame) => width / 2 + (frameTime(frame) - clock) * px;
+  const visible = new Set();
+  for (const frame of filmSamples(interval)) {
+    if (Math.abs(x(frame) - width / 2) > width / 2 + interval * px) continue;
+    visible.add(frame);
+    if (!tiles.has(frame)) {
+      const node = el('<div class="film-tile"><time></time><img alt="" draggable="false"></div>');
+
+      const img = node.lastChild;
+      const url = `/api/projects/${id}/snapshot/${frame}.jpg`;
+      img.src = url;
+      img.onerror = () => { img.removeAttribute("src"); };
+      tiles.set(frame, node); $("filmFrames").appendChild(node);
+    }
+    const node = tiles.get(frame);
+    if (S.cur.previews_ready && !node.lastChild.hasAttribute("src")) {
+      node.lastChild.src = `/api/projects/${id}/snapshot/${frame}.jpg`;
+    }
+    node.firstChild.textContent = filmTime(frameTime(frame));
+    node.style.left = `${x(frame)}px`;
+  }
+  for (const [frame, node] of tiles) if (!visible.has(frame)) { node.remove(); tiles.delete(frame); }
+  const events = filmEvents();
+  const markers = $("marks");
+  const focusedKey = markers.contains(document.activeElement) ? document.activeElement.dataset.event : null;
+  markers.replaceChildren();
+  const position = event => filmDrag?.key === event.key && filmDrag.moved ? S.frame : event.frame;
+  if (events.length > 1) {
+    const left = Math.max(0, x(position(events[0])));
+    const right = Math.min(width, x(position(events.at(-1))));
+    if (right > left) {
+      const span = el('<div class="film-span"></div>');
+      Object.assign(span.style, {left: `${left}px`, width: `${right-left}px`, background: traceColor(TR())});
+      markers.appendChild(span);
+    }
+  }
+  for (const event of events) {
+    const frame = position(event);
+    const at = x(filmClipFrame(frame));
+    if (at < -80 || at > width + 80) continue;
+    const marker = el('<button type="button" class="film-marker"></button>');
+    marker.dataset.event = event.key;
+    marker.textContent = `${t("timeline." + event.key)} ${filmTime(frameTime(frame))}`;
+    marker.style.setProperty("--event", eventColors[event.row]);
+    if (frame !== filmClipFrame(frame)) marker.style.opacity = ".55";
+    Object.assign(marker.style, {left: `${at}px`, top: `${7 + event.row * 15}px`});
+    marker.onkeydown = e => {
+      if (!["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      patchTrace({timeline_edit: {key: event.key, frame: Math.round(frame) + (e.key === "ArrowRight" ? 1 : -1)}}, true);
+    };
+    marker.onclick = e => { if (e.detail === 0) { stop(); goto(Math.round(frame)); } };
+    markers.appendChild(marker);
+    if (event.key === focusedKey) marker.focus({preventScroll: true});
+  }
+}
+function renderMarks() { renderFilmstrip(); }
+film.onpointerdown = e => {
+  if (!S.cur || !e.isPrimary || e.button !== 0) return;
+  const key = e.target.closest("[data-event]")?.dataset.event;
+  const event = filmEvents().find(item => item.key === key);
+  stop();
+  filmDrag = {key, x: e.clientX, frame: event?.frame ?? S.frame, time: frameTime(filmClipFrame(event?.frame ?? S.frame)), pointer: e.pointerId, moved: false};
+  film.setPointerCapture(e.pointerId);
+};
+film.onpointermove = e => {
+  if (filmDrag?.pointer !== e.pointerId) return;
+  const delta = e.clientX - filmDrag.x;
+  if (!filmDrag.moved && Math.abs(delta) < 4) return;
+  filmDrag.moved = true;
+  const frame = filmDragFrame(filmDrag.key, frameAt(filmDrag.time + (filmDrag.key ? delta : -delta) / filmScale().px));
+  if (frame !== S.frame) goto(frame);
+};
+film.onpointerup = e => {
+  if (filmDrag?.pointer !== e.pointerId) return;
+  const drag = filmDrag; filmDrag = null;
+  if (drag.key && drag.moved) patchTrace({timeline_edit: {key: drag.key, frame: S.frame}}, true);
+  else if (!drag.moved) goto(drag.key ? Math.round(drag.frame) :
+    frameAt(frameTime(S.frame) + (e.clientX - film.getBoundingClientRect().left - film.clientWidth / 2) / filmScale().px));
+  renderFilmstrip();
+};
+film.onpointercancel = () => { filmDrag = null; renderFilmstrip(); };
+film.onwheel = e => {
+  if (!S.cur) return;
+  e.preventDefault(); stop();
+  const delta = e.deltaX || e.deltaY;
+  const target = frameAt(frameTime(S.frame) + delta / filmScale().px);
+  goto(target === S.frame ? S.frame + Math.sign(delta) : target);
+};
+new ResizeObserver(renderFilmstrip).observe($("center"));
 
 // ---------------------------------------------------------------- panel
 const T = {
@@ -839,9 +1043,9 @@ function renderShot(body) {
     // then drag the landing handle onto the ball in that frame.
     const lb = el(`<button class="btn small">${t("edit.landHere")}</button>`);
     lb.onclick = () => {
-      const lt = (S.frame - p.result.impact) / S.cur.info.fps;
-      if (lt < 0.5 || lt > 9) { toast(t("toast.landRange")); return; }
-      patchTrace({ shot: { flight_time: +lt.toFixed(2) } }, true); renderPanel();
+      const lt = frameTime(S.frame) - frameTime(p.result.impact);
+      if (filmDragFrame("landing", S.frame) !== S.frame || S.frame <= p.result.impact) { toast(t("toast.landRange")); return; }
+      patchTrace({timeline_edit: {key: "landing", frame: S.frame}}, true);
       toast(t("toast.landTime", { f: S.frame, s: lt.toFixed(2) }));
     };
     e.appendChild(lb);
@@ -872,15 +1076,15 @@ function timeControls(parent, withApex) {
   const fitApex = () => { // keep the apex slider inside the range of the current hang time
     if (!apexRow) return;
     const inp = apexRow.querySelector("input"), T = hang();
-    inp.min = (lo * T).toFixed(2); inp.max = (hi * T).toFixed(2);
+    inp.min = lo * T; inp.max = hi * T;
     const v = Math.min(Math.max(sh.apex_time, lo * T), hi * T);
-    if (v !== sh.apex_time) { inp.value = v; patchTrace({ shot: { apex_time: +v.toFixed(2) } }); }
+    if (v !== sh.apex_time) { inp.value = v; patchTrace({ shot: { apex_time: v } }); }
     apexRow.querySelector(".val").textContent = apexFmt(+inp.value);
   };
   const apexFmt = (v) => `${v.toFixed(2)}s · ${Math.round((100 * v) / hang())}%`;
   const autoT = sh.flight_time == null;
   toggle(parent, t("edit.autoTime"), autoT, (v) => { patchTrace({ shot: { flight_time: v ? null : +r.duration.toFixed(1) } }); renderPanel(); });
-  if (!autoT) slider(parent, t("edit.time"), sh.flight_time, 0.5, 9, 0.1, (v) => { patchTrace({ shot: { flight_time: v } }); fitApex(); }, (v) => `${v.toFixed(1)}s`);
+  if (!autoT) slider(parent, t("edit.time"), sh.flight_time, 0.2, 15, "any", (v) => { patchTrace({ shot: { flight_time: v } }); fitApex(); }, (v) => `${v.toFixed(1)}s`);
   else distanceNote(parent);
   if (!withApex) return;
   const autoA = sh.apex_time == null;
@@ -891,7 +1095,7 @@ function timeControls(parent, withApex) {
   });
   if (!autoA) {
     const T = hang();
-    apexRow = slider(parent, t("edit.apex"), sh.apex_time, (lo * T).toFixed(2), (hi * T).toFixed(2), 0.05,
+    apexRow = slider(parent, t("edit.apex"), sh.apex_time, lo * T, hi * T, "any",
       (v) => patchTrace({ shot: { apex_time: v } }), apexFmt);
   }
   parent.appendChild(el(`<p class="note">${t("edit.apexHelp")}</p>`));

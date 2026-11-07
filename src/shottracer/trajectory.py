@@ -101,8 +101,16 @@ class Model:
 
     def apex_time(self) -> float:
         """Seconds after impact at which the ball is highest (perspective removed)."""
-        t = np.linspace(0.0, self.flight_time, 2001)
-        return float(t[int(np.argmax(self.rise(t)))])
+        t = np.linspace(0.0, self.flight_time, 65)
+        peak = int(np.argmax(self.rise(t)))
+        lo, hi = float(t[max(0, peak - 1)]), float(t[min(64, peak + 1)])
+        for _ in range(36):
+            left, right = (2 * lo + hi) / 3, (lo + 2 * hi) / 3
+            if self.rise(left) < self.rise(right):
+                lo = left
+            else:
+                hi = right
+        return (lo + hi) / 2
 
     def to_dict(self) -> dict:
         return {k: float(v) for k, v in self.__dict__.items()}

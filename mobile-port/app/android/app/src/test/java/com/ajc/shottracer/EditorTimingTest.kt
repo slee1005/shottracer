@@ -37,13 +37,31 @@ class EditorTimingTest {
     @Test fun timelineUsesPhysicalSourceTimeAndNearestVfrFrame() {
         val shot=EditShot(start=.37,ball=EditPoint(.1,.8),landing=EditPoint(.8,.7),flight=.5,speed=4.0)
         val events=shotEvents(shot,doubleArrayOf(0.0,.1,.4,.91,1.25),1.5)
-        assertEquals(2,events.size)
-        assertEquals(2,events[0].frame)
-        assertEquals(.87,events[1].time,1e-10)
-        assertEquals(3,events[1].frame)
-        assertTrue(events[1].inClip)
-        assertFalse(events[1].estimated)
+        assertEquals(listOf("ball", "apex", "landing"), events.map { it.key })
+        assertEquals(2, events[0].frame)
+        assertEquals(.62, events[1].time, 1e-10)
+        assertEquals(.87, events[2].time, 1e-10)
+        assertEquals(3, events[2].frame)
+        assertTrue(events[2].inClip)
+        assertFalse(events[2].estimated)
     }
+    @Test fun apexDragSnapsToVfrFrameAndPreservesBothEndpoints() {
+        val shot = EditShot(start = .1, ball = EditPoint(.2, .8), landing = EditPoint(.8, .7), flight = 2.0, manual = true)
+        val times = doubleArrayOf(0.0, .1, .7, .84, 1.21, 1.9, 2.1)
+        assertEquals(4, retimeShot(shot, "apex", 6, times))
+        assertEquals(.1, shot.start, 1e-10)
+        assertEquals(2.0, shot.flight, 1e-10)
+        assertEquals(EditPoint(.8, .7), shot.landing)
+        assertEquals(times[4], shotEvents(shot, times, 2.2)[1].time, 1e-10)
+        shot.trackingMode = "putt"
+        assertNull(retimeShot(shot, "apex", 3, times))
+        assertEquals(listOf("ball", "landing"), shotEvents(shot, times, 2.2).map { it.key })
+    }
+
+    @Test fun filmstripSamplesNearestSourceFramesAndIncludesBothEnds() {
+        assertEquals(listOf(0, 2, 3, 4), filmFrames(doubleArrayOf(.12, .45, 1.2, 2.02, 2.6), 1.0))
+    }
+
     @Test fun timelineDistinguishesUnsetPredictedAndOutsideLanding() {
         val shot=EditShot(start=.1,ball=EditPoint(.1,.8),flight=4.0)
         val times=doubleArrayOf(0.0,.1,.4,.9)

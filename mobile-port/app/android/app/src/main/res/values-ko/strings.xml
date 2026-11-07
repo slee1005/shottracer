@@ -186,4 +186,7 @@
     <string name="editor_start_options">시작점을 지정했습니다. Analyze(분석)를 눌러 자동 추적하거나, 착지점 도구로 도착 위치를 지정해 수동 궤적을 그리세요.</string>
     <string name="editor_putt_curve">퍼팅 곡선</string>
     <string name="editor_hint_putt_curve">청록색 중간점을 드래그하거나 곡선 위치를 누르세요. 시작점과 착지점은 유지됩니다.</string>
+    <string name="editor_timeline_apex">최고점</string>
+    <string name="editor_timeline_tracer">샷 트레이서</string>
+    <string name="editor_timeline_seek">프레임 탐색</string>
 </resources>

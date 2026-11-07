@@ -3,6 +3,11 @@
 
 const STRINGS = {
   ko: {
+    "timeline.start": "시작",
+    "timeline.apex": "최고점",
+    "timeline.landing": "착지",
+    "timeline.tracer": "샷 트레이서",
+    "timeline.scrub": "프레임 탐색",
     "app.add": "영상 추가", "app.renderAll": "모두 렌더링", "app.drop": "여기에 동영상을 끌어다 놓으세요",
     "app.placeholder": "왼쪽에서 영상을 추가하거나 선택하세요",
     "app.prev": "이전 프레임 (←)", "app.play": "재생 (Space)", "app.next": "다음 프레임 (→)",
@@ -68,7 +73,7 @@ const STRINGS = {
     "edit.apexHelp": "공은 출발 직후가 가장 빠르고, 끝으로 갈수록 느려지며 중력에 끌려 떨어집니다. 정점 도달 시간을 늦추면(백스핀 양력) 같은 체공 시간에 더 높이 머물다 가파르게 떨어집니다. 체공 시간의 35–62% 사이로 정할 수 있고, 통계·팝업·트레이서에 그대로 반영됩니다.",
     "speed.group": "트레이서 속도", "speed.label": "그리는 속도", "speed.value": "×{x} · {s}초",
     "speed.help": "공의 실제 체공 시간은 {s}초입니다. 값을 올리면 선이 공보다 빨리 그려져 더 일찍 착지합니다(측정값과 체공 시간 팝업은 그대로).",
-    "edit.landing": "착지점", "edit.set": "지정됨", "edit.clear": "지우기", "edit.landHere": "현재 프레임에 착지", "toast.landRange": "임팩트 후 0.5–9초 사이 프레임으로 이동한 뒤 누르세요", "toast.landTime": "착지 시간: 프레임 {f} ({s}s) — 이 프레임에서 착지 핸들을 공 위치로 끌어 놓으세요",
+    "edit.landing": "착지점", "edit.set": "지정됨", "edit.clear": "지우기", "edit.landHere": "현재 프레임에 착지", "toast.landRange": "시작 후 착지 가능한 프레임으로 이동한 뒤 누르세요", "toast.landTime": "착지 시간: 프레임 {f} ({s}s) — 이 프레임에서 착지 핸들을 공 위치로 끌어 놓으세요",
     "edit.fromDistance": "팝업에 입력한 거리에 맞춰 착지 시간 {s}초로 설정됨",
     "edit.distanceHint": "팝업 탭에서 거리(또는 캐리)를 입력하면 착지 시간이 그 거리에 맞춰집니다",
     "edit.help": "미리보기의 <b style=\"color:#00e0ff\">착지</b> 핸들을 끌어 방향·휘어짐·거리를, <b style=\"color:#ff9f1a\">정점</b> 핸들을 위아래로 끌어 높이를 조정하세요.",
@@ -107,6 +112,11 @@ const STRINGS = {
     "stage.swing": "스윙 분석", "stage.done": "완료",
   },
   en: {
+    "timeline.start": "Start",
+    "timeline.apex": "Apex",
+    "timeline.landing": "Landing",
+    "timeline.tracer": "Shot Tracer",
+    "timeline.scrub": "Seek frame",
     "app.add": "Add videos", "app.renderAll": "Render all", "app.drop": "Drop videos here",
     "app.placeholder": "Add or select a video on the left",
     "app.prev": "Previous frame (←)", "app.play": "Play (Space)", "app.next": "Next frame (→)",
@@ -172,7 +182,7 @@ const STRINGS = {
     "edit.apexHelp": "The ball is fastest right after launch, then slows and gravity pulls it down. A later apex (more backspin lift) keeps it up longer and brings it down more steeply at the same flight time. Set it between 35–62% of the flight time; stats, pop-ups and the tracer follow it.",
     "speed.group": "Tracer speed", "speed.label": "Drawing speed", "speed.value": "×{x} · {s}s",
     "speed.help": "The ball is in the air for {s}s. Higher values draw the line faster than the ball, so it lands sooner (measured stats and the hang-time pop-up stay the same).",
-    "edit.landing": "Landing spot", "edit.set": "Set", "edit.clear": "Clear", "edit.landHere": "Land on this frame", "toast.landRange": "Go to a frame 0.5–9 s after impact first", "toast.landTime": "Landing time: frame {f} ({s}s) — now drag the landing handle onto the ball in this frame",
+    "edit.landing": "Landing spot", "edit.set": "Set", "edit.clear": "Clear", "edit.landHere": "Land on this frame", "toast.landRange": "Go to a valid landing frame after the start", "toast.landTime": "Landing time: frame {f} ({s}s) — now drag the landing handle onto the ball in this frame",
     "edit.fromDistance": "Landing time set to {s}s from the distance typed in the pop-up",
     "edit.distanceHint": "Type a distance (or carry) in the Pop-ups tab and the landing time follows it",
     "edit.help": "Drag the <b style=\"color:#00e0ff\">Landing</b> handle in the preview for direction, curve and distance, and the <b style=\"color:#ff9f1a\">Apex</b> handle up or down for height.",

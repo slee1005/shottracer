@@ -27,9 +27,10 @@ internal data class EditShot(
         if (trackingMode == "putt" || manual || apex != null) return null
         val result = if (landing == null && abs(flight - base[10]) < 1e-8) base else
             NativeCore.refit(base, observations(), landing?.let { doubleArrayOf(it.x, it.y) }, flight) ?: return null
-        return if (abs(apexFraction - NativeCore.modelApex(base) / base[10]) > .001)
+        return if (abs(flight * apexFraction - NativeCore.modelApex(result)) > 1e-5)
             NativeCore.reshape(result, observations(), flight * apexFraction) ?: result else result
     }
+    fun apexSeconds() = model()?.let { NativeCore.modelApex(it) } ?: flight * apexFraction
     fun observations() = base.drop(1).flatMap { listOf(it.time, it.x, it.y) }.toDoubleArray()
     fun modelPoint(time: Double): EditPoint? = model()?.let { NativeCore.modelPoint(it, time)?.let { p -> EditPoint(p[0], p[1]) } }
     fun motion(time: Double): EditPoint = interpolate(camera, time).let { EditPoint(it.x, it.y) }
@@ -37,7 +38,7 @@ internal data class EditShot(
     fun peak(): EditPoint {
         if (trackingMode == "putt") return apex ?: ground(flight*.5)
         val a = ball ?: EditPoint(.2, .8); val b = endpoint()
-        return apex ?: modelPoint(flight * apexFraction) ?: EditPoint((a.x + b.x) / 2, min(a.y, b.y) - .25)
+        return apex ?: model()?.let { m -> NativeCore.modelPoint(m, NativeCore.modelApex(m))?.let { EditPoint(it[0], it[1]) } } ?: EditPoint((a.x + b.x) / 2, min(a.y, b.y) - .25)
     }
     fun curve(time: Double): EditPoint {
         val a = ball ?: EditPoint(.2, .8); val b = peak(); val c = endpoint()

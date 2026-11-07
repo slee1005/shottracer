@@ -305,13 +305,23 @@ extern "C" int st_model_at(const STModel *m, double t, double *x, double *y) {
 }
 extern "C" double st_model_apex(const STModel *m) {
     if (!m || m->k <= 0 || m->flight_time <= 0) return -1;
-    double best = -std::numeric_limits<double>::infinity(), time = 0;
-    for (int i = 0; i <= 2000; ++i) {
-        const double t = m->flight_time * i / 2000;
-        const double rise = m->b * travel(t, m->k) - m->g * t * t + m->lift * t * t * t;
-        if (rise > best) { best = rise; time = t; }
+    const auto rise = [m](double t) {
+        return m->b * travel(t, m->k) - m->g * t * t + m->lift * t * t * t;
+    };
+    int peak = 0;
+    double best = rise(0);
+    const double step = m->flight_time / 64;
+    for (int i = 1; i <= 64; ++i) {
+        const double height = rise(i * step);
+        if (height > best) { best = height; peak = i; }
     }
-    return time;
+    double lo = std::max(0, peak - 1) * step, hi = std::min(64, peak + 1) * step;
+    for (int i = 0; i < 36; ++i) {
+        const double left = (2 * lo + hi) / 3, right = (lo + 2 * hi) / 3;
+        if (rise(left) < rise(right)) lo = left;
+        else hi = right;
+    }
+    return (lo + hi) / 2;
 }
 
 namespace {

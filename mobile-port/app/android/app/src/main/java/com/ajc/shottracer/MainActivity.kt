@@ -33,14 +33,16 @@ import kotlin.math.*
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
+    private val thumbnailWorker = Executors.newSingleThreadExecutor()
+    @Volatile private var thumbnailGeneration = 0
     private val main = Handler(Looper.getMainLooper())
     private lateinit var preview: PreviewView
-    private lateinit var slider: SeekBar
     private lateinit var status: TextView
     private lateinit var counter: TextView
     private lateinit var timeline: ShotTimelineView
     private lateinit var startTimeButton: Button
     private lateinit var landingTimeButton: Button
+    private lateinit var apexTimeButton: Button
     private lateinit var shotBar: LinearLayout
     private lateinit var tools: HorizontalScrollView
     private lateinit var top: HorizontalScrollView
@@ -144,14 +146,16 @@ class MainActivity : Activity() {
         preview.onHandle = { key, p -> handle(key, EditPoint(p.x.toDouble(), p.y.toDouble())); changed(false) }
         preview.onHandleEnd = { persist() }
         counter = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 11f; gravity = android.view.Gravity.CENTER }
+        timeline = ShotTimelineView(this).apply {
+            onSeek = { stopPlay(); refresh(it) }
+            onEvent = { jumpToEvent(it) }
+            onBegin = { beginTimeEdit() }
+            onDrag = { key, frame -> dragTime(key, frame) }
+            onEnd = { cancel -> endTimeEdit(cancel) }
+        }
+        val timelineHeight = if (resources.configuration.smallestScreenWidthDp >= 600) 148 else 128
+        root.addView(timeline, LinearLayout.LayoutParams(-1, dp(timelineHeight)))
         root.addView(counter)
-        slider = SeekBar(this).apply { max = 1 }
-        slider.setPadding(dp(16),0,dp(16),0)
-        val scrubber = FrameLayout(this)
-        root.addView(scrubber,LinearLayout.LayoutParams(-1,dp(52)))
-        scrubber.addView(slider,FrameLayout.LayoutParams(-1,dp(30),android.view.Gravity.BOTTOM))
-        timeline=ShotTimelineView(this).apply { onEvent={ jumpToEvent(it) }; onBegin={ beginTimeEdit() }; onDrag={ key,frame -> dragTime(key,frame) }; onEnd={ cancel -> endTimeEdit(cancel) } }
-        scrubber.addView(timeline,FrameLayout.LayoutParams(-1,dp(22),android.view.Gravity.TOP))
         val eventRow=row(); root.addView(eventRow,LinearLayout.LayoutParams(-1,dp(44)))
         fun eventButton()=Button(this).apply {
             isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
@@ -159,12 +163,8 @@ class MainActivity : Activity() {
             eventRow.addView(this,LinearLayout.LayoutParams(0,-1,1f).apply { setMargins(dp(2),0,dp(2),0) })
         }
         startTimeButton=eventButton().apply { setTextColor(Color.YELLOW); setOnClickListener { timeline.events.firstOrNull { it.key=="ball" }?.let { jumpToEvent(it) } } }
+        apexTimeButton=eventButton().apply { setTextColor(0xff58d9ed.toInt()); setOnClickListener { timeline.events.firstOrNull { it.key=="apex" }?.let { jumpToEvent(it) } } }
         landingTimeButton=eventButton().apply { setTextColor(Color.GREEN); setOnClickListener { timeline.events.firstOrNull { it.key=="landing" }?.let { jumpToEvent(it) } } }
-        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) { if (fromUser) { stopPlay(); refresh(value) } }
-            override fun onStartTrackingTouch(bar: SeekBar) { stopPlay() }
-            override fun onStopTrackingTouch(bar: SeekBar) = Unit
-        })
         val transport = toolbar(root)
         icon(transport, "previous") { stopPlay(); refresh(frameIndex - 1) }
         icon(transport, "play") { if (playing) stopPlay() else startPlay() }
@@ -200,7 +200,6 @@ class MainActivity : Activity() {
             if (key == "play") button.setImageDrawable(ToolIcon(if (playing) "pause" else "play"))
         }
         updateTimeline()
-        slider.isEnabled = !busy && timelineBefore==null && source != null
         preview.isEnabled = !busy && timelineBefore==null && !decoding
         fun tone(button: Button, active: Boolean) {
             button.background=GradientDrawable().apply { setColor(if(active) Color.rgb(45,212,191) else Color.rgb(27,35,45)); cornerRadius=dp(18).toFloat() }
@@ -232,20 +231,23 @@ class MainActivity : Activity() {
     }
     private fun updateTimeline() {
         val events=if(source != null) shotEvents(scene.shot,times,duration) else emptyList()
-        timeline.events=events; timeline.frames=times.size; timeline.isEnabled=!busy; timeline.invalidate()
-        for ((button,key) in listOf(startTimeButton to "ball",landingTimeButton to "landing")) {
+        timeline.events=events; timeline.times=if (source != null) times else doubleArrayOf(); timeline.currentFrame=frameIndex; timeline.isEnabled=!busy; timeline.invalidate()
+        for ((button,key) in listOf(startTimeButton to "ball", apexTimeButton to "apex", landingTimeButton to "landing")) {
             val event=events.firstOrNull { it.key==key }
-            val name=text(if(key=="ball") "timeline_start" else if(event?.estimated==true) "timeline_estimated" else "timeline_landing")
-            button.text=if(event==null) text(if(key=="ball") "timeline_start_unset" else "timeline_landing_unset")
-                else if(event.inClip) getString(R.string.editor_timeline_event,name,event.time,event.frame+1)
-                else getString(R.string.editor_timeline_outside,name,event.time)
+            val name = text(when (key) {
+                "ball" -> "timeline_start"
+                "apex" -> "timeline_apex"
+                else -> if (event?.estimated == true) "timeline_estimated" else "timeline_landing"
+            })
+            button.text = if (event == null) "$name —" else if (event.inClip) "$name ${filmTime(event.time)}"
+                else getString(R.string.editor_timeline_outside, name, event.time)
             button.isEnabled=!busy && timelineBefore==null && event?.inClip==true; button.alpha=if(button.isEnabled) 1f else .5f
         }
     }
     private fun jumpToEvent(event: ShotEvent) {
         if(busy || !event.inClip) return
         stopPlay(); tool=event.key; pending=null; preview.panEnabled=false; preview.resetViewport()
-        refresh(event.frame); status.text=text(if(event.key=="ball") "hint_ball" else "hint_landing"); controls()
+        refresh(event.frame); status.text=text("hint_" + event.key); controls()
     }
     private fun renderShots() {
         shotBar.removeAllViews()
@@ -349,18 +351,49 @@ class MainActivity : Activity() {
             try { retriever.setDataSource(file.path); frame = EditorMedia.frame(retriever, 0); seconds = (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDouble() ?: 0.0) / 1000 }
             finally { retriever.release() }
             ui {
-                source = file; times = rows; duration = max(seconds, rows.last()); scene = restored; scene.width = frame.width; scene.height = frame.height
+                source = file; times = rows; loadThumbnails(file, rows); duration = max(seconds, rows.last()); scene = restored; scene.width = frame.width; scene.height = frame.height
                 frameIndex = 0; displayed = 0; undo.clear(); redo.clear(); preview.image?.recycle(); preview.image = frame
-                renderer = EditorRenderer(scene.copy()); overlay(); handles(); slider.max = times.lastIndex; slider.progress = 0
+                renderer = EditorRenderer(scene.copy()); overlay(); handles()
                 counter.text = getString(R.string.editor_frame_count, 1, times.size, rows[0]); renderShots(); status.setText(R.string.hint_ball)
                 output = file.parentFile?.listFiles()?.filter { it.name.startsWith("traced-") && it.extension == "mp4" }?.maxByOrNull { it.lastModified() }
                 busy = false; controls(); done?.invoke()
             }
         }
     }
+    private fun clearThumbnails() {
+        thumbnailGeneration++
+        timeline.thumbnails.values.forEach { it.recycle() }
+        timeline.thumbnails = emptyMap()
+    }
+    private fun loadThumbnails(file: File, rows: DoubleArray) {
+        clearThumbnails()
+        val token = thumbnailGeneration
+        val interval = max(1.0, ceil((rows.last() - rows.first()) / 60))
+        thumbnailWorker.execute {
+            if (token != thumbnailGeneration) return@execute
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(file.path)
+                for (index in filmFrames(rows, interval)) {
+                    if (token != thumbnailGeneration) break
+                    val image = runCatching { EditorMedia.frame(retriever, index, 176) }.getOrNull() ?: continue
+                    main.post {
+                        if (!isDestroyed && token == thumbnailGeneration) {
+                            timeline.thumbnails = timeline.thumbnails + (index to image)
+                            timeline.invalidate()
+                        } else image.recycle()
+                    }
+                }
+            } catch (_: Exception) {
+                // The preview remains usable when a source cannot provide thumbnails.
+            } finally {
+                retriever.release()
+            }
+        }
+    }
     private fun refresh(index: Int) {
         val file = source ?: return
-        frameIndex = index.coerceIn(0, times.lastIndex); slider.progress = frameIndex
+        frameIndex = index.coerceIn(0, times.lastIndex)
         val requested = frameIndex; val token = ++generation; decoding = true; controls()
         worker.execute {
             if (token != generation) return@execute
@@ -512,11 +545,11 @@ class MainActivity : Activity() {
         }.setNegativeButton(android.R.string.cancel, null).show()
     }
     private fun clearProject() {
-        stopPlay(); generation++; source = null; output = null; times = doubleArrayOf(0.0); duration = 0.0
+        stopPlay(); generation++; clearThumbnails(); source = null; output = null; times = doubleArrayOf(0.0); duration = 0.0
         frameIndex = 0; displayed = 0; decoding = false; scene = EditorScene(); renderer = EditorRenderer(scene)
         undo.clear(); redo.clear(); pending = null; tool = "ball"; preview.panEnabled = false
         preview.image?.recycle(); preview.image = null; preview.overlay?.recycle(); preview.overlay = null
-        preview.handles = emptyList(); preview.invalidate(); slider.max = 1; slider.progress = 0; counter.text = ""
+        preview.handles = emptyList(); preview.invalidate(); counter.text = ""
         renderShots(); controls(); status.setText(R.string.hint_import)
     }
     private fun deleteProjects(folders: List<File>) {
@@ -655,7 +688,7 @@ class MainActivity : Activity() {
         dialog.show()
     }
     override fun onPause() { if(timelineBefore!=null) endTimeEdit(true); stopPlay(); super.onPause() }
-    override fun onDestroy() { transformer?.cancel(); worker.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { transformer?.cancel(); clearThumbnails(); thumbnailWorker.shutdownNow(); worker.shutdownNow(); super.onDestroy() }
 }
 internal fun slowIntervals(scene: EditorScene, duration: Double): List<Pair<Double, Double>> {
     val windows = scene.shots.filter { it.ball != null }.map { max(0.0, it.start - scene.slowBefore) to min(duration, it.start + scene.slowAfter) }.filter { it.second > it.first }.sortedBy { it.first }

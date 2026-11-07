@@ -20,7 +20,7 @@ android {
         applicationId = "com.ajc.shottracer"
         minSdk = 34 // Android 14; independent of store target requirements.
         targetSdk = 36 // Google Play new-app submission baseline, checked 2026-11-03.
-        versionCode = 2
+        versionCode = 3
         versionName = "0.0.1"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         externalNativeBuild { cmake { cppFlags += "-std=c++17"; arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }

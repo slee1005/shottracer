@@ -29,9 +29,9 @@ internal object EditorMedia {
             return times.distinct().sorted().toDoubleArray().also { require(it.isNotEmpty()) }
         } finally { extractor.release() }
     }
-    fun frame(retriever: MediaMetadataRetriever, index: Int): Bitmap {
+    fun frame(retriever: MediaMetadataRetriever, index: Int, maxSize: Int = 640): Bitmap {
         val original = retriever.getFrameAtIndex(index) ?: error("frame")
-        val scale = minOf(1.0, 640.0 / max(original.width, original.height))
+        val scale = minOf(1.0, maxSize.toDouble() / max(original.width, original.height))
         if (scale == 1.0) return original
         val reduced = Bitmap.createScaledBitmap(original, (original.width * scale).toInt(), (original.height * scale).toInt(), true)
         if (reduced !== original) original.recycle()

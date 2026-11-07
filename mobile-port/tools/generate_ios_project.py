@@ -55,7 +55,7 @@ def main() -> None:
         INFOPLIST_KEY_UILaunchScreen_Generation = YES;
         INFOPLIST_KEY_UIFileSharingEnabled = YES;
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-        TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic;'''
+        TARGETED_DEVICE_FAMILY = "1,2"; CODE_SIGN_STYLE = Automatic;'''
     configs = [add(f'isa = XCBuildConfiguration; name = {name}; buildSettings = {{ {common} SWIFT_OPTIMIZATION_LEVEL = "{optimization}"; }};')
                for name, optimization in (("Debug", "-Onone"), ("Release", "-O"))]
     config_list = add(f'isa = XCConfigurationList; buildConfigurations = ({", ".join(configs)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')

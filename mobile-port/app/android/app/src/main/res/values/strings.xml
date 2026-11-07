@@ -186,4 +186,7 @@
     <string name="editor_start_options">Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.</string>
     <string name="editor_putt_curve">Putt curve</string>
     <string name="editor_hint_putt_curve">Drag the cyan midpoint or tap a curve position. Start and landing stay fixed.</string>
+    <string name="editor_timeline_apex">Apex</string>
+    <string name="editor_timeline_tracer">Shot Tracer</string>
+    <string name="editor_timeline_seek">Seek frame</string>
 </resources>

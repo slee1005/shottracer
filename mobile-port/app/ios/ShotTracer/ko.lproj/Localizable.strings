@@ -199,3 +199,7 @@
 
 "editor.puttCurve" = "퍼팅 곡선";
 "editor.hint.puttCurve" = "청록색 중간점을 드래그하거나 곡선 위치를 누르세요. 시작점과 착지점은 유지됩니다.";
+"editor.timelineApex" = "최고점";
+"editor.timelineApexUnset" = "최고점 —";
+"editor.timelineTracer" = "샷 트레이서";
+"editor.timelineSeek" = "프레임 탐색";

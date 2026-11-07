@@ -39,6 +39,10 @@ final class EditorModel: ObservableObject {
     @Published var busy = false
     @Published var playing = false
     @Published var editingTimeline=false
+    @Published private(set) var thumbnails: [Int: UIImage] = [:]
+    private(set) var snapshotFrames: [Int] = []
+    private var thumbnailTask: Task<Void, Never>?
+    var snapshotInterval: Double { max(1, ceil(((times.last ?? 0) - (times.first ?? 0)) / 60)) }
     private var timeUndo: EditorScene?
     @Published var tool = "ball"
     @Published var status = NSLocalizedString("hint.import", comment: "")
@@ -81,7 +85,7 @@ final class EditorModel: ObservableObject {
     func endTimeEdit(cancel: Bool = false) {
         guard let before=timeUndo else { return }
         if cancel { scene=before; commitEdits(save:false) }
-        else if before.shot.start != scene.shot.start || before.shot.flight != scene.shot.flight || before.shot.landing != scene.shot.landing || before.shot.timingLandingEstimated != scene.shot.timingLandingEstimated {
+        else if before.shot.start != scene.shot.start || before.shot.flight != scene.shot.flight || before.shot.apexFraction != scene.shot.apexFraction || before.shot.landing != scene.shot.landing || before.shot.timingLandingEstimated != scene.shot.timingLandingEstimated {
             undo.append(before); if undo.count>50 { undo.removeFirst() }; redo=[]; persist()
         }
         timeUndo=nil; editingTimeline=false
@@ -141,6 +145,7 @@ final class EditorModel: ObservableObject {
                 do { try FileManager.default.removeItem(at: folder); return true } catch { return false }
             } }.value
             if let source, !FileManager.default.fileExists(atPath: source.path) {
+                thumbnailTask?.cancel(); thumbnails = [:]; snapshotFrames = []
                 self.source = nil; output = nil; image = nil; overlay = nil; scene = EditorScene()
                 renderer = EditorRenderer(scene); times = [0]; frameIndex = 0; time = 0; displayedTime = 0; duration = 0
                 undo = []; redo = []; pending = nil; tool = "ball"
@@ -221,10 +226,30 @@ final class EditorModel: ObservableObject {
         restored.shots = Array(restored.shots.prefix(4)); restored.selected = min(max(0, restored.selected), restored.shots.count - 1)
         restored.width = frame.width; restored.height = frame.height
         scene = restored; source = file; times = rows; duration = seconds; frameIndex = 0; time = rows[0]; displayedTime = rows[0]
+        loadThumbnails(file, rows)
         undo = []; redo = []; image = UIImage(cgImage: frame); renderer = EditorRenderer(scene); overlay = renderer.overlay(displayedTime)
         let files = (try? FileManager.default.contentsOfDirectory(at: file.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
         output = files.filter { $0.lastPathComponent.hasPrefix("traced-") }.max { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) < ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
         status = NSLocalizedString("hint.ball", comment: "")
+    }
+    private func loadThumbnails(_ file: URL, _ rows: [Double]) {
+        thumbnailTask?.cancel()
+        thumbnails = [:]
+        let interval = snapshotInterval
+        let count = Int(ceil((rows[rows.count - 1] - rows[0]) / interval))
+        let frames = Set((0...count).map { nearestSourceFrame(rows, rows[0] + Double($0) * interval) }).sorted()
+        snapshotFrames = frames
+        thumbnailTask = Task { [weak self] in
+            let generator = Self.generator(file)
+            generator.maximumSize = CGSize(width: 176, height: 176)
+            for frame in frames {
+                guard !Task.isCancelled else { return }
+                let time = CMTime(seconds: rows[frame], preferredTimescale: 600_000)
+                if let result = try? await generator.image(at: time), !Task.isCancelled {
+                    self?.thumbnails[frame] = UIImage(cgImage: result.image)
+                }
+            }
+        }
     }
     func importLogo(_ file: URL) {
         guard !busy, let source else { return }
@@ -435,19 +460,28 @@ struct ShotEvent: Identifiable {
     var id: String { key }
 }
 
+func nearestSourceFrame(_ times: [Double], _ time: Double) -> Int {
+    var low = 0, high = times.count
+    while low < high {
+        let mid = (low + high) / 2
+        if times[mid] < time { low = mid + 1 } else { high = mid }
+    }
+    let next = min(low, times.count - 1)
+    if next > 0 && time - times[next - 1] < times[next] - time { return next - 1 }
+    return next
+}
+
 /// Match event markers to the source-frame slider, without changing the physical
 /// event clock when tracer drawing speed or export slow motion changes.
 func makeShotEvents(_ shot: EditShot, _ times: [Double], _ duration: Double) -> [ShotEvent] {
     guard shot.ball != nil,!times.isEmpty else { return [] }
     func event(_ key: String,_ time: Double,_ estimated: Bool = false) -> ShotEvent {
-        var low=0,high=times.count
-        while low < high { let mid=(low+high)/2; if times[mid] < time { low=mid+1 } else { high=mid } }
-        var frame=min(low,times.count-1)
-        if frame>0 && time-times[frame-1] < times[frame]-time { frame-=1 }
+        let frame = nearestSourceFrame(times, time)
         return ShotEvent(key:key,time:time,frame:frame,inClip:time >= times[0]-0.000001 && time <= duration+0.000001,estimated:estimated)
     }
     var result=[event("ball",shot.start)]
     if shot.landing != nil || shot.manual || shot.baseModel != nil || (shot.trackingMode == "putt" && shot.base.count >= 2) {
+        if shot.trackingMode != "putt" { result.append(event("apex", shot.start + shot.apexSeconds)) }
         result.append(event("landing",shot.start+shot.flight,shot.timingLandingEstimated ?? (shot.landing == nil && shot.trackingMode != "putt")))
     }
     return result
@@ -455,13 +489,23 @@ func makeShotEvents(_ shot: EditShot, _ times: [Double], _ duration: Double) -> 
 
 /// Apply timing edits without changing automatic observations or base-model time.
 func retimeShot(_ shot: inout EditShot,_ key: String,_ frame: Int,_ times: [Double]) -> Int? {
-    guard shot.ball != nil,!times.isEmpty,["ball","landing"].contains(key) else { return nil }
+    guard shot.ball != nil,!times.isEmpty,["ball","apex","landing"].contains(key) else { return nil }
     let known=shot.landing != nil || shot.manual || shot.baseModel != nil || shot.base.count>=2
-    if key == "landing" && !known { return nil }
+    if (key != "ball" && !known) || (key == "apex" && shot.trackingMode == "putt") { return nil }
     let observed=shot.baseModel == nil && !shot.manual && shot.landing == nil && shot.base.count>=2
     let end=shot.start + (observed ? shot.base.last!.time-shot.base.first!.time : shot.flight)
-    let lo=key == "ball" ? (known ? max(times[0],end-15) : times[0]) : shot.start+0.2
-    let hi=key == "ball" ? (known ? min(times.last!,end-0.2) : times.last!) : min(times.last!,shot.start+15)
+    let lo: Double, hi: Double
+    switch key {
+    case "ball":
+        lo = known ? max(times[0], end - 15) : times[0]
+        hi = known ? min(times.last!, end - 0.2) : times.last!
+    case "apex":
+        lo = shot.start + 0.35 * shot.flight
+        hi = shot.start + 0.62 * shot.flight
+    default:
+        lo = shot.start + 0.2
+        hi = min(times.last!, shot.start + 15)
+    }
     func bound(_ target: Double,_ after: Bool) -> Int {
         var left=0,right=times.count
         while left<right { let mid=(left+right)/2; if times[mid]<target || (after && times[mid]==target) { left=mid+1 } else { right=mid } }
@@ -470,6 +514,10 @@ func retimeShot(_ shot: inout EditShot,_ key: String,_ frame: Int,_ times: [Doub
     let first=bound(lo-0.000001,false),last=bound(hi+0.000001,true)-1
     guard first<times.count,last>=first else { return nil }
     let selected=min(max(frame,first),last), time=times[selected]
+    if key == "apex" {
+        shot.apexFraction = min(0.62, max(0.35, (time - shot.start) / shot.flight))
+        return selected
+    }
     if known {
         let estimated=shot.timingLandingEstimated ?? (shot.landing == nil && shot.trackingMode != "putt")
         let point=shot.endpoint; shot.landing=point; shot.timingLandingEstimated=estimated

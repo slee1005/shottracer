@@ -91,11 +91,24 @@ body.wide #sidebar { visibility: hidden; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 #transport { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-top: 1px solid var(--line); background: var(--panel); }
-#timelineWrap { flex: 1; position: relative; }
-#timeline { width: 100%; accent-color: var(--accent); }
-#marks { position: absolute; left: 0; right: 0; top: -6px; height: 6px; pointer-events: none; }
-#marks span { position: absolute; width: 2px; height: 8px; background: var(--warn); }
-#marks span.ball { background: #ffd400; }
+#filmstrip { --tile: clamp(64px, 10vw, 108px); --snapshot: clamp(38px, 6vw, 60px);
+  position: relative; flex: none; overflow: hidden; touch-action: none; user-select: none;
+  background: var(--panel); border-block: 1px solid var(--line); cursor: grab; }
+#filmstrip[hidden] { display: none; }
+#filmFrames { position: relative; height: calc(19px + var(--snapshot)); }
+.film-tile { position: absolute; top: 0; width: var(--tile); transform: translateX(-50%); pointer-events: none; }
+.film-tile time { display: block; height: 19px; font-size: 10px; color: var(--muted); text-align: center; }
+.film-tile img { display: block; width: 100%; height: var(--snapshot); object-fit: contain; background: #0c1118; border-right: 1px solid var(--line); }
+#filmLane { position: relative; height: 68px; background: var(--panel2); font-size: 10px; color: var(--muted); }
+#filmLane > span { position: absolute; left: 5px; bottom: 2px; }
+#marks { position: absolute; inset: 0; }
+.film-span { position: absolute; top: 3px; height: 4px; border-radius: 2px; opacity: .65; }
+.film-marker { position: absolute; transform: translateX(-50%); color: var(--event); background: var(--panel);
+  border: 1px solid currentColor; border-radius: 4px; font: inherit; padding: 1px 4px; white-space: nowrap; cursor: ew-resize; }
+.film-marker::before { content: "▴ "; }
+#playhead { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: white; pointer-events: none; }
+.timeline-keyboard { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.timeline-keyboard:focus-visible { position: static; width: 100%; height: auto; opacity: 1; }
 #time { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 110px; text-align: right; }
 #tools { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--panel); border-top: 1px solid var(--line); }
 .tool { border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 6px 10px; border-radius: var(--radius); cursor: pointer; font: inherit; }
@@ -161,3 +174,10 @@ input[type=color] { width: 36px; height: 26px; border: 1px solid var(--line); bo
 #wmDialog h3 { margin: 0 0 6px; font-size: 15px; }
 #wmDialog input { width: 100%; box-sizing: border-box; margin: 8px 0 4px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: #0006; color: inherit; font: inherit; }
 #wmDialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+@media (max-width: 1100px) {
+  main { grid-template-columns: 155px minmax(0, 1fr) 245px; }
+  body.wide main { grid-template-columns: 0 minmax(0, 1fr) 245px; }
+  #tools { flex-wrap: wrap; }
+  #transport { padding-inline: 5px; }
+}

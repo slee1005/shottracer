@@ -7,7 +7,7 @@ internal data class PopupWindow(val begins: Double, val ends: Double) {
 }
 /** A delay must never make after-shot cards expire before they appear. */
 internal fun popupWindow(shot: EditShot, popup: EditPopup): PopupWindow? {
-    val event=when(popup.anchor) { "landing" -> shot.flight; "apex" -> shot.flight*shot.apexFraction; else -> 0.0 }
+    val event=when(popup.anchor) { "landing" -> shot.flight; "apex" -> shot.apexSeconds(); else -> 0.0 }
     val begins=shot.start+event+popup.delay
     if(!begins.isFinite()) return null
     val ends=when(popup.hide) {
