@@ -11,7 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.SystemClock
 import android.os.Looper
-import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -116,13 +116,9 @@ class MainActivity : Activity() {
         val upper = toolbar(root)
         icon(upper, "import") {
             stopPlay()
-            // DocumentsUI opens device videos instead of the cloud-enabled Photo Picker.
-            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                type = "video/*"; addCategory(Intent.CATEGORY_OPENABLE)
-                putExtra(Intent.EXTRA_LOCAL_ONLY, true)
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                putExtra(DocumentsContract.EXTRA_INITIAL_URI,
-                    DocumentsContract.buildRootUri("com.android.providers.media.documents", "videos_root"))
+            startActivityForResult(Intent(MediaStore.ACTION_PICK_IMAGES).apply {
+                type = "video/*"
+                putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, 4)
             }, 1)
         }
         icon(upper, "camera") { stopPlay(); startActivity(Intent(this, LiveCameraActivity::class.java)) }
@@ -145,7 +141,7 @@ class MainActivity : Activity() {
             text = text(key); isAllCaps=false; textSize = 12f; minWidth = 0; setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
         }
-        startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; preview.panEnabled = false; status.text = text("hint_ball"); controls() }
+        startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; status.text = text("hint_ball"); controls() }
         analyzeButton = actionButton("analyze_action") { analyzeFromButton() }
         resetButton = actionButton("reset_action") { confirmReset() }
         preview = PreviewView(this).apply { zoomEnabled = true; background=GradientDrawable().apply { setColor(Color.BLACK); cornerRadius=dp(20).toFloat(); setStroke(dp(1),Color.rgb(35,50,63)) }; clipToOutline=true }
@@ -162,11 +158,11 @@ class MainActivity : Activity() {
             onEnd = { cancel -> endTimeEdit(cancel) }
         }
         val lower = toolbar(root); tools = lower.parent as HorizontalScrollView
-        for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing", "pan")) icon(lower, key) {
-            tool = key; pending = null; preview.panEnabled = key == "pan"; status.text = text(if(key=="apex" && scene.shot.trackingMode=="putt") "hint_putt_curve" else "hint_$key"); handles(); controls()
+        for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing")) icon(lower, key) {
+            tool = key; pending = null; status.text = text(if(key=="apex" && scene.shot.trackingMode=="putt") "hint_putt_curve" else "hint_$key"); handles(); controls()
         }
         icon(lower, "delete") { if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() } else deleteShot() }
-        icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; preview.panEnabled = false; status.text = text("hint_landing"); changed() } }
+        icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; status.text = text("hint_landing"); changed() } }
         fun eventButton()=Button(this).apply {
             isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
             background=GradientDrawable().apply { setColor(Color.rgb(23,32,43)); cornerRadius=dp(12).toFloat() }
@@ -189,7 +185,7 @@ class MainActivity : Activity() {
     private fun controls() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && timelineBefore==null && when (key) {
-                "previous", "next", "ball", "landing", "path", "circle", "line", "swing", "pan", "settings", "export", "add" -> source != null
+                "previous", "next", "ball", "landing", "path", "circle", "line", "swing", "settings", "export", "add" -> source != null
                 "play" -> source != null && (playing || !decoding)
                 "apex" -> source != null && (scene.shot.trackingMode != "putt" || scene.shot.hasGroundPath())
                 "analyze" -> scene.shot.ball != null
@@ -224,7 +220,7 @@ class MainActivity : Activity() {
     private fun dragTime(key: String, frame: Int) {
         if(timelineBefore==null || busy) return
         val target=retimeShot(scene.shot,key,frame,times) ?: return
-        tool=key; preview.panEnabled=false; changed(false)
+        tool=key; changed(false)
         if(frameIndex!=target) refresh(target)
     }
     private fun endTimeEdit(cancel: Boolean) {
@@ -251,7 +247,7 @@ class MainActivity : Activity() {
     }
     private fun jumpToEvent(event: ShotEvent) {
         if(busy || !event.inClip) return
-        stopPlay(); tool=event.key; pending=null; preview.panEnabled=false; preview.resetViewport()
+        stopPlay(); tool=event.key; pending=null; preview.resetViewport()
         refresh(event.frame); status.text=text("hint_" + event.key); controls()
     }
     private fun renderShots() {
@@ -437,7 +433,7 @@ class MainActivity : Activity() {
     private fun switchMode(mode: String) {
         if (busy || scene.shot.trackingMode == mode) return
         stopPlay(); remember(); scene.shot.apply { trackingMode=mode; base=emptyList(); baseModel=null; landing=null; timingLandingEstimated=null; apex=null; manual=false; flight=4.0 }
-        tool="ball"; pending=null; preview.panEnabled=false; changed(); status.text=text("mode_changed")
+        tool="ball"; pending=null; changed(); status.text=text("mode_changed")
     }
     private fun analyzeFromButton() {
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
@@ -467,20 +463,19 @@ class MainActivity : Activity() {
                     if (i%15 == 0) ui { status.text=getString(R.string.editor_analysis_progress,((time-max(0.0,start-1.2))/(min(duration,start+15)-max(0.0,start-1.2))*100).toInt().coerceIn(0,100)) }
                 }
                 val observations = samples(result.samples()); val camera = samples(result.samples(true))
-                val model = if (!putt && observations.size >= 4) NativeCore.fit(observations.drop(1).flatMap { listOf(it.time,it.x,it.y) }.toDoubleArray(),ball.x,ball.y,observations[0].time,observations[1].time-.00001) else null
+                val model = result.flightModel()
                 val impact = model?.get(3) ?: observations.firstOrNull()?.time ?: start
                 ui {
                     remember(); scene.shots.firstOrNull { it.id == id }?.let {
                         it.base=observations; it.camera=camera; it.baseModel=model; it.start=impact
                         it.autoHands=person?.hands?.filter { p -> p.time in impact-1.2..impact+1.2 } ?: emptyList()
-                        it.autoClub=person?.clubs?.filter { p -> p.time in impact-1.2..impact+1.2 } ?: emptyList()
                         it.masks=person?.masks?.toList() ?: emptyList()
                         if (putt && observations.size >= 3) it.flight=max(.2,observations.last().time-impact)
                         if (model != null) { it.flight=model[10]; it.apexFraction=(NativeCore.modelApex(model)/model[10]).coerceIn(.35,.62) }
                     }
                     changed()
-                    status.text=getString(R.string.editor_analysis_result,observations.size,scene.shot.autoHands.size,scene.shot.autoClub.size) +
-                        (if (observations.size < 3) "\n"+getString(R.string.error_track) else "") + (if (personError) "\n"+text("person_failed") else "")
+                    status.text=getString(R.string.editor_analysis_result,observations.size,scene.shot.autoHands.size) +
+                        (if (if (putt) observations.size < 3 else model == null) "\n"+getString(R.string.error_track) else "") + (if (personError) "\n"+text("person_failed") else "")
                 }
             } finally { retriever.release(); result.close(); person?.close() }
         }
@@ -545,14 +540,14 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setMessage(text("reset_confirm")).setPositiveButton(text("reset_action")) { _, _ ->
             remember(); val width = scene.width; val height = scene.height
             scene = EditorScene().apply { this.width = width; this.height = height }
-            tool = "ball"; pending = null; preview.panEnabled = false
+            tool = "ball"; pending = null
             changed(); renderShots(); controls(); status.text = text("hint_ball"); refresh(0)
         }.setNegativeButton(android.R.string.cancel, null).show()
     }
     private fun clearProject() {
         stopPlay(); generation++; clearThumbnails(); source = null; output = null; times = doubleArrayOf(0.0); duration = 0.0
         frameIndex = 0; displayed = 0; decoding = false; scene = EditorScene(); renderer = EditorRenderer(scene)
-        undo.clear(); redo.clear(); pending = null; tool = "ball"; preview.panEnabled = false
+        undo.clear(); redo.clear(); pending = null; tool = "ball"
         preview.image?.recycle(); preview.image = null; preview.overlay?.recycle(); preview.overlay = null
         preview.handles = emptyList(); preview.invalidate(); counter.text = ""
         renderShots(); controls(); status.setText(R.string.hint_import)
@@ -603,10 +598,9 @@ class MainActivity : Activity() {
         val ballRows=shot.base.drop(1).filter { it.time>=impact && it.time<=impact+2 }
         val ball=summary(ballRows)
         val launch=summary(ballRows.takeWhile { it.time <= (ballRows.firstOrNull()?.time ?: 0.0)+.25 })
-        val club=summary(shot.autoClub.filter { it.time>=impact-.25 && it.time<=impact+.05 })
         return text("motion_title")+"\n"+(ball?.let { getString(R.string.editor_motion_ball,it[0],hypot(it[1],it[2]),it[3]) } ?: text("motion_missing"))+"\n"+
             (launch?.takeIf { hypot(it[1],it[2])>=2 }?.let { getString(R.string.editor_motion_direction,atan2(-it[2],it[1])*180/Math.PI) } ?: "")+"\n"+
-            (club?.let { getString(R.string.editor_motion_club,it[3],it[4].toInt()) } ?: text("motion_club_missing"))+"\n"+text("motion_calibration")
+            text("motion_calibration")
     }
     private fun settings() {
         stopPlay(); val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
@@ -626,7 +620,7 @@ class MainActivity : Activity() {
         layout.addView(TextView(this).apply { text=motionReport(); setPadding(0,0,0,dp(12)); setTextIsSelectable(true) })
         choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.timingLandingEstimated=null; scene.shot.apex=null; scene.shot.manual=false } }
         check("person_occlusion",scene.personOcclusion) { scene.personOcclusion=it }
-        choice("auto_swing",listOf("both","hands","club","off"),scene.visibleAutoSwing()) { scene.configureAutoSwing(it) }
+        check("auto_swing", scene.autoWristsEnabled) { scene.autoSwing = if (it) "hands" else "off" }
         choice("preset", listOf("classic", "tv", "neon", "comet", "minimal"), scene.preset) { scene.preset = it }
         layout.addView(TextView(this).apply { text = text("color") }); val color = EditText(this).apply { setText(scene.shot.color); inputType = InputType.TYPE_CLASS_TEXT }; layout.addView(color)
         edits.add { try { Color.parseColor(color.text.toString()); scene.shot.color = color.text.toString() } catch (_: Exception) { } }

@@ -27,6 +27,9 @@ void st_destroy(STTracker *tracker);
    Only one frame is retained. Caller serializes mutations and rendering. */
 int st_push(STTracker *tracker, const uint8_t *gray, int stride, double time);
 int st_count(const STTracker *tracker);
+/* Validated automatic flight, in normalized reference coordinates. Returns -1
+   until five moving detections are accepted, or for a rolling putt. */
+int st_tracker_model(const STTracker *tracker, STModel *model);
 int st_point(const STTracker *tracker, int index, STPoint *point);
 int st_camera_count(const STTracker *tracker);
 int st_camera_point(const STTracker *tracker, int index, STPoint *point);

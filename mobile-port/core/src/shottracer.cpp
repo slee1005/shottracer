@@ -20,6 +20,7 @@ struct STTracker {
     double seed_x, seed_y, last_time = -1, camera_x = 0, camera_y = 0;
     double pending_start_time = 0;
     bool launched = false, ended = false;
+    STModel flight{};
     std::vector<uint8_t> previous;
     std::vector<STPoint> points, pending;
     std::vector<Camera> cameras;
@@ -151,6 +152,108 @@ bool direction(double ax, double ay, double bx, double by) {
     return a > 0 && b > 0 && (ax * bx + ay * by) / (a * b) > 0.866;
 }
 
+constexpr size_t launch_samples = 5;
+constexpr double tan_50 = 1.19175359259421;
+constexpr double maximum_gap = 0.2;
+
+bool inside_launch_cone(const STTracker &t, const Candidate &c) {
+    const double forward = t.seed_y - c.y;
+    return forward > 0 && std::abs(c.x - t.seed_x) <= forward * tan_50;
+}
+
+bool fit_flight(const STTracker &t, const std::vector<STPoint> &points, STModel &model) {
+    std::vector<double> samples;
+    const size_t first = t.launched ? 1 : 0;
+    for (size_t i = first; i < points.size(); ++i) {
+        const auto &p = points[i];
+        samples.insert(samples.end(), {p.time, p.x, p.y});
+    }
+    const int count = int(samples.size() / 3);
+    if (!t.launched) {
+        if (st_fit_model(samples.data(), count, t.seed_x, t.seed_y, .15 * t.height,
+                         t.pending_start_time, t.pending_start_time, 3.5, 7.5, 5.5, &model) != 0)
+            return false;
+    } else if (st_refit_model(&t.flight, samples.data(), count, nullptr, t.flight.flight_time, &model) != 0) {
+        return false;
+    }
+    if (model.b <= 0 || model.g <= 0) return false;
+    // Projected horizontal speed decays with drag and perspective. A free quadratic
+    // horizontal term can reverse the shot after a short observation window.
+    double aa = 0, ax = 0;
+    for (int i = 0; i < count; ++i) {
+        const double s = travel(samples[i * 3] - model.t0, model.k);
+        const double basis = s / (1 + model.w * s);
+        aa += basis * basis;
+        ax += basis * (samples[i * 3 + 1] - model.u0);
+    }
+    if (aa <= 0) return false;
+    model.a = ax / aa;
+    model.c = 0;
+    return true;
+}
+
+void flight_step(STTracker &t, const std::vector<Candidate> &options, bool address_gone, double time) {
+    const Candidate *chosen = nullptr;
+    double best = std::numeric_limits<double>::infinity();
+    if (!t.launched) {
+        if (!address_gone || (!t.pending.empty() && time - t.pending.back().time > maximum_gap)) t.pending.clear();
+        if (!address_gone) return;
+        const STPoint seed{t.pending.empty() ? t.last_time : t.pending_start_time, t.seed_x, t.seed_y, 1};
+        const auto &origin = t.pending.empty() ? seed : t.pending.back();
+        for (const auto &c : options) {
+            if (!inside_launch_cone(t, c)) continue;
+            const double dx = c.x - origin.x, dy = c.y - origin.y, d = length(dx, dy);
+            if (d < 1.5 || d > 100 || dy > -0.3 * d) continue;
+            if (!t.pending.empty()) {
+                const auto &previous = t.pending.size() == 1 ? seed : t.pending[t.pending.size() - 2];
+                const double ax = origin.x - previous.x, ay = origin.y - previous.y;
+                const double ratio = (d / (time - origin.time)) / (length(ax, ay) / (origin.time - previous.time));
+                if (!direction(ax, ay, dx, dy) || ratio < .3 || ratio > (t.pending.size() == 1 ? 2.5 : 1.45))
+                    continue;
+            }
+            if (d < best) { best = d; chosen = &c; }
+        }
+        if (!chosen) return;
+        if (t.pending.empty()) t.pending_start_time = seed.time;
+        t.pending.push_back({time, chosen->x, chosen->y, chosen->strength});
+        if (t.pending.size() == launch_samples) {
+            if (fit_flight(t, t.pending, t.flight)) {
+                t.points.push_back(seed);
+                t.points.insert(t.points.end(), t.pending.begin(), t.pending.end());
+                t.launched = true;
+            }
+            t.pending.clear();
+        }
+        return;
+    }
+
+    const auto &last = t.points.back();
+    const double dt = time - last.time;
+    if (dt > maximum_gap || time > t.flight.t0 + t.flight.flight_time) {
+        t.ended = true;
+        return;
+    }
+    double x, y, previous_x, previous_y;
+    if (st_model_at(&t.flight, time - t.flight.t0, &x, &y) ||
+        st_model_at(&t.flight, last.time - t.flight.t0, &previous_x, &previous_y)) return;
+    const double dx = x - previous_x, dy = y - previous_y, expected = length(dx, dy);
+    const double gate = std::clamp(3 + .55 * expected, 4.0, 14.0);
+    for (const auto &c : options) {
+        if (!inside_launch_cone(t, c)) continue;
+        const double vx = c.x - last.x, vy = c.y - last.y, displacement = length(vx, vy);
+        if (displacement > 1.65 * expected + 3) continue;
+        if (expected > 3 && displacement > 3 && !direction(dx, dy, vx, vy)) continue;
+        const double error = length(c.x - x, c.y - y);
+        if (error < gate && error < best) { best = error; chosen = &c; }
+    }
+    if (!chosen) return;
+
+    t.points.push_back({time, chosen->x, chosen->y, chosen->strength});
+    STModel updated{};
+    if (fit_flight(t, t.points, updated)) t.flight = updated;
+    else t.points.pop_back();
+}
+
 Camera camera_at(const STTracker &t, double time) {
     if (t.cameras.empty()) return {time, 0, 0};
     auto next = std::lower_bound(t.cameras.begin(), t.cameras.end(), time,
@@ -174,56 +277,11 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
             if (t->mode == 1) putt_step(*t, gray, stride, time);
             else if (!t->ended) {
                 auto options = candidates(*t, gray, stride, dx, dy);
-                if (!t->launched) {
-                    /* Require the address ball to disappear before accepting a launch. */
-                    const int sx = int(std::round(t->seed_x + t->camera_x));
-                    const int sy = int(std::round(t->seed_y + t->camera_y));
-                    const bool gone = sx < 0 || sy < 0 || sx >= t->width || sy >= t->height ||
-                                      gray[sy * stride + sx] < 140;
-                    const STPoint origin = t->pending.empty() ?
-                        STPoint{t->last_time, t->seed_x, t->seed_y, 1} : t->pending.back();
-                    double best = 1e30;
-                    Candidate chosen{};
-                    bool found = false;
-                    for (const auto &c : options) {
-                        const double vx = c.x - origin.x, vy = c.y - origin.y;
-                        const double d = length(vx, vy);
-                        if (!gone || d < 1.5 || d > 100 || vy > -0.3 * d) continue;
-                        if (!t->pending.empty()) {
-                            const auto &a = t->pending.size() == 1 ?
-                                STPoint{t->pending_start_time, t->seed_x, t->seed_y, 1} :
-                                t->pending[t->pending.size() - 2];
-                            const double ax = origin.x - a.x, ay = origin.y - a.y;
-                            const double ratio = (d / (time - origin.time)) /
-                                std::max(1e-6, length(ax, ay) / (origin.time - a.time));
-                            if (!direction(ax, ay, vx, vy) || ratio < 0.3 || ratio > (t->pending.size() == 1 ? 2.5 : 1.1)) continue;
-                        }
-                        if (d < best) { best = d; chosen = c; found = true; }
-                    }
-                    if (found) {
-                        if (t->pending.empty()) t->pending_start_time = t->last_time;
-                        t->pending.push_back({time, chosen.x, chosen.y, chosen.strength});
-                        if (t->pending.size() == 3) {
-                            t->points.push_back({t->pending_start_time, t->seed_x, t->seed_y, 1});
-                            t->points.insert(t->points.end(), t->pending.begin(), t->pending.end());
-                            t->launched = true;
-                        }
-                    } else { t->pending.clear(); }
-                } else {
-                    const auto &p = t->points.back(), &a = t->points[t->points.size() - 2];
-                    const double dt = p.time - a.time;
-                    const double factor = (time - p.time) / dt;
-                    const double px = p.x + (p.x - a.x) * factor, py = p.y + (p.y - a.y) * factor;
-                    const double gate = std::max(7.0, 0.7 * length(p.x - a.x, p.y - a.y) * factor);
-                    double best = gate;
-                    const Candidate *chosen = nullptr;
-                    for (const auto &c : options) {
-                        const double d = length(c.x - px, c.y - py);
-                        if (d < best) { best = d; chosen = &c; }
-                    }
-                    if (chosen) t->points.push_back({time, chosen->x, chosen->y, chosen->strength});
-                    else if (time - p.time >= 0.2) t->ended = true;
-                }
+                const int sx = int(std::round(t->seed_x + t->camera_x));
+                const int sy = int(std::round(t->seed_y + t->camera_y));
+                const bool gone = sx < 0 || sy < 0 || sx >= t->width || sy >= t->height ||
+                                  gray[sy * stride + sx] < 140;
+                flight_step(*t, options, gone, time);
             }
         }
         if (first && t->mode == 1) putt_step(*t, gray, stride, time);
@@ -236,6 +294,14 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
     } catch (...) { return -1; }
 }
 extern "C" int st_count(const STTracker *t) { return t ? int(t->points.size()) : 0; }
+extern "C" int st_tracker_model(const STTracker *t, STModel *model) {
+    if (!t || !model || t->mode != 0 || !t->launched) return -1;
+    *model = t->flight;
+    model->u0 /= t->width; model->a /= t->width; model->c /= t->width; model->du /= t->width;
+    model->v0 /= t->height; model->vh /= t->height; model->b /= t->height;
+    model->g /= t->height; model->lift /= t->height; model->dv /= t->height;
+    return 0;
+}
 extern "C" int st_camera_count(const STTracker *t) { return t ? int(t->cameras.size()) : 0; }
 extern "C" int st_camera_point(const STTracker *t, int i, STPoint *p) {
     if (!t || !p || i < 0 || i >= int(t->cameras.size())) return -1;
@@ -267,7 +333,9 @@ extern "C" int st_point(const STTracker *t, int i, STPoint *p) {
 extern "C" int st_render(const STTracker *t, double time, uint8_t *rgba, int stride) {
     if (!t || !rgba || stride < t->width * 4 || !std::isfinite(time)) return -1;
     for (int y = 0; y < t->height; ++y) std::memset(rgba + y * stride, 0, t->width * 4);
-    if (t->points.size() < 4 || time < t->points[1].time || time > t->points.back().time + 1) return 0;
+    if (t->points.size() < 4 || time < t->points[1].time) return 0;
+    const double end = t->mode == 0 ? t->flight.t0 + t->flight.flight_time : t->points.back().time;
+    if (time > end + 1) return 0;
     const auto camera = camera_at(*t, time);
     const int radius = std::max(1, t->width / 240);
     auto dot = [&](double x, double y) {
@@ -280,6 +348,19 @@ extern "C" int st_render(const STTracker *t, double time, uint8_t *rgba, int str
                 pixel[0] = 255; pixel[1] = 48; pixel[2] = 60; pixel[3] = 255;
             }
     };
+    if (t->mode == 0) {
+        const double elapsed = std::min(time - t->flight.t0, t->flight.flight_time);
+        double x = t->flight.u0, y = t->flight.v0;
+        for (int i = 1; i <= 128; ++i) {
+            double next_x, next_y;
+            if (st_model_at(&t->flight, elapsed * i / 128, &next_x, &next_y) != 0) break;
+            const int steps = int(std::clamp(std::ceil(length(next_x - x, next_y - y) * 2), 1.0, 4096.0));
+            for (int j = 0; j <= steps; ++j)
+                dot(x + (next_x - x) * j / steps + camera.x, y + (next_y - y) * j / steps + camera.y);
+            x = next_x; y = next_y;
+        }
+        return 0;
+    }
     for (size_t i = 1; i < t->points.size(); ++i) {
         const auto &a = t->points[i - 1], &b = t->points[i];
         if (time <= a.time) break;

@@ -179,12 +179,19 @@ struct EditorScene: Codable, Sendable {
     var preset = "classic", lineWidth = 1.0, glow = 1.0, hold = 1.0
     var head = true, marker = true, swingEnabled = true
     var personOcclusion: Bool?, autoSwing: String?
+    var autoWristsEnabled: Bool { autoSwing == nil || autoSwing == "both" || autoSwing == "hands" }
     var logo: String?, logoSize = 0.12, logoOpacity = 0.85, logoCorner = "bottom-right"
     var slowmo = false, slowFactor = 3.0, slowBefore = 0.4, slowAfter = 1.2
     var shot: EditShot { get { shots[min(max(0, selected), shots.count - 1)] } set { shots[min(max(0, selected), shots.count - 1)] = newValue } }
 }
 
 extension TrackingSession {
+    func flightModel() -> [Double]? {
+        lock.lock(); defer { lock.unlock() }
+        var model = STModel()
+        return st_tracker_model(handle, &model) == 0 ? NativeFlight.values(model) : nil
+    }
+
     func samples(camera: Bool = false) -> [EditSample] {
         lock.lock(); defer { lock.unlock() }
         let n = camera ? st_camera_count(handle) : st_count(handle)
@@ -217,9 +224,9 @@ final class EditorRenderer: @unchecked Sendable {
             ctx.setLineCap(.round); ctx.setLineJoin(.round)
             var occupied: [CGRect]=[]
             for s in scene.shots {
-                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" || (models[s.id] == nil && !s.manual && s.apex == nil && !s.base.isEmpty) { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
+                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
                 let motion = interpolated(s.camera, time)
-                let duration = (s.edited || s.trackingMode == "putt") ? s.flight : max(0.01, (s.base.last?.time ?? s.start) - s.start)
+                let duration = s.flight
                 let elapsed = (time - s.start) * s.speed
                 var points: [EditPoint] = []
                 if s.ball != nil && (s.trackingMode != "putt" || s.hasGroundPath) && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
@@ -227,9 +234,6 @@ final class EditorRenderer: @unchecked Sendable {
                     if s.edited || s.trackingMode == "putt" {
                         for i in 0...128 { let t = duration * Double(i) / 128; if t >= from && t <= min(duration, elapsed) { points.append(curve(t)) } }
                         if elapsed >= 0 { points.append(curve(min(duration, elapsed))) }
-                    } else if !s.base.isEmpty {
-                        points = s.base.filter { $0.time - s.start >= from && $0.time - s.start <= elapsed }.map { EditPoint($0.x, $0.y) }
-                        if elapsed >= 0 { points.append(interpolated(s.base, s.start + min(duration, elapsed))) }
                     }
                 }
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
@@ -253,16 +257,18 @@ final class EditorRenderer: @unchecked Sendable {
                     swing.dropFirst().forEach { path.addLine(to: pos(EditPoint($0.x, $0.y), motion)) }
                     ctx.addPath(path); ctx.setStrokeColor(UIColor.cyan.cgColor); ctx.setLineWidth(max(2, h / 240)); ctx.strokePath()
                 }
-                if scene.swingEnabled {
-                    for (rows,key,ink) in [(s.autoHands ?? [],"hands",UIColor(red: 0.18,green: 0.83,blue: 0.75,alpha: 1)),(s.autoClub ?? [],"club",UIColor(red: 0.98,green: 0.75,blue: 0.14,alpha: 1))] {
-                        guard (scene.autoSwing ?? "both") == "both" || scene.autoSwing == key else { continue }
-                        let path = CGMutablePath(); var last: EditSample?
-                        for p in rows where p.time <= time && p.time >= time-2 {
-                            let q = pos(EditPoint(p.x,p.y),motion)
-                            if last == nil || p.time-last!.time > 0.18 { path.move(to:q) } else { path.addLine(to:q) }; last=p
-                        }
-                        ctx.addPath(path); ctx.setStrokeColor(ink.cgColor); ctx.setLineWidth(max(1.5,h/240)); ctx.strokePath()
+                if scene.swingEnabled && scene.autoWristsEnabled {
+                    let path = CGMutablePath()
+                    var last: EditSample?
+                    for p in s.autoHands ?? [] where p.time <= time && p.time >= time - 2 {
+                        let q = pos(EditPoint(p.x, p.y), motion)
+                        if let last, p.time - last.time <= 0.18 { path.addLine(to: q) } else { path.move(to: q) }
+                        last = p
                     }
+                    ctx.addPath(path)
+                    ctx.setStrokeColor(UIColor(red: 0.18, green: 0.83, blue: 0.75, alpha: 1).cgColor)
+                    ctx.setLineWidth(max(1.5, h / 240))
+                    ctx.strokePath()
                 }
                 if scene.personOcclusion != false, let m = s.masks?.min(by: { abs($0.time-time) < abs($1.time-time) }), abs(m.time-time) <= 0.11 {
                     if let mask = maskCache.object(forKey:m.path as NSString) ?? UIImage(contentsOfFile:m.path) {
@@ -317,7 +323,7 @@ final class EditorRenderer: @unchecked Sendable {
 }
 
 enum NativeFlight {
-    private static func values(_ model: STModel) -> [Double] { withUnsafeBytes(of: model) { Array($0.bindMemory(to: Double.self)) } }
+    static func values(_ model: STModel) -> [Double] { withUnsafeBytes(of: model) { Array($0.bindMemory(to: Double.self)) } }
     private static func model(_ values: [Double]) -> STModel? {
         guard values.count == 16 else { return nil }
         var model = STModel(); withUnsafeMutableBytes(of: &model) { dest in values.withUnsafeBytes { dest.copyMemory(from: $0) } }; return model
@@ -332,12 +338,6 @@ enum NativeFlight {
         let p = samples.dropFirst().flatMap { [$0.time, $0.x, $0.y] }
         guard st_with_apex(&m, p, Int32(samples.count - 1), time, &out) == 0 else { return nil }; return self.values(out)
     }
-    static func fit(_ samples: [EditSample], _ ball: EditPoint) -> [Double]? {
-        guard samples.count >= 4 else { return nil }
-        let p = samples.dropFirst().flatMap { [$0.time, $0.x, $0.y] }; var model = STModel()
-        guard st_fit_model(p, Int32(samples.count - 1), ball.x, ball.y, 0.15, samples[0].time, samples[1].time - 0.00001, 3.5, 7.5, 5.5, &model) == 0 else { return nil }
-        return values(model)
-    }
     static func refit(_ base: [Double], _ samples: [EditSample], _ landing: EditPoint?, _ flight: Double) -> [Double]? {
         guard var original = model(base) else { return nil }
         let p = samples.dropFirst().flatMap { [$0.time, $0.x, $0.y] }; var result = STModel()
@@ -349,19 +349,14 @@ enum NativeFlight {
 }
 
 struct PersonMask: Codable, Sendable { var time: Double; var path: String }
-private struct PersonSample {
-    let time: Double, gray: [UInt8], body: [UInt8], hands: EditPoint?, height: Double, motion: EditPoint
-}
 
-/// Vision supplies on-device masks/landmarks. The shared detector observes club motion;
-/// missing or low-confidence wrists do not produce invented swing points.
+/// Vision supplies masks and wrist landmarks for on-device editing.
 final class PersonAnalysis {
     private let segmentation = VNGeneratePersonSegmentationRequest()
     private let pose = VNDetectHumanBodyPoseRequest()
     private let ci = CIContext(options: [.cacheIntermediates:false])
     private let folder: URL
-    private var before: PersonSample?, previous: PersonSample?
-    var masks: [PersonMask] = [], hands: [EditSample] = [], clubs: [EditSample] = []
+    var masks: [PersonMask] = [], hands: [EditSample] = []
     init(_ folder: URL) throws {
         self.folder=folder; try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
         segmentation.qualityLevel = .balanced; segmentation.outputPixelFormat=kCVPixelFormatType_OneComponent8
@@ -377,10 +372,8 @@ final class PersonAnalysis {
     func push(_ image: CGImage, _ time: Double, _ motion: EditPoint) throws {
         let w=image.width, h=image.height
         try VNImageRequestHandler(cgImage:image,orientation:.up,options:[:]).perform([segmentation,pose])
-        var body=[UInt8](repeating:0,count:w*h)
         if let buffer=segmentation.results?.first?.pixelBuffer,
            let mask=ci.createCGImage(CIImage(cvPixelBuffer:buffer),from:CIImage(cvPixelBuffer:buffer).extent,format:.L8,colorSpace:CGColorSpaceCreateDeviceGray()) {
-            body=gray(mask,w,h)
             let mw=min(256,w), mh=max(1,h*mw/w), values=gray(mask,mw,mh)
             var rgba=[UInt8](repeating:0,count:mw*mh*4)
             for i in values.indices { for j in 0..<4 { rgba[i*4+j]=values[i] } }
@@ -397,18 +390,7 @@ final class PersonAnalysis {
         }
         let hand: EditPoint?
         if let a=joint(.leftWrist),let b=joint(.rightWrist) { hand=EditPoint((a.x+b.x)/2,(a.y+b.y)/2) } else { hand=nil }
-        var height=0.0
-        if let a=joint(.leftShoulder),let b=joint(.rightShoulder),let c=joint(.leftAnkle),let d=joint(.rightAnkle) { height=max(8,(c.y+d.y-a.y-b.y)/2*Double(h)) }
         if let hand { hands.append(EditSample(time,hand.x-motion.x,hand.y-motion.y)) }
-        let current=PersonSample(time:time,gray:gray(image,w,h),body:body,hands:hand,height:height,motion:motion)
-        if let a=before,let b=previous,let hand=b.hands,b.height >= 8,time-a.time < 0.3 {
-            var tip=STPoint()
-            if st_club_point(a.gray,b.gray,current.gray,b.body,Int32(w),Int32(h),hand.x*Double(w),hand.y*Double(h),b.height,
-                (a.motion.x-b.motion.x)*Double(w),(a.motion.y-b.motion.y)*Double(h),(motion.x-b.motion.x)*Double(w),(motion.y-b.motion.y)*Double(h),&tip) == 1 {
-                clubs.append(EditSample(b.time,tip.x/Double(w)-b.motion.x,tip.y/Double(h)-b.motion.y))
-            }
-        }
-        before=previous; previous=current
     }
 }
 

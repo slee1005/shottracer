@@ -1,7 +1,6 @@
 "app.title" = "ShotTracer";
 "prototype.notice" = "Development prototype • Select a frame before impact, then tap the ball. Bright-ball tracking only; not ready for store release.";
 "preview.label" = "Video preview. Tap the ball to select its starting position.";
-"action.import" = "Choose video from Files";
 "action.photos" = "Choose video from Photos";
 "status.importing" = "Importing video… If stored in iCloud, the original must download first.";
 "action.analyze" = "Track ball automatically";
@@ -59,8 +58,7 @@
 "editor.path" = "Manual path";
 "editor.circle" = "Circle";
 "editor.line" = "Line";
-"editor.swing" = "Swing points";
-"editor.pan" = "Pan / pinch zoom";
+"editor.swing" = "Wrist points";
 "editor.delete" = "Delete last shape / shot";
 "editor.hint.ball" = "Tap the starting ball on the current frame.";
 "editor.hint.landing" = "Tap or drag the green landing handle.";
@@ -68,8 +66,7 @@
 "editor.hint.path" = "Tap the start, then the landing point. Drag the apex to shape the path.";
 "editor.hint.circle" = "Tap the center, then the rim.";
 "editor.hint.line" = "Tap the two line endpoints.";
-"editor.hint.swing" = "Tap the club head / hands; advances two frames.";
-"editor.hint.pan" = "Pinch to zoom, then drag empty video areas to pan in any direction. Drag markers to edit; double-tap to fit.";
+"editor.hint.swing" = "Tap the wrists; advances two frames.";
 "editor.shotSettings" = "Settings";
 "editor.flight" = "Flight time (seconds)";
 "editor.apexFraction" = "Time to apex (seconds, 35–62% of flight)";
@@ -148,18 +145,14 @@
 "editor.modeFlight" = "Flight";
 "editor.putt" = "Putt";
 "editor.personOcclusion" = "Person occlusion";
-"editor.autoSwing" = "Automatic swing paths";
-"editor.both" = "Wrists + club";
-"editor.hands" = "Wrists";
-"editor.club" = "Club head";
-"editor.off" = "Off";
+"editor.autoSwing" = "Show automatic wrist path";
 "editor.personFailed" = "Person analysis was unavailable. Ball results are retained; retry analysis.";
 "editor.analysisProgress" = "Analyzing on device · %d%%";
-"editor.analysisResult" = "Ball %d · Wrists %d · Club %d";
+"editor.analysisResult" = "Ball %d · Wrists %d";
 "editor.onDevice" = "ON DEVICE";
 "editor.workspace" = "Your shot, in focus.";
 "editor.modeChanged" = "Mode changed. Analyze again to track this shot.";
-"editor.autoNote" = "Teal: wrists · Gold: club. Missing detections are left blank.";
+"editor.autoNote" = "Automatic wrist paths are teal. Missing detections are left blank.";
 
 "editor.timelineStart" = "Start";
 "editor.timelineLanding" = "Landing";
@@ -190,10 +183,8 @@
 "editor.motionTitle" = "Observed video motion";
 "editor.motionBall" = "Ball: %.2f s · %.1f px displacement · %.1f px/s median";
 "editor.motionDirection" = "Early screen direction: %.1f° (right 0°, up 90°)";
-"editor.motionClub" = "Club near impact: %.1f px/s median · %d observations";
 "editor.motionMissing" = "Ball motion unavailable: need 3 continuous observations.";
-"editor.motionClubMissing" = "Club motion unavailable: insufficient continuous detections.";
-"editor.motionCalibration" = "Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required; club motion alone is insufficient. The remaining tracer is a prediction, not a measured landing.";
+"editor.motionCalibration" = "Image-plane values at analysis resolution, not real-world speeds or launch angles. Carry (m) unavailable: camera/scale calibration and ball launch data are required. The remaining tracer is a prediction, not a measured landing.";
 
 "editor.startOptions" = "Start set. Tap Analyze for automatic tracking, or choose Landing and tap the landing position to draw a manual tracer.";
 

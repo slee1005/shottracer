@@ -78,13 +78,10 @@ Java_com_ajc_shottracer_NativeCore_render(JNIEnv *env, jobject, jlong pointer, j
 }
 
 extern "C" JNIEXPORT jdoubleArray JNICALL
-Java_com_ajc_shottracer_NativeCore_fit(JNIEnv *env, jobject, jdoubleArray points, jdouble x, jdouble y,
-                                    jdouble lo, jdouble hi) {
-    const int size = env->GetArrayLength(points);
-    if (size % 3 != 0) return nullptr;
-    std::vector<double> p(size); env->GetDoubleArrayRegion(points, 0, size, p.data());
+Java_com_ajc_shottracer_NativeCore_flightModel(JNIEnv *env, jobject, jlong pointer) {
+    auto *handle = get(pointer);
     STModel model{};
-    if (st_fit_model(p.data(), size / 3, x, y, .15, lo, hi, 3.5, 7.5, 5.5, &model) != 0) return nullptr;
+    if (!handle || st_tracker_model(handle->tracker, &model) != 0) return nullptr;
     static_assert(sizeof(STModel) == sizeof(double) * 16);
     double values[16]; std::memcpy(values, &model, sizeof(model));
     auto out = env->NewDoubleArray(16); if (out) env->SetDoubleArrayRegion(out, 0, 16, values); return out;

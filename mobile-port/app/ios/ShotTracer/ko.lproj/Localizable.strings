@@ -1,7 +1,6 @@
 "app.title" = "ShotTracer";
 "prototype.notice" = "개발용 시제품 • 타격 전 프레임에서 공을 누르세요. 밝은 공 추적만 지원하며 스토어 출시 준비 전입니다.";
 "preview.label" = "영상 미리보기. 공을 눌러 시작 위치를 지정하세요.";
-"action.import" = "파일에서 영상 선택";
 "action.photos" = "사진 보관함에서 영상 선택";
 "status.importing" = "영상을 가져오고 있습니다… iCloud 영상은 원본을 먼저 내려받아야 합니다.";
 "action.analyze" = "공 자동 추적";
@@ -59,8 +58,7 @@
 "editor.path" = "수동 궤적";
 "editor.circle" = "원 그리기";
 "editor.line" = "선 그리기";
-"editor.swing" = "스윙 포인트";
-"editor.pan" = "화면 이동 / 핀치 확대";
+"editor.swing" = "손목 포인트";
 "editor.delete" = "마지막 도형 / 샷 삭제";
 "editor.hint.ball" = "현재 프레임에서 시작 공을 누르세요.";
 "editor.hint.landing" = "착지점을 누르거나 초록색 핸들을 드래그하세요.";
@@ -68,8 +66,7 @@
 "editor.hint.path" = "시작점과 착지점을 차례로 누른 뒤 정점을 드래그하세요.";
 "editor.hint.circle" = "중심과 원둘레를 차례로 누르세요.";
 "editor.hint.line" = "선의 양 끝점을 차례로 누르세요.";
-"editor.hint.swing" = "클럽 헤드나 손을 누르면 2프레임 전진합니다.";
-"editor.hint.pan" = "핀치로 확대 후 빈 영상 영역을 드래그하면 상하좌우로 이동합니다. 조절점은 드래그로 수정하고 두 번 누르면 화면에 맞춥니다.";
+"editor.hint.swing" = "손목을 누르면 2프레임 전진합니다.";
 "editor.shotSettings" = "설정";
 "editor.flight" = "체공 시간 (초)";
 "editor.apexFraction" = "정점까지 시간 (체공 시간의 35~62%)";
@@ -148,18 +145,14 @@
 "editor.modeFlight" = "비행 샷";
 "editor.putt" = "퍼트";
 "editor.personOcclusion" = "인물 뒤로 궤적 표시";
-"editor.autoSwing" = "자동 스윙 경로";
-"editor.both" = "손목 + 클럽";
-"editor.hands" = "손목";
-"editor.club" = "클럽 헤드";
-"editor.off" = "끄기";
+"editor.autoSwing" = "자동 손목 경로 표시";
 "editor.personFailed" = "인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.";
 "editor.analysisProgress" = "기기에서 분석 중 · %d%%";
-"editor.analysisResult" = "공 %d · 손목 %d · 클럽 %d";
+"editor.analysisResult" = "공 %d · 손목 %d";
 "editor.onDevice" = "기기 내 처리";
 "editor.workspace" = "샷의 흐름을 한눈에";
 "editor.modeChanged" = "모드가 변경되었습니다. 다시 분석해 주세요.";
-"editor.autoNote" = "청록색: 손목 · 금색: 클럽. 검출되지 않은 구간은 표시하지 않습니다.";
+"editor.autoNote" = "자동 손목 경로는 청록색으로 표시합니다. 검출되지 않은 구간은 표시하지 않습니다.";
 
 "editor.timelineStart" = "시작";
 "editor.timelineLanding" = "착지";
@@ -190,10 +183,8 @@
 "editor.motionTitle" = "영상에서 관측한 움직임";
 "editor.motionBall" = "공: %.2f초 · 이동량 %.1f px · 중앙 속도 %.1f px/s";
 "editor.motionDirection" = "초반 화면상 방향: %.1f° (오른쪽 0°, 위 90°)";
-"editor.motionClub" = "임팩트 부근 클럽: 중앙 속도 %.1f px/s · 관측 %d개";
 "editor.motionMissing" = "공 이동량 없음: 연속 관측 3개 이상 필요";
-"editor.motionClubMissing" = "클럽 이동량 없음: 연속 검출 부족";
-"editor.motionCalibration" = "분석 해상도의 화면상 값이며 실제 속도·발사각이 아닙니다. 비거리(m) 계산 불가: 카메라·길이 보정 및 공의 발사 데이터가 필요하며 클럽 움직임만으로는 부족합니다. 나머지 궤적은 예측이며 실제 착지 측정이 아닙니다.";
+"editor.motionCalibration" = "분석 해상도의 화면상 값이며 실제 속도·발사각이 아닙니다. 비거리(m) 계산 불가: 카메라·길이 보정 및 공의 발사 데이터가 필요합니다. 나머지 궤적은 예측이며 실제 착지 측정이 아닙니다.";
 
 "editor.startOptions" = "시작점을 지정했습니다. Analyze(분석)를 눌러 자동 추적하거나, 착지점 도구로 도착 위치를 지정해 수동 궤적을 그리세요.";
 

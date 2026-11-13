@@ -43,6 +43,7 @@ def core(tmp_path_factory):
     lib.st_destroy.argtypes = [c.c_void_p]
     lib.st_push.argtypes = [c.c_void_p, c.c_void_p, c.c_int, c.c_double]
     lib.st_count.argtypes = [c.c_void_p]
+    lib.st_tracker_model.argtypes = [c.c_void_p, c.POINTER(NativeModel)]
     lib.st_point.argtypes = [c.c_void_p, c.c_int, c.POINTER(Point)]
     lib.st_camera_count.argtypes = [c.c_void_p]
     lib.st_camera_point.argtypes = [c.c_void_p, c.c_int, c.POINTER(Point)]
@@ -135,14 +136,55 @@ def test_camera_translation_is_removed_from_observations(core, tracker):
     assert p.x == pytest.approx(96, abs=.5)
 
 
-def test_render_uses_source_time_and_clears_destination(core, tracker):
+def test_five_valid_moving_frames_are_required(core, tracker):
+    push(core, tracker, frame(40, 150), 0)
+    for i in range(1, 5):
+        assert push(core, tracker, frame(40 + 7 * i, 150 - 8 * i), i / 30) == 0
+    model = NativeModel()
+    assert core.st_tracker_model(tracker, c.byref(model)) == -1
+    assert push(core, tracker, frame(75, 110), 5 / 30) == 1
+    assert core.st_count(tracker) == 6  # reference frame and five moving detections
+    assert core.st_tracker_model(tracker, c.byref(model)) == 0
+    assert model.t0 == 0
+    assert model.b > 0 and model.g > 0
+
+
+def test_launch_outside_fifty_degree_cone_is_rejected(core, tracker):
+    push(core, tracker, frame(40, 150), 0)
+    for i in range(1, 9):
+        assert push(core, tracker, frame(40 + 10 * i, 150 - 7 * i), i / 30) == 0
+    assert core.st_count(tracker) == 0
+
+
+@pytest.mark.parametrize("outlier", [(110, 86), (124, 56), (112, 96)])
+def test_flight_rejects_turn_speed_spike_and_outside_point_then_recovers(core, tracker, outlier):
     flight(core, tracker)
+    before = NativeModel()
+    assert core.st_tracker_model(tracker, c.byref(before)) == 0
+    push(core, tracker, frame(*outlier), 9 / 30)
+    assert core.st_count(tracker) == 9
+    after = NativeModel()
+    assert core.st_tracker_model(tracker, c.byref(after)) == 0
+    assert bytes(before) == bytes(after)
+    push(core, tracker, frame(110, 70), 10 / 30)
+    assert core.st_count(tracker) == 10
+
+
+def test_live_render_predicts_from_model_without_inventing_observations(core, tracker):
+    flight(core, tracker)
+    push(core, tracker, frame(), 9 / 30)
+    assert core.st_count(tracker) == 9
+    model = NativeModel()
+    assert core.st_tracker_model(tracker, c.byref(model)) == 0
     pixels = np.full((180, 240, 4), 127, dtype=np.uint8)
     assert core.st_render(tracker, 0, pixels.ctypes.data, pixels.strides[0]) == 0
     assert not pixels.any()
-    core.st_render(tracker, 8 / 30, pixels.ctypes.data, pixels.strides[0])
-    assert pixels[86, 96, 3] == 255
-    core.st_render(tracker, 2, pixels.ctypes.data, pixels.strides[0])
+    time = 10 / 30
+    x, y = c.c_double(), c.c_double()
+    assert core.st_model_at(c.byref(model), time, c.byref(x), c.byref(y)) == 0
+    core.st_render(tracker, time, pixels.ctypes.data, pixels.strides[0])
+    assert pixels[round(y.value * 180), round(x.value * 240), 3] == 255
+    core.st_render(tracker, model.flight_time + 2, pixels.ctypes.data, pixels.strides[0])
     assert not pixels.any()
 
 

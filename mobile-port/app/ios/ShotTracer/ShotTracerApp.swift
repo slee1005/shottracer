@@ -7,7 +7,6 @@ import UniformTypeIdentifiers
 
 struct EditorView: View {
     @StateObject private var model = EditorModel()
-    @State private var picking = false
     @State private var showingCamera = false
     @State private var settings = false
     @State private var reviewing = false
@@ -78,7 +77,6 @@ struct EditorView: View {
             .sheet(isPresented: $settings) { EditorSettings(model: model).onAppear { model.checkpoint() }.onDisappear { model.commitEdits() } }
             .sheet(isPresented: $showingProjects) { ProjectList(model: model) }
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
-            .fileImporter(isPresented: $picking, allowedContentTypes: [.movie]) { result in if case .success(let url) = result { model.importVideo(url) } }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
             .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil }
             .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil } }
@@ -98,7 +96,6 @@ struct EditorView: View {
             PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
                 Image(systemName: "photo.on.rectangle.angled").font(.system(size: 21)).frame(width: 44, height: 44)
             }.accessibilityLabel(Text("action.photos")).disabled(model.busy)
-            icon("action.import", "folder.badge.plus") { picking = true }
             icon("camera.open", "camera.fill") { model.pause(); showingCamera = true }
             icon("editor.projects", "square.stack") { model.reloadProjects(); showingProjects = true }
             icon("editor.fullscreen", "arrow.up.left.and.arrow.down.right") { fullscreen = true }
@@ -119,17 +116,27 @@ struct EditorView: View {
             Spacer(minLength: 0)
         }.frame(height: 34)
     }
+    private func workflowLabel(_ title: LocalizedStringKey, icon: String? = nil) -> some View {
+        HStack(spacing: 3) {
+            if let icon { Image(systemName: icon) }
+            Text(title).lineLimit(1).minimumScaleFactor(0.65)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .frame(height: 32)
+    }
     private var workflow: some View {
-        HStack {
+        HStack(spacing: 4) {
             Button { model.pause(); model.chooseTool("ball") } label: {
-                Label { Text(LocalizedStringKey(model.scene.shot.ball == nil ? "editor.startUnset" : "editor.startChecked")) } icon: {
-                    Image(systemName: model.scene.shot.ball == nil ? "scope" : "checkmark.circle.fill")
-                }
+                let selected = model.scene.shot.ball != nil
+                workflowLabel(selected ? "editor.startChecked" : "editor.startUnset",
+                              icon: selected ? "checkmark.circle.fill" : "scope")
             }.tint(model.scene.shot.ball == nil ? .white : .green)
-            Spacer(minLength: 2)
-            Button("editor.analyzeAction") { model.analyze() }.buttonStyle(.glassProminent).tint(.mint).disabled(model.scene.shot.ball == nil)
-            Spacer(minLength: 2)
-            Button { model.pause(); resetConfirm = true } label: { Label("editor.resetAction", systemImage: "arrow.counterclockwise") }
+            Button { model.analyze() } label: {
+                workflowLabel("editor.analyzeAction")
+            }.buttonStyle(.glassProminent).tint(.mint).disabled(model.scene.shot.ball == nil)
+            Button { model.pause(); resetConfirm = true } label: {
+                workflowLabel("editor.resetAction", icon: "arrow.counterclockwise")
+            }
         }.font(.caption).buttonStyle(.glass).disabled(model.busy || !model.hasVideo)
     }
     private func viewportPan(_ value: CGSize, _ fitted: CGSize) -> CGSize {
@@ -174,14 +181,14 @@ struct EditorView: View {
                         if !dragging {
                             dragging=true; dragPanning=false; lastPan=pan
                             let start=videoPoint(value.startLocation,area.size,fitted)
-                            dragHandle = model.tool == "pan" ? nil : model.handles.min {
+                            dragHandle = model.handles.min {
                                 hypot(($0.1.x-start.x)*width,($0.1.y-start.y)*height) < hypot(($1.1.x-start.x)*width,($1.1.y-start.y)*height)
                             }.flatMap { key,p in hypot((p.x-start.x)*width*zoom,(p.y-start.y)*height*zoom)<25 ? key : nil }
                             if dragHandle != nil { model.checkpoint() }
                         }
                         if let dragHandle {
                             model.moveHandle(dragHandle,EditPoint(min(1,max(0,point.x)),min(1,max(0,point.y))))
-                        } else if (model.tool == "pan" || zoom>1) && hypot(value.translation.width,value.translation.height)>6 {
+                        } else if zoom > 1 && hypot(value.translation.width,value.translation.height)>6 {
                             dragPanning=true
                             pan=viewportPan(CGSize(width:lastPan.width+value.translation.width,height:lastPan.height+value.translation.height),fitted)
                         }
@@ -189,7 +196,7 @@ struct EditorView: View {
                         defer { dragging=false; dragHandle=nil; transformedGesture=false; dragPanning=false; lastPan=pan }
                         guard !model.busy, !pinching, !transformedGesture else { return }
                         if dragHandle != nil { model.persist(); return }
-                        if dragPanning || model.tool == "pan" || hypot(value.translation.width,value.translation.height)>6 { return }
+                        if dragPanning || hypot(value.translation.width,value.translation.height)>6 { return }
                         let point=videoPoint(value.location,area.size,fitted)
                         if point.x>=0 && point.x<=1 && point.y>=0 && point.y<=1 { model.tap(point) }
                     })
@@ -349,7 +356,7 @@ struct EditorView: View {
     }
     private var tools: some View {
         ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
-            ForEach([("ball", "scope"), ("landing", "flag.fill"), ("apex", "arrow.up.to.line"), ("path", "scribble.variable"), ("circle", "circle"), ("line", "line.diagonal"), ("swing", "figure.golf"), ("pan", "hand.point.up.left")], id: \.0) { key, symbol in
+            ForEach([("ball", "scope"), ("landing", "flag.fill"), ("apex", "arrow.up.to.line"), ("path", "scribble.variable"), ("circle", "circle"), ("line", "line.diagonal"), ("swing", "figure.golf")], id: \.0) { key, symbol in
                 icon(key == "apex" && model.scene.shot.trackingMode == "putt" ? "editor.puttCurve" : "editor." + key, symbol, disabled: !model.hasVideo || (key == "apex" && model.scene.shot.trackingMode == "putt" && !model.scene.shot.hasGroundPath)) { model.chooseTool(key) }.tint(model.tool == key ? .mint : .white)
             }
             icon("editor.delete", "trash", disabled: !model.hasVideo) { model.deleteShape() }
@@ -432,9 +439,10 @@ struct EditorSettings: View {
                 Section("editor.motionTitle") { Text(model.motionReport()).font(.footnote).textSelection(.enabled) }
                 Section("editor.autoSwing") {
                     Toggle("editor.personOcclusion",isOn:Binding(get:{ model.scene.personOcclusion != false },set:{ model.scene.personOcclusion=$0 }))
-                    Picker("editor.autoSwing",selection:Binding(get:{ model.scene.autoSwing ?? "both" },set:{ model.scene.autoSwing=$0 })) {
-                        ForEach(["both","hands","club","off"],id:\.self) { Text(LocalizedStringKey("editor."+$0)).tag($0) }
-                    }
+                    Toggle("editor.autoSwing", isOn: Binding(
+                        get: { model.scene.autoWristsEnabled },
+                        set: { model.scene.autoSwing = $0 ? "hands" : "off" }
+                    ))
                     Text("editor.autoNote").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("editor.shotSettings") {

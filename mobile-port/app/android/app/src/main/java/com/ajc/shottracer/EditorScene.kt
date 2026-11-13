@@ -92,12 +92,8 @@ internal class EditorScene {
     var personOcclusion = true; var autoSwing = "off"
     // Legacy "both" was a default, so it does not prove an explicit club-path choice.
     var clubTracingEnabled = false
-    fun showAutoClub() = swingEnabled && clubTracingEnabled && autoSwing in listOf("both","club")
-    fun visibleAutoSwing() = if (clubTracingEnabled) autoSwing else when(autoSwing) { "both" -> "hands"; "club" -> "off"; else -> autoSwing }
-    fun configureAutoSwing(mode: String) {
-        autoSwing = mode.takeIf { it in listOf("both","hands","club","off") } ?: "off"
-        clubTracingEnabled = autoSwing in listOf("both","club")
-    }
+    val autoWristsEnabled get() = autoSwing == "both" || autoSwing == "hands"
+
     var logo: String? = null; var logoSize = .12; var logoOpacity = .85; var logoCorner = "bottom-right"
     var slowmo = false; var slowFactor = 3.0; var slowBefore = .4; var slowAfter = 1.2
     val shot: EditShot get() = shots[selected.coerceIn(0, shots.lastIndex)]
@@ -195,8 +191,8 @@ internal class EditorRenderer(private val scene: EditorScene) {
         for (s in scene.shots) {
             val motion = s.motion(time)
             val model = models[s.id]
-            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt" || (model==null && !s.manual && s.apex==null && s.base.isNotEmpty())) s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
-            val duration = if (s.edited() || s.trackingMode == "putt") s.flight else max(.01, (s.base.lastOrNull()?.time ?: s.start) - s.start)
+            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt") s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
+            val duration = s.flight
             val elapsed = (time - s.start) * s.speed
             val visible = time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)
             val points = mutableListOf<EditPoint>()
@@ -205,9 +201,6 @@ internal class EditorRenderer(private val scene: EditorScene) {
                 if (s.edited() || s.trackingMode == "putt") {
                     for (i in 0..128) { val t = duration * i / 128; if (t in from..min(duration, elapsed)) points.add(curve(t)) }
                     if (elapsed >= 0) points.add(curve(min(duration, elapsed)))
-                } else if (s.base.isNotEmpty()) {
-                    s.base.filter { it.time - s.start in from..elapsed }.forEach { points.add(EditPoint(it.x, it.y)) }
-                    if (elapsed >= 0) interpolate(s.base, s.start + min(duration, elapsed)).let { points.add(EditPoint(it.x, it.y)) }
                 }
             }
             canvas.saveLayer(0f,0f,w.toFloat(),h.toFloat(),null)
@@ -230,17 +223,19 @@ internal class EditorRenderer(private val scene: EditorScene) {
                 val path = Path(); s.swing.filter { it.time <= time }.forEachIndexed { i, p -> val q = pos(EditPoint(p.x, p.y), motion); if (i == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y) }
                 paint.style = Paint.Style.STROKE; paint.color = Color.CYAN; paint.strokeWidth = max(2f, h / 240f); canvas.drawPath(path, paint)
             }
-            if (scene.swingEnabled) {
-                for ((rows,c) in listOf(s.autoHands to Color.rgb(45,212,191),s.autoClub to Color.rgb(251,191,36))) {
-                    if ((rows === s.autoHands && scene.autoSwing !in listOf("both","hands")) || (rows === s.autoClub && !scene.showAutoClub())) continue
-                    val path = Path(); var last: TimedPoint? = null
-                    for (p in rows) if (p.time <= time && p.time >= time-2.0) {
-                        val q = pos(EditPoint(p.x,p.y),motion)
-                        if (last == null || p.time-last.time > .18) path.moveTo(q.x,q.y) else path.lineTo(q.x,q.y)
-                        last = p
-                    }
-                    paint.style=Paint.Style.STROKE; paint.color=c; paint.strokeWidth=max(1.5f,h/240f); canvas.drawPath(path,paint); paint.style=Paint.Style.FILL
+            if (scene.swingEnabled && scene.autoWristsEnabled) {
+                val path = Path()
+                var last: TimedPoint? = null
+                for (p in s.autoHands) if (p.time <= time && p.time >= time - 2.0) {
+                    val q = pos(EditPoint(p.x, p.y), motion)
+                    if (last == null || p.time - last.time > .18) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y)
+                    last = p
                 }
+                paint.style = Paint.Style.STROKE
+                paint.color = Color.rgb(45, 212, 191)
+                paint.strokeWidth = max(1.5f, h / 240f)
+                canvas.drawPath(path, paint)
+                paint.style = Paint.Style.FILL
             }
             if (scene.personOcclusion) s.masks.minByOrNull { abs(it.time-time) }?.takeIf { abs(it.time-time) <= .11 }?.let { m ->
                 val mask = maskCache.get(m.path) ?: BitmapFactory.decodeFile(m.path)?.also { maskCache.put(m.path,it) }

@@ -54,10 +54,18 @@ internal class ToolIcon(private val kind: String) : Drawable() {
         when (kind) {
             "record" -> { paint.color = Color.RED; canvas.drawCircle(12f, 12f, 8f, paint); paint.style = Paint.Style.FILL; canvas.drawCircle(12f, 12f, 5f, paint); paint.style = Paint.Style.STROKE; paint.color = Color.WHITE }
             "stop" -> { paint.style = Paint.Style.FILL; canvas.drawRoundRect(5f, 5f, 19f, 19f, 2f, 2f, paint); paint.style = Paint.Style.STROKE }
-            "pan" -> { line(12f, 2f, 12f, 22f); line(2f, 12f, 22f, 12f); line(9f, 5f, 12f, 2f, 15f, 5f); line(9f, 19f, 12f, 22f, 15f, 19f) }
+
             "landing_frame" -> { line(5f, 20f, 5f, 3f, 17f, 7f, 5f, 11f); canvas.drawCircle(17f, 17f, 5f, paint); line(17f, 14f, 17f, 17f, 20f, 17f) }
             "add" -> { line(12f, 4f, 12f, 20f); line(4f, 12f, 20f, 12f) }
-            "import", "projects" -> { line(3f, 7f, 10f, 7f, 12f, 4f, 21f, 4f, 21f, 20f, 3f, 20f, 3f, 7f); if (kind == "import") { line(12f, 9f, 12f, 17f); line(8f, 13f, 16f, 13f) } }
+            "import" -> {
+                canvas.drawRoundRect(2f, 5f, 22f, 19f, 2f, 2f, paint)
+                line(10f, 9f, 15f, 12f, 10f, 15f, 10f, 9f)
+            }
+            "projects" -> {
+                canvas.drawRoundRect(4f, 3f, 20f, 14f, 2f, 2f, paint)
+                line(5f, 17f, 19f, 17f)
+                line(7f, 21f, 17f, 21f)
+            }
             "camera" -> { canvas.drawRoundRect(3f, 6f, 21f, 20f, 2f, 2f, paint); canvas.drawCircle(12f, 13f, 4f, paint); line(8f, 6f, 9f, 3f, 15f, 3f, 16f, 6f) }
             "ball" -> { canvas.drawCircle(12f, 12f, 6f, paint); line(12f, 2f, 12f, 6f); line(12f, 18f, 12f, 22f); line(2f, 12f, 6f, 12f); line(18f, 12f, 22f, 12f) }
             "landing" -> { line(6f, 21f, 6f, 3f, 19f, 7f, 6f, 12f); line(3f, 21f, 15f, 21f) }

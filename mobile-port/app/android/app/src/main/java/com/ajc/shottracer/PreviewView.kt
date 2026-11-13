@@ -20,7 +20,6 @@ internal class PreviewView(context: Context) : View(context) {
     var onHandle: ((String, PointF) -> Unit)? = null
     var onHandleEnd: (() -> Unit)? = null
     var zoomEnabled = false
-    var panEnabled = false
     private val rectangle = RectF()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var zoom = 1f; private var panX = 0f; private var panY = 0f
@@ -98,7 +97,7 @@ internal class PreviewView(context: Context) : View(context) {
         val cy=indices.map { event.getY(it).toDouble() }.average().toFloat()
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             transformed = false; downX=cx; downY=cy; lastX=cx; lastY=cy
-            activeHandle = if(panEnabled) null else handles.minByOrNull {
+            activeHandle = handles.minByOrNull {
                 hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height())
             }?.takeIf { hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height()) < 26 * resources.displayMetrics.density }?.key
             if (activeHandle != null) onHandleStart?.invoke()
@@ -112,7 +111,7 @@ internal class PreviewView(context: Context) : View(context) {
         if (zoomEnabled) { scale.onTouchEvent(event); gestures.onTouchEvent(event) }
         if (event.actionMasked == MotionEvent.ACTION_MOVE) {
             if (activeHandle != null && !scale.isInProgress) onHandle?.invoke(activeHandle!!, normalized(event))
-            else if (zoomEnabled && (panEnabled || zoom > 1f) &&
+            else if (zoomEnabled && zoom > 1f &&
                 (transformed || hypot(cx-downX,cy-downY) > touchSlop)) {
                 panX += cx-lastX; panY += cy-lastY; boundPan()
                 transformed = true; updateRectangle(); invalidate()
@@ -121,7 +120,7 @@ internal class PreviewView(context: Context) : View(context) {
         lastX=cx; lastY=cy
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             if (activeHandle != null) { onHandle?.invoke(activeHandle!!, normalized(event)); onHandleEnd?.invoke() }
-            else if (!transformed && !panEnabled && rectangle.contains(event.x, event.y)) {
+            else if (!transformed && rectangle.contains(event.x, event.y)) {
                 val p = normalized(event); val bitmap = image!!
                 onBall?.invoke(PointF(p.x * bitmap.width, p.y * bitmap.height)); performClick()
             }

@@ -184,10 +184,6 @@ final class EditorModel: ObservableObject {
         default: break
         }
     }
-    func importVideo(_ url: URL) {
-        guard beginImport() else { return }
-        task = Task { defer { busy = false }; do { try await copyVideo(url) } catch { status = error.localizedDescription } }
-    }
     func importPhoto(_ item: PhotosPickerItem) {
         guard beginImport() else { return }
         task = Task { defer { busy = false }; do {
@@ -306,10 +302,8 @@ final class EditorModel: ObservableObject {
         }
         let rows=Array(shot.base.dropFirst()).filter { $0.time>=impact && $0.time<=impact+2 }
         let ball=summary(rows), launch=summary(rows.filter { $0.time <= (rows.first?.time ?? 0)+0.25 })
-        let club=summary((shot.autoClub ?? []).filter { $0.time>=impact-0.25 && $0.time<=impact+0.05 })
         var lines=[ball.map { String(format:NSLocalizedString("editor.motionBall",comment:""),$0[0],hypot($0[1],$0[2]),$0[3]) } ?? NSLocalizedString("editor.motionMissing",comment:"")]
         if let launch, hypot(launch[1],launch[2])>=2 { lines.append(String(format:NSLocalizedString("editor.motionDirection",comment:""),atan2(-launch[2],launch[1])*180/Double.pi)) }
-        lines.append(club.map { String(format:NSLocalizedString("editor.motionClub",comment:""),$0[3],Int($0[4])) } ?? NSLocalizedString("editor.motionClubMissing",comment:""))
         lines.append(NSLocalizedString("editor.motionCalibration",comment:"")); return lines.joined(separator:"\n")
     }
     func analyze() {
@@ -337,21 +331,21 @@ final class EditorModel: ObservableObject {
                     }
                     last=actual
                 }
-                return (result.samples(),result.samples(camera:true),person?.hands ?? [],person?.clubs ?? [],person?.masks ?? [],personError)
+                return (result.samples(),result.samples(camera:true),person?.hands ?? [],person?.masks ?? [],personError,result.flightModel())
             }.value
             if let i=scene.shots.firstIndex(where: { $0.id == id }) {
-                checkpoint(); let samples=data.0, model=putt ? nil : NativeFlight.fit(data.0,ball)
+                checkpoint(); let samples=data.0, model=data.5
                 let impact=model?[3] ?? samples.first?.time ?? start
                 scene.shots[i].base=samples; scene.shots[i].baseModel=model; scene.shots[i].camera=data.1; scene.shots[i].start=impact
                 scene.shots[i].autoHands=data.2.filter { $0.time >= impact-1.2 && $0.time <= impact+1.2 }
-                scene.shots[i].autoClub=data.3.filter { $0.time >= impact-1.2 && $0.time <= impact+1.2 }; scene.shots[i].masks=data.4
+                scene.shots[i].masks=data.3
                 if putt && samples.count >= 3 { scene.shots[i].flight=max(0.2,(samples.last?.time ?? impact)-impact) }
                 if let model { scene.shots[i].flight=model[10]; scene.shots[i].apexFraction=min(0.62,max(0.35,NativeFlight.apex(model)/model[10])) }
                 commitEdits()
             }
-            status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count,scene.shot.autoHands?.count ?? 0,scene.shot.autoClub?.count ?? 0)
-            if data.0.count < 3 { status += "\n"+NSLocalizedString("error.track",comment:"") }
-            if data.5 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
+            status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count,scene.shot.autoHands?.count ?? 0)
+            if putt ? data.0.count < 3 : data.5 == nil { status += "\n"+NSLocalizedString("error.track",comment:"") }
+            if data.4 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
         } catch { status=error.localizedDescription } }
     }
     @discardableResult func previewPopup(_ index: Int) -> Bool {
