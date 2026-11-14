@@ -49,6 +49,9 @@ developer version below, and a log for troubleshooting is written to `~/.shottra
 The app includes FFmpeg (GPL), run as a separate program; see `licenses/FFMPEG-LICENSE.txt`
 inside the app.
 
+For Apple silicon Mac App Store distribution, use the signed PKG build mode.
+See the [Mac App Store build and submission guide (Korean)](docs/MAC_APP_STORE.ko.md).
+
 ## Installation (developer version)
 
 To run from source instead of the app:

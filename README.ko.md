@@ -39,6 +39,9 @@ GitHub에서는 **Actions → Build app → Run workflow** 로 macOS·Windows용
 `~/.shottracer/shottracer.log`에 남습니다. 앱에는 FFmpeg(GPL)가 별도 프로그램으로 포함되어 있습니다(앱 안
 `licenses/FFMPEG-LICENSE.txt` 참고).
 
+Apple Silicon용 Mac App Store 배포에는 서명된 PKG 빌드 모드를 사용합니다.
+[Mac App Store 빌드 및 심사 제출 안내](docs/MAC_APP_STORE.ko.md)를 참고하세요.
+
 ## 설치 (개발자 버전)
 
 앱 대신 소스에서 실행하려면:
