@@ -63,7 +63,7 @@ final class EditorModel: ObservableObject {
     private var undo: [EditorScene] = []
     private var redo: [EditorScene] = []
     var hasVideo: Bool { source != nil }
-    var canExport: Bool { scene.shots.contains { $0.ball != nil && ($0.edited || !$0.base.isEmpty) } }
+    var canExport: Bool { scene.shots.contains { $0.hasTrace } }
     var canUndo: Bool { !undo.isEmpty }
     var canRedo: Bool { !redo.isEmpty }
     var frameCount: Int { times.count }
@@ -126,7 +126,11 @@ final class EditorModel: ObservableObject {
     }
     func deleteShot() { guard scene.shots.count > 1 else { return }; checkpoint(); scene.shots.remove(at: scene.selected); scene.selected = min(scene.selected, scene.shots.count - 1); commitEdits() }
     func deleteShape() { if !scene.shapes.isEmpty { checkpoint(); scene.shapes.removeLast(); commitEdits() } else { deleteShot() } }
-    func landOnFrame() { guard scene.shot.ball != nil, displayedTime > scene.shot.start else { return }; checkpoint(); scene.shot.landing = scene.shot.endpoint; scene.shot.flight = min(15, max(0.2, displayedTime - scene.shot.start)); chooseTool("landing"); commitEdits() }
+    func selectLandingTool() {
+        pause()
+        chooseTool("landing")
+        status = NSLocalizedString("editor.landingWorkflow", comment: "")
+    }
     func reset() {
         guard !busy,!editingTimeline, hasVideo else { return }
         pause(); checkpoint(); let w = scene.width, h = scene.height
@@ -171,16 +175,29 @@ final class EditorModel: ObservableObject {
         commitEdits(save: false)
     }
     func tap(_ point: EditPoint) {
-        guard !busy, hasVideo else { return }
+        guard !busy, !frameLoading, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); status=NSLocalizedString("editor.startOptions",comment:"")
-        case "landing", "apex":
+        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.landingConfirmed = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); selectLandingTool()
+        case "landing":
+            let flight = displayedTime - scene.shot.start
+            guard scene.shot.ball != nil, (0.2...15).contains(flight) else {
+                status = NSLocalizedString("editor.landingWorkflow", comment: "")
+                return
+            }
+            pause()
+            checkpoint()
+            scene.shot.flight = flight
+            scene.shot.landing = r
+            scene.shot.landingConfirmed = true
+            scene.shot.timingLandingEstimated = false
+            commitEdits()
+            status = NSLocalizedString("editor.readyToAnalyze", comment: "")
+        case "apex":
             checkpoint(); if scene.shot.ball == nil { scene.shot.ball = EditPoint(0.2, 0.8); scene.shot.start = displayedTime }
             moveHandle(tool, p); persist()
         case "path": checkpoint(); if pending == nil { scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.manual = true; pending = p } else { scene.shot.landing = r; pending = nil }; commitEdits()
         case "circle", "line": if let first = pending { checkpoint(); scene.shapes.append(EditShape(kind: tool, a: first, b: p)); pending = nil; commitEdits() } else { pending = p }
-        case "swing": checkpoint(); scene.shot.swing.removeAll { abs($0.time - displayedTime) < 0.00001 }; scene.shot.swing.append(EditSample(displayedTime, r.x, r.y)); scene.shot.swing.sort { $0.time < $1.time }; commitEdits(); step(2)
         default: break
         }
     }
@@ -291,7 +308,7 @@ final class EditorModel: ObservableObject {
     func setTrackingMode(_ mode: String) {
         guard !busy, (scene.shot.trackingMode ?? "flight") != mode else { return }
         checkpoint(); scene.shot.trackingMode=mode; scene.shot.base=[]; scene.shot.baseModel=nil
-        scene.shot.landing=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
+        scene.shot.landing=nil; scene.shot.landingConfirmed=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
         chooseTool("ball"); commitEdits(); status=NSLocalizedString("editor.modeChanged",comment:"")
     }
     func motionReport() -> String {
@@ -307,45 +324,54 @@ final class EditorModel: ObservableObject {
         lines.append(NSLocalizedString("editor.motionCalibration",comment:"")); return lines.joined(separator:"\n")
     }
     func analyze() {
-        guard !busy,!editingTimeline, let source, let ball = scene.shot.ball else { return }
+        guard !busy, !editingTimeline, !frameLoading, scene.shot.readyToAnalyze, let source, let ball = scene.shot.ball else { return }
         pause(); busy=true; output=nil
-        let start=scene.shot.start, end=min(duration,start+15), width=scene.width, height=scene.height, id=scene.shot.id, rows=times
+        let start=scene.shot.start, end=start+scene.shot.flight, width=scene.width, height=scene.height, id=scene.shot.id, rows=times
         let putt=scene.shot.trackingMode == "putt"
+        let personOcclusion = scene.personOcclusion != false
         status=NSLocalizedString("status.analyzing",comment:"")
         task=Task { defer { busy=false }; do {
             let data=try await Task.detached {
                 let result=try TrackingSession(width:width,height:height,ball:CGPoint(x:ball.x*Double(width),y:ball.y*Double(height)),putt:putt)
                 let folder=source.deletingLastPathComponent().appendingPathComponent("analysis-"+UUID().uuidString,isDirectory:true)
-                let person=try? PersonAnalysis(folder); var personError=person == nil
+                let person = personOcclusion ? try? PersonAnalysis(folder) : nil
+                var personError = personOcclusion && person == nil
                 let generator=Self.generator(source); var last = -1.0, lastPerson = -1.0
-                for time in rows where time >= max(0,start-1.2) && time <= end {
-                    if last >= 0 && time-last < 1.0/30-0.000001 { continue }
+                for time in rows where time >= start - 0.000001 && time <= end + 0.000001 {
+                    if last >= 0 && time-last < 1.0/30-0.000001 && abs(time-end) > 0.000001 { continue }
                     try Task.checkCancellation(); let frame=try await generator.image(at:CMTime(seconds:time,preferredTimescale:60000))
                     let actual=frame.actualTime.seconds
                     if actual <= last { continue }
-                    if actual >= start { try result.push(frame.image,time:actual) }
+                    try result.push(frame.image,time:actual)
                     if let person,!personError,actual-lastPerson >= (abs(actual-start) <= 1.2 ? 1.0/30 : 1.0/15)-0.000001 {
-                        let m=result.samples(camera:true).last
-                        do { try person.push(frame.image,actual,EditPoint(m?.x ?? 0,m?.y ?? 0)) } catch { personError=true }
+                        do { try person.push(frame.image,actual) } catch { personError=true }
                         lastPerson=actual
                     }
                     last=actual
                 }
-                return (result.samples(),result.samples(camera:true),person?.hands ?? [],person?.masks ?? [],personError,result.flightModel())
+                return (result.samples(),result.samples(camera:true),person?.masks ?? [],personError,result.flightModel())
             }.value
+            let found = putt ? data.0.count >= 3 : data.4 != nil
             if let i=scene.shots.firstIndex(where: { $0.id == id }) {
-                checkpoint(); let samples=data.0, model=data.5
-                let impact=model?[3] ?? samples.first?.time ?? start
-                scene.shots[i].base=samples; scene.shots[i].baseModel=model; scene.shots[i].camera=data.1; scene.shots[i].start=impact
-                scene.shots[i].autoHands=data.2.filter { $0.time >= impact-1.2 && $0.time <= impact+1.2 }
-                scene.shots[i].masks=data.3
-                if putt && samples.count >= 3 { scene.shots[i].flight=max(0.2,(samples.last?.time ?? impact)-impact) }
-                if let model { scene.shots[i].flight=model[10]; scene.shots[i].apexFraction=min(0.62,max(0.35,NativeFlight.apex(model)/model[10])) }
+                checkpoint(); let model = data.4
+                let oldMotion = interpolated(scene.shots[i].camera, end)
+                let newMotion = interpolated(data.1, end)
+                if let landing = scene.shots[i].landing {
+                    scene.shots[i].landing = EditPoint(landing.x + oldMotion.x - newMotion.x,
+                                                      landing.y + oldMotion.y - newMotion.y)
+                }
+                scene.shots[i].base = found ? data.0 : []
+                scene.shots[i].baseModel = model
+                scene.shots[i].camera = data.1
+                scene.shots[i].masks = data.2
+                scene.shots[i].manual = false
+                scene.shots[i].apex = nil
+                if let model { scene.shots[i].apexFraction = min(0.62, max(0.35, NativeFlight.apex(model) / model[10])) }
                 commitEdits()
             }
-            status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count,scene.shot.autoHands?.count ?? 0)
-            if putt ? data.0.count < 3 : data.5 == nil { status += "\n"+NSLocalizedString("error.track",comment:"") }
-            if data.4 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
+            status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count)
+            if !found { status += "\n"+NSLocalizedString("error.track",comment:"") }
+            if data.3 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
         } catch { status=error.localizedDescription } }
     }
     @discardableResult func previewPopup(_ index: Int) -> Bool {

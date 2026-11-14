@@ -6,6 +6,9 @@ import org.json.JSONObject
 import java.util.UUID
 import kotlin.math.*
 
+internal data class ShotInfo(val value: String, val visible: Boolean)
+internal val shotInfoKeys = listOf("total", "carry", "height")
+
 internal data class EditPoint(val x: Double, val y: Double)
 internal data class TimedPoint(val time: Double, val x: Double, val y: Double)
 internal data class EditPopup(var kind: String = "text", var label: String = "", var value: String = "",
@@ -20,8 +23,12 @@ internal data class EditShot(
     var swing: MutableList<TimedPoint> = mutableListOf(), var popups: MutableList<EditPopup> = mutableListOf(),
     var baseModel: DoubleArray? = null, var trackingMode: String = "flight",
     var autoHands: List<TimedPoint> = emptyList(), var autoClub: List<TimedPoint> = emptyList(),
-    var masks: List<PersonMask> = emptyList(), var timingLandingEstimated: Boolean? = null
+    var masks: List<PersonMask> = emptyList(), var timingLandingEstimated: Boolean? = null, var landingConfirmed: Boolean = false,
+    val shotInfo: MutableMap<String, ShotInfo> = mutableMapOf()
 ) {
+    fun hasTrace() = ball != null && (edited() || base.isNotEmpty()) &&
+        (!landingConfirmed || manual || base.isNotEmpty())
+    fun readyToAnalyze() = ball != null && landing != null && landingConfirmed && flight in .2..15.0
     fun model(): DoubleArray? {
         val base = baseModel ?: return null
         if (trackingMode == "putt" || manual || apex != null) return null
@@ -110,6 +117,12 @@ internal class EditorScene {
                 put("timingLandingEstimated",s.timingLandingEstimated ?: JSONObject.NULL)
                 put("trackingMode", s.trackingMode); put("autoHands", rows(s.autoHands)); put("autoClub", rows(s.autoClub))
                 put("masks", JSONArray(s.masks.map { JSONObject().put("time", it.time).put("path", it.path) }))
+                put("landingConfirmed", s.landingConfirmed)
+                put("shotInfo", JSONObject().apply {
+                    s.shotInfo.forEach { (key, info) ->
+                        put(key, JSONObject().put("value", info.value).put("visible", info.visible))
+                    }
+                })
                 put("baseModel", s.baseModel?.let { JSONArray(it.toList()) } ?: JSONObject.NULL)
                 put("popups", JSONArray(s.popups.map { p -> JSONObject().apply {
                     put("kind", p.kind); put("label", p.label); put("value", p.value); put("anchor", p.anchor)
@@ -148,6 +161,12 @@ internal class EditorScene {
                                 v.optString("hide", if (v.has("duration")) "time" else "after_shot"), v.optDouble("duration", 3.0)))
                         } }
                         shot.timingLandingEstimated=if(s.isNull("timingLandingEstimated")) null else s.optBoolean("timingLandingEstimated")
+                        shot.landingConfirmed = s.optBoolean("landingConfirmed")
+                        val info = s.optJSONObject("shotInfo")
+                        for (key in shotInfoKeys) {
+                            val entry = info?.optJSONObject(key) ?: continue
+                            shot.shotInfo[key] = ShotInfo(entry.optString("value"), entry.optBoolean("visible"))
+                        }
                         shot.trackingMode = s.optString("trackingMode","flight")
                         shot.autoHands = rows(s.optJSONArray("autoHands")); shot.autoClub = rows(s.optJSONArray("autoClub"))
                         s.optJSONArray("masks")?.let { a -> shot.masks = (0 until a.length()).map { i -> a.getJSONObject(i).let { PersonMask(it.getDouble("time"),it.getString("path")) } }.sortedBy { it.time } }
@@ -175,11 +194,175 @@ internal class EditorScene {
     }
 }
 
+internal data class ShotMeasurement(val amount: Double, val unit: String) {
+    val metres: Double get() = amount * when (unit) {
+        "yds" -> .9144
+        "ft" -> .3048
+        else -> 1.0
+    }
+}
+
+internal fun shotMeasurement(value: String?): ShotMeasurement? {
+    val match = Regex("""^([0-9]+(?:[.,][0-9]+)?)\s*(m|yd|yds|ft|미터|야드|피트)?$""", RegexOption.IGNORE_CASE)
+        .matchEntire(value.orEmpty().trim()) ?: return null
+    val amount = match.groupValues[1].replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: return null
+    val unit = when (match.groupValues[2].lowercase()) {
+        "yd", "yds", "야드" -> "yds"
+        "ft", "피트" -> "ft"
+        else -> "m"
+    }
+    return ShotMeasurement(amount, unit)
+}
+
+internal fun distanceInput(value: String, unit: String): String {
+    val measurement = shotMeasurement(value) ?: return value
+    val amount = if (measurement.unit == unit) measurement.amount
+        else measurement.metres / if (unit == "yds") .9144 else 1.0
+    return java.math.BigDecimal.valueOf(amount).setScale(6, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros().toPlainString()
+}
+
+internal class PathProgress(points: List<EditPoint>, width: Int, height: Int) {
+    private val lengths = DoubleArray(points.size).apply {
+        for (i in 1 until size) {
+            val a = points[i - 1]
+            val b = points[i]
+            this[i] = this[i - 1] + hypot((b.x - a.x) * width, (b.y - a.y) * height)
+        }
+    }
+
+    fun fraction(phase: Double): Double {
+        if (lengths.last() <= 1e-9) return if (phase >= 1) 1.0 else 0.0
+        val index = phase.coerceIn(0.0, 1.0) * lengths.lastIndex
+        val lower = index.toInt()
+        val upper = min(lower + 1, lengths.lastIndex)
+        return (lengths[lower] + (lengths[upper] - lengths[lower]) * (index - lower)) / lengths.last()
+    }
+}
+
+private class ShotTrajectory(shot: EditShot, width: Int, height: Int) {
+    private val model = shot.model()
+    val total = shotMeasurement(shot.shotInfo["total"]?.value)
+    private val carry = shotMeasurement(shot.shotInfo["carry"]?.value)?.metres ?: 0.0
+    private val profile = if (shot.trackingMode == "putt" || shot.shotInfo.isEmpty()) doubleArrayOf(shot.flight, 1.0, 0.0)
+        else NativeCore.shotInfoProfile(carry, total?.metres ?: 0.0,
+            shotMeasurement(shot.shotInfo["height"]?.value)?.metres ?: 0.0, shot.flight)
+    val airTime = profile[0]
+    private val riseScale = profile[1]
+    private val rollRatio = profile[2]
+    private val rollTime = airTime * rollRatio
+    val duration = airTime + rollTime
+    val landing = if (shot.hasTrace()) shot.endpoint() else null
+    private val airProgress = if (total != null && shot.shotInfo["total"]?.visible == true && landing != null)
+        PathProgress((0..128).map { point(shot, airTime * it / 128) }, width, height) else null
+    private val carryShare = if (total != null && rollTime > 0) carry / total.metres else 1.0
+
+    fun point(shot: EditShot, time: Double): EditPoint {
+        val fraction = (time / airTime).coerceIn(0.0, 1.0)
+        val sourceTime = fraction * shot.flight
+        val start = shot.ball
+        if (start != null && landing != null && time > airTime && rollTime > 0) {
+            val progress = rollProgress(time)
+            return EditPoint(landing.x + (landing.x - start.x) * rollRatio * progress,
+                landing.y + (landing.y - start.y) * rollRatio * progress)
+        }
+        val point = if (shot.trackingMode == "putt") shot.ground(sourceTime)
+            else model?.let { NativeCore.modelPoint(it, sourceTime)?.let { p -> EditPoint(p[0], p[1]) } }
+                ?: shot.curve(sourceTime / shot.speed)
+        if (start == null || landing == null || riseScale == 1.0) return point
+        val groundY = start.y + (landing.y - start.y) * fraction
+        return EditPoint(point.x, groundY + (point.y - groundY) * riseScale)
+    }
+
+    private fun rollProgress(time: Double): Double {
+        val remaining = 1 - ((time - airTime) / rollTime).coerceIn(0.0, 1.0)
+        return 1 - remaining * remaining
+    }
+
+    fun distance(time: Double): String? {
+        val measurement = total ?: return null
+        val path = airProgress ?: return null
+        val fraction = if (time > airTime && rollTime > 0) carryShare + (1 - carryShare) * rollProgress(time)
+            else carryShare * path.fraction(time / airTime)
+        val number = java.text.NumberFormat.getNumberInstance().apply {
+            isGroupingUsed = false
+            maximumFractionDigits = if (measurement.amount < 10 || time >= duration) 2 else 0
+            roundingMode = if (time >= duration) java.math.RoundingMode.HALF_UP else java.math.RoundingMode.DOWN
+        }.format(if (time >= duration) measurement.amount else measurement.amount * fraction)
+        return "$number ${measurement.unit}"
+    }
+}
+
+private fun drawDistance(canvas: Canvas, label: String, point: PointF, w: Int, h: Int, paint: Paint) {
+    val size = min(w, h).toFloat()
+    paint.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+    paint.textSize = max(1f, size * .052f)
+    val labelWidth = paint.measureText(label)
+    if (labelWidth > w * .85f) paint.textSize *= w * .85f / labelWidth
+    val half = paint.measureText(label) / 2
+    val margin = size * .018f
+    val x = (point.x - half).coerceIn(margin, w - 2 * half - margin)
+    val y = max(margin - paint.ascent(), min(h - margin - paint.descent(), point.y - size * .045f))
+    paint.strokeWidth = max(1f, paint.textSize * .12f)
+    paint.style = Paint.Style.STROKE
+    paint.color = Color.BLACK
+    canvas.drawText(label, x, y, paint)
+    paint.style = Paint.Style.FILL
+    paint.color = Color.WHITE
+    canvas.drawText(label, x, y, paint)
+}
+
+private fun ribbon(points: List<PointF>, width: Float): Path {
+    val distinct = points.fold(mutableListOf<PointF>()) { result, point ->
+        if (result.lastOrNull() != point) result.add(point)
+        result
+    }
+    val path = Path()
+    if (distinct.size < 2) return path
+    val edges = distinct.mapIndexed { index, point ->
+        val a = distinct[max(0, index - 1)]
+        val b = distinct[min(distinct.lastIndex, index + 1)]
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val length = hypot(dx, dy).coerceAtLeast(.001f)
+        val half = width * (.14f + .70f * index / distinct.lastIndex)
+        val x = -dy * half / length
+        val y = dx * half / length
+        PointF(point.x + x, point.y + y) to PointF(point.x - x, point.y - y)
+    }
+    path.moveTo(edges.first().first.x, edges.first().first.y)
+    edges.drop(1).forEach { path.lineTo(it.first.x, it.first.y) }
+    edges.asReversed().forEach { path.lineTo(it.second.x, it.second.y) }
+    path.close()
+    return path
+}
+
+private fun drawLandingSplash(canvas: Canvas, point: PointF, size: Float, progress: Float, paint: Paint) {
+    val spread = size * .09f
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = max(1f, size * .006f)
+    for (ring in 0..1) {
+        val phase = ((progress - ring * .16f) / (1 - ring * .16f)).coerceIn(0f, 1f)
+        if (progress < ring * .16f) continue
+        val radius = spread * (.15f + phase)
+        paint.color = Color.argb(((1 - phase) * 220).toInt(), 87, 225, 255)
+        canvas.drawOval(point.x - radius, point.y - radius * .35f, point.x + radius, point.y + radius * .35f, paint)
+    }
+    paint.style = Paint.Style.FILL
+    paint.color = Color.argb(((1 - progress) * 245).toInt(), 171, 244, 255)
+    for (drop in -2..2) {
+        val x = point.x + drop * spread * progress * .55f
+        val y = point.y - spread * (1.15f - abs(drop) * .15f) * 4 * progress * (1 - progress)
+        canvas.drawCircle(x, y, max(1f, size * .007f) * (1 - progress * .6f), paint)
+    }
+    paint.alpha = 255
+}
+
 /** One renderer instance serves both preview and export from an immutable scene snapshot. */
-internal class EditorRenderer(private val scene: EditorScene) {
+internal class EditorRenderer(private val scene: EditorScene, private val shotInfoLabel: (String) -> String) {
     private val logo = scene.logo?.let { BitmapFactory.decodeFile(it) }
     private val maskCache = android.util.LruCache<String,Bitmap>(6)
-    private val models = scene.shots.associate { it.id to it.model() }
+    private val trajectories = scene.shots.associate { it.id to ShotTrajectory(it, scene.width, scene.height) }
     fun overlay(time: Double): Bitmap {
         val w = scene.width; val h = scene.height
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -190,59 +373,66 @@ internal class EditorRenderer(private val scene: EditorScene) {
         val occupied=mutableListOf<PopupBox>()
         for (s in scene.shots) {
             val motion = s.motion(time)
-            val model = models[s.id]
-            fun curve(t: Double): EditPoint = if (s.trackingMode == "putt") s.ground(t) else model?.let { NativeCore.modelPoint(it, t)?.let { p -> EditPoint(p[0], p[1]) } } ?: s.curve(t / s.speed)
-            val duration = s.flight
+            val trajectory = trajectories.getValue(s.id)
+            val airTime = trajectory.airTime
+            val duration = trajectory.duration
+            val landing = trajectory.landing
             val elapsed = (time - s.start) * s.speed
-            val visible = time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)
+            val visible = elapsed >= 0 && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold)
             val points = mutableListOf<EditPoint>()
-            if (visible && s.ball != null && (s.trackingMode != "putt" || s.hasGroundPath())) {
+            if (visible && s.hasTrace() && (s.trackingMode != "putt" || s.hasGroundPath())) {
                 val from = if (scene.preset == "comet") max(0.0, elapsed - .7) else 0.0
-                if (s.edited() || s.trackingMode == "putt") {
-                    for (i in 0..128) { val t = duration * i / 128; if (t in from..min(duration, elapsed)) points.add(curve(t)) }
-                    if (elapsed >= 0) points.add(curve(min(duration, elapsed)))
-                }
+                val to = min(duration, elapsed)
+                for (index in 0..128) points.add(trajectory.point(s, from.coerceAtMost(to) + (to - from).coerceAtLeast(0.0) * index / 128))
             }
             canvas.saveLayer(0f,0f,w.toFloat(),h.toFloat(),null)
             if (points.size >= 2) {
-                val path = Path(); points.forEachIndexed { i, p -> val q = pos(p, motion); if (i == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y) }
-                val width = max(1.5, h / 240.0) * scene.lineWidth
-                paint.style = Paint.Style.STROKE; paint.color = color(s.color); paint.strokeWidth = width.toFloat()
-                if (scene.preset != "minimal" && scene.glow > 0) {
-                    paint.maskFilter = BlurMaskFilter((width * scene.glow * if (scene.preset == "neon") 2 else 1).toFloat(), BlurMaskFilter.Blur.NORMAL)
-                    paint.alpha = 170; paint.strokeWidth = (width * 2).toFloat(); canvas.drawPath(path, paint); paint.maskFilter = null
-                }
-                paint.alpha = 255; paint.color = Color.BLACK; paint.strokeWidth = (width + 2).toFloat(); canvas.drawPath(path, paint)
-                paint.color = color(s.color); paint.strokeWidth = width.toFloat(); canvas.drawPath(path, paint)
-                if (scene.preset != "minimal") { paint.color = if (scene.preset == "neon") color(s.color) else Color.WHITE; paint.strokeWidth = (width * .45).toFloat(); canvas.drawPath(path, paint) }
-                val end = pos(points.last(), motion)
-                if (scene.head) { paint.style = Paint.Style.FILL; paint.color = Color.WHITE; canvas.drawCircle(end.x, end.y, width.toFloat(), paint) }
-                if (scene.marker && elapsed >= duration) { paint.style = Paint.Style.STROKE; paint.color = color(s.color); paint.strokeWidth = 2f; canvas.drawCircle(end.x, end.y, (h * .02).toFloat(), paint) }
-            }
-            if (scene.swingEnabled && s.swing.size > 1) {
-                val path = Path(); s.swing.filter { it.time <= time }.forEachIndexed { i, p -> val q = pos(EditPoint(p.x, p.y), motion); if (i == 0) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y) }
-                paint.style = Paint.Style.STROKE; paint.color = Color.CYAN; paint.strokeWidth = max(2f, h / 240f); canvas.drawPath(path, paint)
-            }
-            if (scene.swingEnabled && scene.autoWristsEnabled) {
-                val path = Path()
-                var last: TimedPoint? = null
-                for (p in s.autoHands) if (p.time <= time && p.time >= time - 2.0) {
-                    val q = pos(EditPoint(p.x, p.y), motion)
-                    if (last == null || p.time - last.time > .18) path.moveTo(q.x, q.y) else path.lineTo(q.x, q.y)
-                    last = p
-                }
-                paint.style = Paint.Style.STROKE
-                paint.color = Color.rgb(45, 212, 191)
-                paint.strokeWidth = max(1.5f, h / 240f)
-                canvas.drawPath(path, paint)
+                val width = (max(1.5, h / 240.0) * scene.lineWidth).toFloat()
+                val path = ribbon(points.map { pos(it, motion) }, width)
                 paint.style = Paint.Style.FILL
+                paint.color = color(s.color)
+                if (scene.preset != "minimal" && scene.glow > 0) {
+                    paint.maskFilter = BlurMaskFilter((width * scene.glow).toFloat(), BlurMaskFilter.Blur.NORMAL)
+                    paint.alpha = 140
+                    canvas.drawPath(path, paint)
+                    paint.maskFilter = null
+                }
+                paint.alpha = 255
+                canvas.drawPath(path, paint)
+                val end = pos(points.last(), motion)
+                if (scene.head) { paint.style = Paint.Style.FILL; paint.color = Color.WHITE; canvas.drawCircle(end.x, end.y, width, paint) }
+                if (scene.marker && elapsed >= airTime && landing != null) {
+                    val contact = pos(landing, motion)
+                    paint.style = Paint.Style.STROKE
+                    paint.color = color(s.color)
+                    paint.strokeWidth = 2f
+                    canvas.drawCircle(contact.x, contact.y, (h * .02).toFloat(), paint)
+                }
+            }
+            val splashAge = time - (s.start + airTime / s.speed)
+            if (scene.marker && s.hasTrace() && splashAge >= -1e-6 && splashAge < .65) {
+                drawLandingSplash(canvas, pos(s.endpoint(), motion), min(w, h).toFloat(), (splashAge / .65).coerceAtLeast(0.0).toFloat(), paint)
             }
             if (scene.personOcclusion) s.masks.minByOrNull { abs(it.time-time) }?.takeIf { abs(it.time-time) <= .11 }?.let { m ->
                 val mask = maskCache.get(m.path) ?: BitmapFactory.decodeFile(m.path)?.also { maskCache.put(m.path,it) }
                 if (mask != null) canvas.drawBitmap(mask,null,Rect(0,0,w,h),Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { xfermode=PorterDuffXfermode(PorterDuff.Mode.DST_OUT) })
             }
             canvas.restore()
-            for (p in s.popups) {
+            points.lastOrNull()?.let { tip ->
+                trajectory.distance(min(elapsed, duration))?.let { label ->
+                    // Sample source-time camera offsets symmetrically so seeks and exports agree.
+                    val before = s.motion(time - .045)
+                    val after = s.motion(time + .045)
+                    val stable = EditPoint((before.x + 2 * motion.x + after.x) / 4, (before.y + 2 * motion.y + after.y) / 4)
+                    drawDistance(canvas, label, pos(tip, stable), w, h, paint)
+                }
+            }
+            val infoCards = if (s.hasTrace()) shotInfoKeys.filter { it != "total" }.mapNotNull { key ->
+                val info = s.shotInfo[key]?.takeIf { it.visible && it.value.isNotBlank() } ?: return@mapNotNull null
+                val value = if (key == "carry") shotMeasurement(info.value)?.let { "${distanceInput(info.value, it.unit)} ${it.unit}" } ?: info.value else info.value
+                EditPopup(label = shotInfoLabel(key), value = value, anchor = "top-right")
+            } else emptyList()
+            for (p in s.popups + infoCards) {
                 val window=popupWindow(s,p) ?: continue
                 if(!window.contains(time)) continue
                 val at = when (p.anchor) {

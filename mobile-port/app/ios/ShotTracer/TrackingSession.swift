@@ -119,6 +119,11 @@ func interpolated(_ rows: [EditSample], _ time: Double) -> EditPoint {
     let a = rows[low], b = rows[high], f = (time - a.time) / max(1e-9, b.time - a.time)
     return EditPoint(a.x + f * (b.x - a.x), a.y + f * (b.y - a.y))
 }
+let shotInfoKeys = ["total", "carry", "height"]
+struct ShotInfo: Codable, Sendable {
+    var value = ""
+    var visible = true
+}
 struct EditPopup: Codable, Identifiable, Sendable {
     var kind = "text", label = "", value = "", anchor = "landing", hide = "after_shot"
     var delay = 0.0, duration = 3.0
@@ -131,6 +136,10 @@ struct EditShot: Codable, Identifiable, Sendable {
     var flight = 4.0, apexFraction = 0.5, speed = 1.0, color = "#FF2D2D", manual = false
     var base: [EditSample] = [], camera: [EditSample] = [], swing: [EditSample] = []
     var timingLandingEstimated: Bool?
+    var shotInfo: [String: ShotInfo]?
+    var landingConfirmed: Bool?
+    var hasTrace: Bool { ball != nil && (edited || !base.isEmpty) && (landingConfirmed != true || manual || !base.isEmpty) }
+    var readyToAnalyze: Bool { ball != nil && landing != nil && landingConfirmed == true && (0.2...15).contains(flight) }
     var trackingMode: String?
     var autoHands: [EditSample]?, autoClub: [EditSample]?, masks: [PersonMask]?
     var baseModel: [Double]?
@@ -209,8 +218,14 @@ final class EditorRenderer: @unchecked Sendable {
     let scene: EditorScene
     private let logo: UIImage?
     private let maskCache = NSCache<NSString, UIImage>()
-    private let models: [String: [Double]]
-    init(_ scene: EditorScene) { self.scene = scene; logo = scene.logo.flatMap { UIImage(contentsOfFile: $0) }; models = Dictionary(uniqueKeysWithValues: scene.shots.compactMap { s in s.model.map { (s.id, $0) } }) }
+    private let trajectories: [String: ShotTrajectory]
+    init(_ scene: EditorScene) {
+        self.scene = scene
+        logo = scene.logo.flatMap { UIImage(contentsOfFile: $0) }
+        trajectories = Dictionary(uniqueKeysWithValues: scene.shots.map {
+            ($0.id, ShotTrajectory($0, width: scene.width, height: scene.height))
+        })
+    }
     func overlay(_ time: Double) -> UIImage {
         let w = CGFloat(scene.width), h = CGFloat(scene.height)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
@@ -224,51 +239,44 @@ final class EditorRenderer: @unchecked Sendable {
             ctx.setLineCap(.round); ctx.setLineJoin(.round)
             var occupied: [CGRect]=[]
             for s in scene.shots {
-                func curve(_ t: Double) -> EditPoint { if s.trackingMode == "putt" { return s.ground(t) }; return models[s.id].flatMap { NativeFlight.at($0, t) } ?? s.curve(t / s.speed) }
+                guard let trajectory = trajectories[s.id] else { continue }
+                let airTime = trajectory.airTime
+                let duration = trajectory.duration
+                let landing = trajectory.landing
                 let motion = interpolated(s.camera, time)
-                let duration = s.flight
                 let elapsed = (time - s.start) * s.speed
                 var points: [EditPoint] = []
-                if s.ball != nil && (s.trackingMode != "putt" || s.hasGroundPath) && time >= s.start && (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
-                    let from = scene.preset == "comet" ? max(0, elapsed - 0.7) : 0
-                    if s.edited || s.trackingMode == "putt" {
-                        for i in 0...128 { let t = duration * Double(i) / 128; if t >= from && t <= min(duration, elapsed) { points.append(curve(t)) } }
-                        if elapsed >= 0 { points.append(curve(min(duration, elapsed))) }
-                    }
+                if s.hasTrace && (s.trackingMode != "putt" || s.hasGroundPath) && elapsed >= 0 &&
+                    (scene.hold < 0 || time <= s.start + duration / s.speed + scene.hold) {
+                    let to = min(duration, elapsed)
+                    let from = scene.preset == "comet" ? min(to, max(0, elapsed - 0.7)) : 0
+                    points = (0...128).map { trajectory.point(s, at: from + (to - from) * Double($0) / 128) }
                 }
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
                 if points.count >= 2 {
-                    let path = CGMutablePath(); path.move(to: pos(points[0], motion)); points.dropFirst().forEach { path.addLine(to: pos($0, motion)) }
                     let width = max(1.5, h / 240) * scene.lineWidth
+                    let path = ribbon(points.map { pos($0, motion) }, width: width)
+                    ctx.saveGState()
                     if scene.preset != "minimal" && scene.glow > 0 {
-                        ctx.saveGState(); ctx.setShadow(offset: .zero, blur: width * scene.glow * (scene.preset == "neon" ? 3 : 1.5), color: color(s.color).cgColor)
-                        ctx.addPath(path); ctx.setStrokeColor(color(s.color).cgColor); ctx.setLineWidth(width * 1.5); ctx.strokePath(); ctx.restoreGState()
+                        ctx.setShadow(offset: .zero, blur: width * scene.glow, color: color(s.color).cgColor)
                     }
-                    ctx.addPath(path); ctx.setStrokeColor(UIColor.black.cgColor); ctx.setLineWidth(width + 2); ctx.strokePath()
-                    ctx.addPath(path); ctx.setStrokeColor(color(s.color).cgColor); ctx.setLineWidth(width); ctx.strokePath()
-                    if scene.preset != "minimal" { ctx.addPath(path); ctx.setStrokeColor((scene.preset == "neon" ? color(s.color) : .white).cgColor); ctx.setLineWidth(width * 0.45); ctx.strokePath() }
+                    ctx.setFillColor(color(s.color).cgColor)
+                    ctx.addPath(path)
+                    ctx.fillPath()
+                    ctx.restoreGState()
                     let p = pos(points.last!, motion)
                     if scene.head { ctx.setFillColor(UIColor.white.cgColor); ctx.fillEllipse(in: CGRect(x: p.x - width, y: p.y - width, width: 2 * width, height: 2 * width)) }
-                    if scene.marker && elapsed >= duration { ctx.setStrokeColor(color(s.color).cgColor); ctx.setLineWidth(2); let r = h * 0.02; ctx.strokeEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
-                }
-                let swing = s.swing.filter { $0.time <= time }
-                if scene.swingEnabled && swing.count > 1 {
-                    let path = CGMutablePath(); path.move(to: pos(EditPoint(swing[0].x, swing[0].y), motion))
-                    swing.dropFirst().forEach { path.addLine(to: pos(EditPoint($0.x, $0.y), motion)) }
-                    ctx.addPath(path); ctx.setStrokeColor(UIColor.cyan.cgColor); ctx.setLineWidth(max(2, h / 240)); ctx.strokePath()
-                }
-                if scene.swingEnabled && scene.autoWristsEnabled {
-                    let path = CGMutablePath()
-                    var last: EditSample?
-                    for p in s.autoHands ?? [] where p.time <= time && p.time >= time - 2 {
-                        let q = pos(EditPoint(p.x, p.y), motion)
-                        if let last, p.time - last.time <= 0.18 { path.addLine(to: q) } else { path.move(to: q) }
-                        last = p
+                    if scene.marker, elapsed >= airTime, let landing {
+                        let contact = pos(landing, motion)
+                        let r = h * 0.02
+                        ctx.setStrokeColor(color(s.color).cgColor)
+                        ctx.setLineWidth(2)
+                        ctx.strokeEllipse(in: CGRect(x: contact.x - r, y: contact.y - r, width: 2 * r, height: 2 * r))
                     }
-                    ctx.addPath(path)
-                    ctx.setStrokeColor(UIColor(red: 0.18, green: 0.83, blue: 0.75, alpha: 1).cgColor)
-                    ctx.setLineWidth(max(1.5, h / 240))
-                    ctx.strokePath()
+                }
+                let splashAge = time - (s.start + airTime / s.speed)
+                if scene.marker && s.hasTrace && splashAge >= -0.000001 && splashAge < 0.65 {
+                    drawLandingSplash(ctx, at: pos(s.endpoint, motion), size: min(w, h), progress: max(0, splashAge / 0.65))
                 }
                 if scene.personOcclusion != false, let m = s.masks?.min(by: { abs($0.time-time) < abs($1.time-time) }), abs(m.time-time) <= 0.11 {
                     if let mask = maskCache.object(forKey:m.path as NSString) ?? UIImage(contentsOfFile:m.path) {
@@ -277,7 +285,21 @@ final class EditorRenderer: @unchecked Sendable {
                     }
                 }
                 ctx.endTransparencyLayer()
-                for p in s.popups {
+                if let tip = points.last, let label = trajectory.distance(at: min(elapsed, duration)) {
+                    // Symmetric source-time sampling keeps seeks and exports deterministic.
+                    let before = interpolated(s.camera, time - 0.045)
+                    let after = interpolated(s.camera, time + 0.045)
+                    let stable = EditPoint((before.x + 2 * motion.x + after.x) / 4, (before.y + 2 * motion.y + after.y) / 4)
+                    drawDistance(label, at: pos(tip, stable), width: w, height: h)
+                }
+                let infoCards: [EditPopup] = s.hasTrace ? shotInfoKeys.compactMap { key in
+                    guard key != "total", let info = s.shotInfo?[key], info.visible, !info.value.isEmpty else { return nil }
+                    let value = key == "carry" ? ShotMeasurement(info.value).map {
+                        distanceInput(info.value, unit: $0.unit) + " " + $0.unit
+                    } ?? info.value : info.value
+                    return EditPopup(label: NSLocalizedString("editor.info." + key, comment: ""), value: value, anchor: "top-right")
+                } : []
+                for p in s.popups + infoCards {
                     guard let window=popupWindow(s,p),window.contains(time) else { continue }
                     let at: CGPoint
                     switch p.anchor {
@@ -322,6 +344,186 @@ final class EditorRenderer: @unchecked Sendable {
     }
 }
 
+struct ShotMeasurement {
+    let amount: Double
+    let unit: String
+    var metres: Double {
+        switch unit {
+        case "yds": amount * 0.9144
+        case "ft": amount * 0.3048
+        default: amount
+        }
+    }
+
+    init?(_ value: String?) {
+        let text = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pattern = #/^([0-9]+(?:[.,][0-9]+)?)\s*(m|yd|yds|ft|미터|야드|피트)?$/#
+        guard let match = text.wholeMatch(of: pattern),
+              let amount = Double(match.1.replacingOccurrences(of: ",", with: ".")), amount.isFinite, amount > 0 else { return nil }
+        self.amount = amount
+        switch match.2 {
+        case "yd", "yds", "야드": unit = "yds"
+        case "ft", "피트": unit = "ft"
+        default: unit = "m"
+        }
+    }
+}
+
+func distanceInput(_ value: String, unit: String) -> String {
+    guard let measurement = ShotMeasurement(value) else { return value }
+    let amount = measurement.unit == unit ? measurement.amount : measurement.metres / (unit == "yds" ? 0.9144 : 1)
+    return amount.formatted(.number.locale(Locale(identifier: "en_US_POSIX")).grouping(.never).precision(.fractionLength(0...6)))
+}
+
+private struct PathProgress {
+    let lengths: [Double]
+
+    init(_ points: [EditPoint], width: Int, height: Int) {
+        var lengths = [0.0]
+        for (a, b) in zip(points, points.dropFirst()) {
+            lengths.append(lengths[lengths.count - 1] + hypot((b.x - a.x) * Double(width), (b.y - a.y) * Double(height)))
+        }
+        self.lengths = lengths
+    }
+
+    func fraction(_ phase: Double) -> Double {
+        let last = lengths.count - 1
+        guard lengths[last] > 1e-9 else { return phase >= 1 ? 1 : 0 }
+        let index = min(1, max(0, phase)) * Double(last)
+        let lower = Int(index)
+        let upper = min(lower + 1, last)
+        return (lengths[lower] + (lengths[upper] - lengths[lower]) * (index - Double(lower))) / lengths[last]
+    }
+}
+
+private struct ShotTrajectory {
+    let airTime: Double
+    let duration: Double
+    let landing: EditPoint?
+    private let model: [Double]?
+    private let riseScale: Double
+    private let rollRatio: Double
+    private let rollTime: Double
+    private let total: ShotMeasurement?
+    private let carryShare: Double
+    private var airProgress: PathProgress?
+
+    init(_ shot: EditShot, width: Int, height: Int) {
+        model = shot.model
+        let info = shot.shotInfo
+        let total = ShotMeasurement(info?["total"]?.value)
+        self.total = total
+        let carry = ShotMeasurement(info?["carry"]?.value)?.metres ?? 0
+        var airTime = shot.flight, riseScale = 1.0, rollRatio = 0.0
+        if shot.trackingMode != "putt", info != nil {
+            st_shot_info_profile(carry, total?.metres ?? 0, ShotMeasurement(info?["height"]?.value)?.metres ?? 0,
+                                 shot.flight, &airTime, &riseScale, &rollRatio)
+        }
+        self.airTime = airTime
+        self.riseScale = riseScale
+        self.rollRatio = rollRatio
+        rollTime = airTime * rollRatio
+        duration = airTime + rollTime
+        carryShare = total.map { rollRatio > 0 ? carry / $0.metres : 1 } ?? 1
+        landing = shot.hasTrace ? shot.endpoint : nil
+        if total != nil, info?["total"]?.visible == true, landing != nil {
+            airProgress = PathProgress((0...128).map { point(shot, at: airTime * Double($0) / 128) }, width: width, height: height)
+        }
+    }
+
+    func point(_ shot: EditShot, at time: Double) -> EditPoint {
+        let fraction = min(1, max(0, time / airTime))
+        let sourceTime = fraction * shot.flight
+        if let start = shot.ball, let landing, time > airTime, rollTime > 0 {
+            let progress = rollProgress(at: time)
+            return EditPoint(landing.x + (landing.x - start.x) * rollRatio * progress,
+                             landing.y + (landing.y - start.y) * rollRatio * progress)
+        }
+        let point = shot.trackingMode == "putt" ? shot.ground(sourceTime)
+            : model.flatMap { NativeFlight.at($0, sourceTime) } ?? shot.curve(sourceTime / shot.speed)
+        guard let start = shot.ball, let landing, riseScale != 1 else { return point }
+        let groundY = start.y + (landing.y - start.y) * fraction
+        return EditPoint(point.x, groundY + (point.y - groundY) * riseScale)
+    }
+
+    private func rollProgress(at time: Double) -> Double {
+        let remaining = 1 - min(1, max(0, (time - airTime) / rollTime))
+        return 1 - remaining * remaining
+    }
+
+    func distance(at time: Double) -> String? {
+        guard let total, let airProgress else { return nil }
+        let fraction = time > airTime && rollTime > 0
+            ? carryShare + (1 - carryShare) * rollProgress(at: time)
+            : carryShare * airProgress.fraction(time / airTime)
+        let finished = time >= duration
+        let amount = finished ? total.amount : total.amount * fraction
+        let style = FloatingPointFormatStyle<Double>.number.grouping(.never)
+            .precision(.fractionLength(0...(total.amount < 10 || finished ? 2 : 0)))
+            .rounded(rule: finished ? .toNearestOrAwayFromZero : .towardZero)
+        return amount.formatted(style) + " " + total.unit
+    }
+}
+
+private func drawDistance(_ label: String, at point: CGPoint, width: CGFloat, height: CGFloat) {
+    let size = min(width, height)
+    let text = label as NSString
+    var font = UIFont.boldSystemFont(ofSize: max(1, size * 0.052))
+    let labelWidth = text.size(withAttributes: [.font: font]).width
+    if labelWidth > width * 0.85 { font = font.withSize(font.pointSize * width * 0.85 / labelWidth) }
+    let bounds = text.size(withAttributes: [.font: font])
+    let margin = size * 0.018
+    let origin = CGPoint(x: max(margin, min(width - bounds.width - margin, point.x - bounds.width / 2)),
+                         y: max(margin, min(height - bounds.height - margin, point.y - size * 0.045 - font.ascender)))
+    text.draw(at: origin, withAttributes: [
+        .font: font, .foregroundColor: UIColor.white, .strokeColor: UIColor.black, .strokeWidth: -6.0
+    ])
+}
+
+private func ribbon(_ points: [CGPoint], width: CGFloat) -> CGPath {
+    var distinct: [CGPoint] = []
+    for point in points where distinct.last != point { distinct.append(point) }
+    let path = CGMutablePath()
+    guard distinct.count >= 2 else { return path }
+    let edges = distinct.enumerated().map { index, point in
+        let a = distinct[max(0, index - 1)]
+        let b = distinct[min(distinct.count - 1, index + 1)]
+        let dx = b.x - a.x
+        let dy = b.y - a.y
+        let length = max(0.001, hypot(dx, dy))
+        let half = width * (0.14 + 0.70 * CGFloat(index) / CGFloat(distinct.count - 1))
+        let x = -dy * half / length
+        let y = dx * half / length
+        return (CGPoint(x: point.x + x, y: point.y + y), CGPoint(x: point.x - x, y: point.y - y))
+    }
+    path.move(to: edges[0].0)
+    for edge in edges.dropFirst() { path.addLine(to: edge.0) }
+    for edge in edges.reversed() { path.addLine(to: edge.1) }
+    path.closeSubpath()
+    return path
+}
+
+private func drawLandingSplash(_ ctx: CGContext, at point: CGPoint, size: CGFloat, progress: CGFloat) {
+    let spread = size * 0.09
+    ctx.saveGState()
+    defer { ctx.restoreGState() }
+    ctx.setLineWidth(max(1, size * 0.006))
+    for delay in [CGFloat(0), 0.16] where progress >= delay {
+        let phase = (progress - delay) / (1 - delay)
+        let radius = spread * (0.15 + phase)
+        ctx.setStrokeColor(UIColor(red: 0.34, green: 0.88, blue: 1, alpha: (1 - phase) * 0.86).cgColor)
+        ctx.strokeEllipse(in: CGRect(x: point.x - radius, y: point.y - radius * 0.35,
+                                     width: radius * 2, height: radius * 0.7))
+    }
+    ctx.setFillColor(UIColor(red: 0.67, green: 0.96, blue: 1, alpha: (1 - progress) * 0.96).cgColor)
+    let radius = max(1, size * 0.007) * (1 - progress * 0.6)
+    for index in -2...2 {
+        let x = point.x + CGFloat(index) * spread * progress * 0.55
+        let y = point.y - spread * (1.15 - CGFloat(abs(index)) * 0.15) * 4 * progress * (1 - progress)
+        ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: 2 * radius, height: 2 * radius))
+    }
+}
+
 enum NativeFlight {
     static func values(_ model: STModel) -> [Double] { withUnsafeBytes(of: model) { Array($0.bindMemory(to: Double.self)) } }
     private static func model(_ values: [Double]) -> STModel? {
@@ -350,13 +552,12 @@ enum NativeFlight {
 
 struct PersonMask: Codable, Sendable { var time: Double; var path: String }
 
-/// Vision supplies masks and wrist landmarks for on-device editing.
+/// Vision supplies person masks for on-device editing.
 final class PersonAnalysis {
     private let segmentation = VNGeneratePersonSegmentationRequest()
-    private let pose = VNDetectHumanBodyPoseRequest()
     private let ci = CIContext(options: [.cacheIntermediates:false])
     private let folder: URL
-    var masks: [PersonMask] = [], hands: [EditSample] = []
+    var masks: [PersonMask] = []
     init(_ folder: URL) throws {
         self.folder=folder; try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
         segmentation.qualityLevel = .balanced; segmentation.outputPixelFormat=kCVPixelFormatType_OneComponent8
@@ -369,9 +570,9 @@ final class PersonAnalysis {
             }
         }; return bytes
     }
-    func push(_ image: CGImage, _ time: Double, _ motion: EditPoint) throws {
+    func push(_ image: CGImage, _ time: Double) throws {
         let w=image.width, h=image.height
-        try VNImageRequestHandler(cgImage:image,orientation:.up,options:[:]).perform([segmentation,pose])
+        try VNImageRequestHandler(cgImage:image,orientation:.up,options:[:]).perform([segmentation])
         if let buffer=segmentation.results?.first?.pixelBuffer,
            let mask=ci.createCGImage(CIImage(cvPixelBuffer:buffer),from:CIImage(cvPixelBuffer:buffer).extent,format:.L8,colorSpace:CGColorSpaceCreateDeviceGray()) {
             let mw=min(256,w), mh=max(1,h*mw/w), values=gray(mask,mw,mh)
@@ -383,14 +584,6 @@ final class PersonAnalysis {
                 try data.write(to:file,options:.atomic); masks.append(PersonMask(time:time,path:file.path))
             }
         }
-        let observation=pose.results?.first
-        func joint(_ key: VNHumanBodyPoseObservation.JointName) -> EditPoint? {
-            guard let p=try? observation?.recognizedPoint(key),p.confidence >= 0.4 else { return nil }
-            return EditPoint(p.location.x,1-p.location.y)
-        }
-        let hand: EditPoint?
-        if let a=joint(.leftWrist),let b=joint(.rightWrist) { hand=EditPoint((a.x+b.x)/2,(a.y+b.y)/2) } else { hand=nil }
-        if let hand { hands.append(EditSample(time,hand.x-motion.x,hand.y-motion.y)) }
     }
 }
 

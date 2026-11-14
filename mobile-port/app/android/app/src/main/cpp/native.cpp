@@ -151,3 +151,14 @@ Java_com_ajc_shottracer_NativeCore_motion(JNIEnv *env, jobject, jdoubleArray poi
     if(output) env->SetDoubleArrayRegion(output,0,5,result);
     return output;
 }
+
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_shotInfoProfile(JNIEnv *env, jobject, jdouble carry, jdouble total,
+                                                  jdouble height, jdouble sourceFlight) {
+    double values[3];
+    st_shot_info_profile(carry, total, height, sourceFlight, &values[0], &values[1], &values[2]);
+    auto result = env->NewDoubleArray(3);
+    if (result) env->SetDoubleArrayRegion(result, 0, 3, values);
+    return result;
+}

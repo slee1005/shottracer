@@ -10,6 +10,10 @@ struct EditorView: View {
     @State private var showingCamera = false
     @State private var settings = false
     @State private var reviewing = false
+    @State private var infoKey: String?
+    @State private var editingInfo = false
+    @State private var infoDraft = ShotInfo()
+    @State private var infoUnit = "m"
     @State private var fullscreen = false
     @State private var showingProjects = false
     @State private var selectedPhoto: PhotosPickerItem?
@@ -47,18 +51,13 @@ struct EditorView: View {
                     header
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
-                            workflow.frame(width: 252)
+                            workflow.frame(width: 328)
                             shotBar.fixedSize(horizontal: true, vertical: false)
                         }
                     }.fixedSize(horizontal: false, vertical: true)
-                    tools
                 }
                 HStack {
                     Text(model.status).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    if model.hasVideo {
-                        Text(String(format: NSLocalizedString("editor.frameCount", comment: ""), model.frameIndex + 1, model.frameCount, model.time))
-                            .monospacedDigit().lineLimit(1).minimumScaleFactor(0.75)
-                    }
                     if model.busy { ProgressView().controlSize(.small) }
                 }.font(.caption2).foregroundStyle(.secondary)
                 GeometryReader { area in
@@ -69,11 +68,13 @@ struct EditorView: View {
                         if model.hasVideo { filmstrip.frame(height: timelineHeight) }
                     }
                 }
+                if model.hasVideo { shotInfoTabs }
             }
             .padding(.horizontal, 8).background(LinearGradient(colors:[Color(red:0.04,green:0.09,blue:0.12),Color(red:0.03,green:0.05,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing)).preferredColorScheme(.dark).tint(.mint)
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fullScreenCover(isPresented: $reviewing) { if let url = model.output { ReviewView(url: url) } }
+            .sheet(isPresented: $editingInfo) { shotInfoEditor }
             .sheet(isPresented: $settings) { EditorSettings(model: model).onAppear { model.checkpoint() }.onDisappear { model.commitEdits() } }
             .sheet(isPresented: $showingProjects) { ProjectList(model: model) }
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
@@ -131,9 +132,12 @@ struct EditorView: View {
                 workflowLabel(selected ? "editor.startChecked" : "editor.startUnset",
                               icon: selected ? "checkmark.circle.fill" : "scope")
             }.tint(model.scene.shot.ball == nil ? .white : .green)
+            Button { model.selectLandingTool() } label: {
+                workflowLabel(model.scene.shot.landingConfirmed == true ? "editor.landingChecked" : "editor.landingUnset")
+            }.disabled(model.scene.shot.ball == nil)
             Button { model.analyze() } label: {
                 workflowLabel("editor.analyzeAction")
-            }.buttonStyle(.glassProminent).tint(.mint).disabled(model.scene.shot.ball == nil)
+            }.buttonStyle(.glassProminent).tint(.mint).disabled(!model.scene.shot.readyToAnalyze)
             Button { model.pause(); resetConfirm = true } label: {
                 workflowLabel("editor.resetAction", icon: "arrow.counterclockwise")
             }
@@ -181,7 +185,8 @@ struct EditorView: View {
                         if !dragging {
                             dragging=true; dragPanning=false; lastPan=pan
                             let start=videoPoint(value.startLocation,area.size,fitted)
-                            dragHandle = model.handles.min {
+                            let placingLanding = model.tool == "landing" && model.scene.shot.landingConfirmed != true
+                            dragHandle = placingLanding ? nil : model.handles.min {
                                 hypot(($0.1.x-start.x)*width,($0.1.y-start.y)*height) < hypot(($1.1.x-start.x)*width,($1.1.y-start.y)*height)
                             }.flatMap { key,p in hypot((p.x-start.x)*width*zoom,(p.y-start.y)*height*zoom)<25 ? key : nil }
                             if dragHandle != nil { model.checkpoint() }
@@ -218,7 +223,9 @@ struct EditorView: View {
         icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
         icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
         icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
-        icon("action.analyze", "sparkle.magnifyingglass", disabled: model.scene.shot.ball == nil) { model.analyze() }
+        if !fullscreen {
+            icon("editor.delete", "trash", disabled: !model.hasVideo || (model.scene.shapes.isEmpty && model.scene.shots.count <= 1)) { model.deleteShape() }
+        }
         icon("action.export", "square.and.arrow.up", disabled: !model.canExport) { model.export() }
         icon("editor.review", "play.rectangle.fill", disabled: model.output == nil) { reviewing = true }
         if model.output != nil { icon("editor.albumSave","square.and.arrow.down") { model.saveToAlbum() } }
@@ -346,24 +353,68 @@ struct EditorView: View {
         return (compact || event.inClip) ? name + " " + filmClock(event.time)
             : String(format: NSLocalizedString("editor.timelineOutside", comment: ""), name, event.time)
     }
-    private func eventButton(_ key: String) -> some View {
-        let event=model.timelineEvents.first { $0.key == key }
-        return Button { if let event { jump(event) } } label: {
-            Text(event.map { eventLabel($0) } ?? NSLocalizedString(key == "ball" ? "editor.timelineStartUnset" : key == "apex" ? "editor.timelineApexUnset" : "editor.timelineLandingUnset",comment:""))
-                .font(.system(size:10,weight:.medium)).monospacedDigit().lineLimit(2).minimumScaleFactor(0.75)
-                .frame(width: 108, height: 44).background(.white.opacity(0.06),in:RoundedRectangle(cornerRadius:12))
-        }.buttonStyle(.plain).foregroundStyle(eventColor(key)).disabled(model.busy || event?.inClip != true)
-    }
-    private var tools: some View {
-        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
-            ForEach([("ball", "scope"), ("landing", "flag.fill"), ("apex", "arrow.up.to.line"), ("path", "scribble.variable"), ("circle", "circle"), ("line", "line.diagonal"), ("swing", "figure.golf")], id: \.0) { key, symbol in
-                icon(key == "apex" && model.scene.shot.trackingMode == "putt" ? "editor.puttCurve" : "editor." + key, symbol, disabled: !model.hasVideo || (key == "apex" && model.scene.shot.trackingMode == "putt" && !model.scene.shot.hasGroundPath)) { model.chooseTool(key) }.tint(model.tool == key ? .mint : .white)
+    private var shotInfoTabs: some View {
+        HStack(spacing: 4) {
+            ForEach(shotInfoKeys, id: \.self) { key in
+                Button {
+                    model.pause()
+                    infoKey = key
+                    infoDraft = model.scene.shot.shotInfo?[key] ?? ShotInfo()
+                    if key != "height" {
+                        infoUnit = ShotMeasurement(infoDraft.value)?.unit == "yds" ? "yds" : "m"
+                        infoDraft.value = distanceInput(infoDraft.value, unit: infoUnit)
+                    }
+                    editingInfo = true
+                } label: {
+                    Text(LocalizedStringKey("editor.info." + key))
+                        .lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, minHeight: 28)
+                }
+                .tint(model.scene.shot.shotInfo?[key]?.visible == true ? .mint : .white)
             }
-            icon("editor.delete", "trash", disabled: !model.hasVideo) { model.deleteShape() }
-            icon("editor.landingFrame", "flag.checkered", disabled: model.scene.shot.ball == nil) { model.landOnFrame() }
-            if model.hasVideo { eventButton("ball"); eventButton("apex"); eventButton("landing") }
-        } }
+        }.font(.caption).buttonStyle(.glass).disabled(model.busy || model.editingTimeline)
     }
+
+    private var shotInfoEditor: some View {
+        NavigationStack {
+            Form {
+                if infoKey == "height" {
+                    TextField("editor.info.value", text: $infoDraft.value)
+                } else {
+                    TextField("editor.info.amount", text: $infoDraft.value).keyboardType(.decimalPad)
+                    Picker("editor.info.unit", selection: Binding(get: { infoUnit }, set: { next in
+                        let amount = infoDraft.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !amount.isEmpty { infoDraft.value = distanceInput(amount + " " + infoUnit, unit: next) }
+                        infoUnit = next
+                    })) {
+                        Text(verbatim: "yds").tag("yds")
+                        Text(verbatim: "m").tag("m")
+                    }.pickerStyle(.segmented)
+                }
+                Toggle("editor.info.visible", isOn: $infoDraft.visible)
+            }
+            .navigationTitle(LocalizedStringKey("editor.info." + (infoKey ?? "total")))
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("editor.info.cancel") { editingInfo = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("editor.info.done") {
+                        if let infoKey {
+                            model.checkpoint()
+                            let amount = String(infoDraft.value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
+                            infoDraft.value = infoKey != "height" && !amount.isEmpty ? amount + " " + infoUnit : amount
+                            var info = model.scene.shot.shotInfo ?? [:]
+                            info[infoKey] = infoDraft
+                            model.scene.shot.shotInfo = info
+                            model.commitEdits()
+                        }
+                        editingInfo = false
+                    }
+                }
+            }
+        }.presentationDetents([.medium])
+    }
+
 }
 
 struct ReviewView: View {
@@ -437,14 +488,10 @@ struct EditorSettings: View {
         NavigationStack {
             Form {
                 Section("editor.motionTitle") { Text(model.motionReport()).font(.footnote).textSelection(.enabled) }
-                Section("editor.autoSwing") {
-                    Toggle("editor.personOcclusion",isOn:Binding(get:{ model.scene.personOcclusion != false },set:{ model.scene.personOcclusion=$0 }))
-                    Toggle("editor.autoSwing", isOn: Binding(
-                        get: { model.scene.autoWristsEnabled },
-                        set: { model.scene.autoSwing = $0 ? "hands" : "off" }
-                    ))
-                    Text("editor.autoNote").font(.footnote).foregroundStyle(.secondary)
-                }
+                Toggle("editor.personOcclusion", isOn: Binding(
+                    get: { model.scene.personOcclusion != false },
+                    set: { model.scene.personOcclusion = $0 }
+                ))
                 Section("editor.shotSettings") {
                     number("flight", value: $model.scene.shot.flight, range: 0.2...15)
                     if model.scene.shot.trackingMode != "putt" { number("apexFraction", value: Binding(get: { model.scene.shot.apexFraction * model.scene.shot.flight }, set: { model.scene.shot.apexFraction = min(0.62, max(0.35, $0 / model.scene.shot.flight)) }), range: (0.35 * model.scene.shot.flight)...(0.62 * model.scene.shot.flight)) }
@@ -458,7 +505,6 @@ struct EditorSettings: View {
                     number("glow", value: $model.scene.glow, range: 0...3)
                     number("hold", value: $model.scene.hold, range: -1...30)
                     Toggle("editor.head", isOn: $model.scene.head); Toggle("editor.marker", isOn: $model.scene.marker)
-                    Toggle("editor.swingEnabled", isOn: $model.scene.swingEnabled)
                 }
                 popupSection
                 Section("editor.logo") {

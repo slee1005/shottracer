@@ -59,7 +59,7 @@
 "editor.circle" = "Circle";
 "editor.line" = "Line";
 "editor.swing" = "Wrist points";
-"editor.delete" = "Delete last shape / shot";
+"editor.delete" = "Clear";
 "editor.hint.ball" = "Tap the starting ball on the current frame.";
 "editor.hint.landing" = "Tap or drag the green landing handle.";
 "editor.hint.apex" = "Tap or drag the cyan apex handle.";
@@ -148,7 +148,7 @@
 "editor.autoSwing" = "Show automatic wrist path";
 "editor.personFailed" = "Person analysis was unavailable. Ball results are retained; retry analysis.";
 "editor.analysisProgress" = "Analyzing on device · %d%%";
-"editor.analysisResult" = "Ball %d · Wrists %d";
+"editor.analysisResult" = "Ball detections: %d";
 "editor.onDevice" = "ON DEVICE";
 "editor.workspace" = "Your shot, in focus.";
 "editor.modeChanged" = "Mode changed. Analyze again to track this shot.";
@@ -194,3 +194,16 @@
 "editor.timelineApexUnset" = "Apex —";
 "editor.timelineTracer" = "Shot Tracer";
 "editor.timelineSeek" = "Seek frame";
+"editor.landingUnset" = "Set landing";
+"editor.landingChecked" = "✓ Landing set";
+"editor.landingWorkflow" = "Move to the landing frame 0.2–15 seconds after the start and tap where the ball lands.";
+"editor.readyToAnalyze" = "Start and landing are set. Tap Analyze.";
+"editor.info.total" = "Total distance";
+"editor.info.carry" = "Carry distance";
+"editor.info.height" = "Height";
+"editor.info.amount" = "Enter distance";
+"editor.info.unit" = "Distance unit";
+"editor.info.value" = "e.g. 180 m, 200 yd, 90 ft";
+"editor.info.visible" = "Show on video";
+"editor.info.cancel" = "Cancel";
+"editor.info.done" = "Done";

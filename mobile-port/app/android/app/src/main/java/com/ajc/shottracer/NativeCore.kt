@@ -16,6 +16,7 @@ internal object NativeCore {
     external fun count(handle: Long): Int
     external fun samples(handle: Long, camera: Boolean): DoubleArray
     external fun curve(controls: DoubleArray, flight: Double, apex: Double, speed: Double, time: Double): DoubleArray
+    external fun shotInfoProfile(carry: Double, total: Double, height: Double, sourceFlight: Double): DoubleArray
     external fun flightModel(handle: Long): DoubleArray?
     external fun refit(base: DoubleArray, points: DoubleArray, landing: DoubleArray?, flight: Double): DoubleArray?
     external fun modelPoint(model: DoubleArray, time: Double): DoubleArray?

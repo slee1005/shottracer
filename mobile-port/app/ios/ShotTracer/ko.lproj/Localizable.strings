@@ -59,7 +59,7 @@
 "editor.circle" = "원 그리기";
 "editor.line" = "선 그리기";
 "editor.swing" = "손목 포인트";
-"editor.delete" = "마지막 도형 / 샷 삭제";
+"editor.delete" = "지우기";
 "editor.hint.ball" = "현재 프레임에서 시작 공을 누르세요.";
 "editor.hint.landing" = "착지점을 누르거나 초록색 핸들을 드래그하세요.";
 "editor.hint.apex" = "정점을 누르거나 하늘색 핸들을 드래그하세요.";
@@ -148,7 +148,7 @@
 "editor.autoSwing" = "자동 손목 경로 표시";
 "editor.personFailed" = "인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.";
 "editor.analysisProgress" = "기기에서 분석 중 · %d%%";
-"editor.analysisResult" = "공 %d · 손목 %d";
+"editor.analysisResult" = "공 검출 %d개";
 "editor.onDevice" = "기기 내 처리";
 "editor.workspace" = "샷의 흐름을 한눈에";
 "editor.modeChanged" = "모드가 변경되었습니다. 다시 분석해 주세요.";
@@ -194,3 +194,16 @@
 "editor.timelineApexUnset" = "최고점 —";
 "editor.timelineTracer" = "샷 트레이서";
 "editor.timelineSeek" = "프레임 탐색";
+"editor.landingUnset" = "착지 설정";
+"editor.landingChecked" = "✓ 착지 설정";
+"editor.landingWorkflow" = "시작 후 0.2~15초 사이의 착지 프레임으로 이동해 공이 떨어진 위치를 누르세요.";
+"editor.readyToAnalyze" = "시작과 착지가 설정됐습니다. 분석을 누르세요.";
+"editor.info.total" = "총거리";
+"editor.info.carry" = "캐리거리";
+"editor.info.height" = "높이";
+"editor.info.amount" = "거리 입력";
+"editor.info.unit" = "거리 단위";
+"editor.info.value" = "예: 180 m, 200 yd, 90 ft";
+"editor.info.visible" = "영상에 표시";
+"editor.info.cancel" = "취소";
+"editor.info.done" = "완료";

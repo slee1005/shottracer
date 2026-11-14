@@ -38,19 +38,16 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var preview: PreviewView
     private lateinit var status: TextView
-    private lateinit var counter: TextView
+    private lateinit var shotInfoTabs: LinearLayout
     private lateinit var timeline: ShotTimelineView
-    private lateinit var startTimeButton: Button
-    private lateinit var landingTimeButton: Button
-    private lateinit var apexTimeButton: Button
     private lateinit var shotBar: LinearLayout
-    private lateinit var tools: HorizontalScrollView
     private lateinit var shotMenuScroll: View
     private lateinit var branding: LinearLayout
     private lateinit var flightModeButton: Button
     private lateinit var puttModeButton: Button
     private lateinit var workflow: LinearLayout
     private lateinit var startButton: Button
+    private lateinit var landingButton: Button
     private lateinit var analyzeButton: Button
     private lateinit var resetButton: Button
     private val buttons = mutableMapOf<String, ImageButton>()
@@ -61,7 +58,7 @@ class MainActivity : Activity() {
     private var frameIndex = 0
     private var displayed = 0
     private var scene = EditorScene()
-    private var renderer = EditorRenderer(scene)
+    private var renderer = EditorRenderer(scene) { text("info_" + it) }
     private var tool = "ball"
     private var pending: EditPoint? = null
     private var busy = false
@@ -123,18 +120,22 @@ class MainActivity : Activity() {
         }
         icon(upper, "camera") { stopPlay(); startActivity(Intent(this, LiveCameraActivity::class.java)) }
         icon(upper, "projects") { projects() }
-        icon(upper, "fullscreen") { fullscreen = !fullscreen; tools.visibility = if (fullscreen) View.GONE else View.VISIBLE; shotMenuScroll.visibility = if (fullscreen) View.GONE else View.VISIBLE; branding.visibility = if (fullscreen) View.GONE else View.VISIBLE }
+        icon(upper, "fullscreen") { fullscreen = !fullscreen; shotMenuScroll.visibility = if (fullscreen) View.GONE else View.VISIBLE; branding.visibility = if (fullscreen) View.GONE else View.VISIBLE }
         icon(upper, "previous") { stopPlay(); refresh(frameIndex - 1) }
         icon(upper, "play") { if (playing) stopPlay() else startPlay() }
         icon(upper, "next") { stopPlay(); refresh(frameIndex + 1) }
-        icon(upper, "analyze") { analyzeFromButton() }; icon(upper, "export") { exportVideo() }
+        icon(upper, "delete") {
+            if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() }
+            else deleteShot()
+        }
+        icon(upper, "export") { exportVideo() }
         icon(upper, "review") { output?.let { review(it) } }; icon(upper, "save") { saveOutput() }
         icon(upper, "undo") { restore(undo, redo) }; icon(upper, "redo") { restore(redo, undo) }
         icon(upper, "settings") { settings() }
         val shotMenu = toolbar(root)
         shotMenuScroll = shotMenu.parent as View
         workflow = row()
-        shotMenu.addView(workflow, LinearLayout.LayoutParams(dp(252), dp(44)))
+        shotMenu.addView(workflow, LinearLayout.LayoutParams(dp(328), dp(44)))
         shotBar = row()
         shotMenu.addView(shotBar, LinearLayout.LayoutParams(-2, dp(44)))
         fun actionButton(key: String, action: () -> Unit) = Button(this).apply {
@@ -142,6 +143,7 @@ class MainActivity : Activity() {
             setOnClickListener { action() }; workflow.addView(this, LinearLayout.LayoutParams(0, -1, 1f))
         }
         startButton = actionButton("start_unset") { stopPlay(); tool = "ball"; pending = null; status.text = text("hint_ball"); controls() }
+        landingButton = actionButton("landing_unset") { selectLandingTool() }
         analyzeButton = actionButton("analyze_action") { analyzeFromButton() }
         resetButton = actionButton("reset_action") { confirmReset() }
         preview = PreviewView(this).apply { zoomEnabled = true; background=GradientDrawable().apply { setColor(Color.BLACK); cornerRadius=dp(20).toFloat(); setStroke(dp(1),Color.rgb(35,50,63)) }; clipToOutline=true }
@@ -149,7 +151,6 @@ class MainActivity : Activity() {
         preview.onHandleStart = { remember() }
         preview.onHandle = { key, p -> handle(key, EditPoint(p.x.toDouble(), p.y.toDouble())); changed(false) }
         preview.onHandleEnd = { persist() }
-        counter = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 11f; gravity = android.view.Gravity.CENTER }
         timeline = ShotTimelineView(this).apply {
             onSeek = { stopPlay(); refresh(it) }
             onEvent = { jumpToEvent(it) }
@@ -157,27 +158,24 @@ class MainActivity : Activity() {
             onDrag = { key, frame -> dragTime(key, frame) }
             onEnd = { cancel -> endTimeEdit(cancel) }
         }
-        val lower = toolbar(root); tools = lower.parent as HorizontalScrollView
-        for (key in listOf("ball", "landing", "apex", "path", "circle", "line", "swing")) icon(lower, key) {
-            tool = key; pending = null; status.text = text(if(key=="apex" && scene.shot.trackingMode=="putt") "hint_putt_curve" else "hint_$key"); handles(); controls()
-        }
-        icon(lower, "delete") { if (scene.shapes.isNotEmpty()) { remember(); scene.shapes.removeAt(scene.shapes.lastIndex); changed() } else deleteShot() }
-        icon(lower, "landing_frame") { if (scene.shot.ball != null && currentTime > scene.shot.start) { remember(); scene.shot.landing = scene.shot.endpoint(); scene.shot.flight = (currentTime - scene.shot.start).coerceIn(.2, 15.0); tool = "landing"; status.text = text("hint_landing"); changed() } }
-        fun eventButton()=Button(this).apply {
-            isAllCaps=false; textSize=10f; maxLines=2; minWidth=0; setPadding(dp(4),0,dp(4),0)
-            background=GradientDrawable().apply { setColor(Color.rgb(23,32,43)); cornerRadius=dp(12).toFloat() }
-            lower.addView(this,LinearLayout.LayoutParams(dp(108),dp(44)).apply { setMargins(dp(2),0,dp(2),0) })
-        }
-        startTimeButton=eventButton().apply { setTextColor(Color.YELLOW); setOnClickListener { timeline.events.firstOrNull { it.key=="ball" }?.let { jumpToEvent(it) } } }
-        apexTimeButton=eventButton().apply { setTextColor(0xff58d9ed.toInt()); setOnClickListener { timeline.events.firstOrNull { it.key=="apex" }?.let { jumpToEvent(it) } } }
-        landingTimeButton=eventButton().apply { setTextColor(Color.GREEN); setOnClickListener { timeline.events.firstOrNull { it.key=="landing" }?.let { jumpToEvent(it) } } }
         status = TextView(this).apply { setText(R.string.hint_import); setTextColor(Color.LTGRAY); textSize = 11f; maxLines = 2; setPadding(dp(4),dp(3),dp(4),dp(3)) }
         val info = row()
         info.addView(status, LinearLayout.LayoutParams(0, -2, 1f))
-        info.addView(counter, LinearLayout.LayoutParams(-2, -2))
         root.addView(info, LinearLayout.LayoutParams(-1, -2))
         root.addView(preview, LinearLayout.LayoutParams(-1, 0, 4f))
         root.addView(timeline, LinearLayout.LayoutParams(-1, 0, 1f))
+        shotInfoTabs = row()
+        root.addView(shotInfoTabs, LinearLayout.LayoutParams(-1, dp(44)))
+        for (key in shotInfoKeys) {
+            val tab = Button(this).apply {
+                isAllCaps = false
+                minWidth = 0
+                textSize = 11f
+                setPadding(dp(3), 0, dp(3), 0)
+                setOnClickListener { editShotInfo(key) }
+            }
+            shotInfoTabs.addView(tab, LinearLayout.LayoutParams(0, -1, 1f))
+        }
         renderShots(); controls()
         // Restore the last local project without accessing the user's original video.
         File(filesDir, "projects").listFiles()?.filter { File(it, "source.mp4").isFile }?.maxByOrNull { File(it, "mobile-project.json").lastModified() }?.let { load(File(it, "source.mp4")) }
@@ -185,16 +183,15 @@ class MainActivity : Activity() {
     private fun controls() {
         for ((key, button) in buttons) {
             button.isEnabled = !busy && timelineBefore==null && when (key) {
-                "previous", "next", "ball", "landing", "path", "circle", "line", "swing", "settings", "export", "add" -> source != null
+                "previous", "next", "ball", "landing", "path", "circle", "line", "settings", "add" -> source != null
+                "export" -> source != null && scene.shots.any { it.hasTrace() }
                 "play" -> source != null && (playing || !decoding)
-                "apex" -> source != null && (scene.shot.trackingMode != "putt" || scene.shot.hasGroundPath())
-                "analyze" -> scene.shot.ball != null
+                "delete" -> source != null && (scene.shapes.isNotEmpty() || scene.shots.size > 1)
                 "undo" -> undo.isNotEmpty()
                 "redo" -> redo.isNotEmpty()
                 "review", "save" -> output?.isFile == true
                 else -> true
             }
-            if(key=="apex") { val label=text(if(scene.shot.trackingMode=="putt") "putt_curve" else "apex"); button.contentDescription=label; button.tooltipText=label }
             button.alpha = if (button.isEnabled) 1f else .35f
             button.imageTintList = android.content.res.ColorStateList.valueOf(if (key == tool) Color.rgb(45,212,191) else Color.WHITE)
             if (key == "play") button.setImageDrawable(ToolIcon(if (playing) "pause" else "play"))
@@ -208,7 +205,10 @@ class MainActivity : Activity() {
         for ((button,mode) in listOf(flightModeButton to "flight",puttModeButton to "putt")) { button.isEnabled=!busy && timelineBefore==null && source != null; tone(button,scene.shot.trackingMode==mode) }
         startButton.text = text(if (scene.shot.ball != null) "start_checked" else "start_unset")
         startButton.isEnabled = !busy && timelineBefore==null && !decoding && source != null
-        analyzeButton.isEnabled = !busy && timelineBefore==null && !decoding && source != null && scene.shot.ball != null
+        landingButton.text = text(if (scene.shot.landingConfirmed) "landing_checked" else "landing_unset")
+        landingButton.isEnabled = startButton.isEnabled && scene.shot.ball != null
+        tone(landingButton, scene.shot.landingConfirmed)
+        analyzeButton.isEnabled = landingButton.isEnabled && scene.shot.readyToAnalyze()
         resetButton.isEnabled = !busy && timelineBefore==null && source != null
         tone(startButton,scene.shot.ball != null); tone(analyzeButton,true); tone(resetButton,false)
         for (i in 0 until shotBar.childCount) shotBar.getChildAt(i).isEnabled = !busy && timelineBefore==null && source != null && (i < scene.shots.size || scene.shots.size < 4)
@@ -233,17 +233,66 @@ class MainActivity : Activity() {
         val events=if(source != null) shotEvents(scene.shot,times,duration) else emptyList()
         timeline.visibility = if (source == null) View.GONE else View.VISIBLE
         timeline.events=events; timeline.times=if (source != null) times else doubleArrayOf(); timeline.currentFrame=frameIndex; timeline.isEnabled=!busy; timeline.invalidate()
-        for ((button,key) in listOf(startTimeButton to "ball", apexTimeButton to "apex", landingTimeButton to "landing")) {
-            val event=events.firstOrNull { it.key==key }
-            val name = text(when (key) {
-                "ball" -> "timeline_start"
-                "apex" -> "timeline_apex"
-                else -> if (event?.estimated == true) "timeline_estimated" else "timeline_landing"
-            })
-            button.text = if (event == null) "$name —" else if (event.inClip) "$name ${filmTime(event.time)}"
-                else getString(R.string.editor_timeline_outside, name, event.time)
-            button.isEnabled=!busy && timelineBefore==null && event?.inClip==true; button.alpha=if(button.isEnabled) 1f else .5f
+        shotInfoTabs.visibility = timeline.visibility
+        shotInfoKeys.forEachIndexed { index, key ->
+            val tab = shotInfoTabs.getChildAt(index) as Button
+            val info = scene.shot.shotInfo[key]
+            tab.text = text("info_" + key)
+            tab.isSelected = info?.visible == true && info.value.isNotBlank()
+            tab.isEnabled = !busy && timelineBefore == null && source != null
+            tab.setTextColor(if (tab.isSelected) Color.CYAN else Color.WHITE)
         }
+    }
+    private fun editShotInfo(key: String) {
+        stopPlay()
+        val shot = scene.shot
+        val info = shot.shotInfo[key]
+        val isDistance = key != "height"
+        val saved = info?.value.orEmpty()
+        var unit = if (shotMeasurement(saved)?.unit == "yds") "yds" else "m"
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+        }
+        val value = EditText(this).apply {
+            isSingleLine = true
+            hint = text(if (isDistance) "info_amount" else "info_value")
+            if (isDistance) inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            filters = arrayOf(android.text.InputFilter.LengthFilter(24))
+            setText(if (isDistance) distanceInput(saved, unit) else saved)
+        }
+        val visible = CheckBox(this).apply {
+            text = text("info_visible")
+            isChecked = info?.visible ?: true
+        }
+        content.addView(value)
+        if (isDistance) {
+            val units = RadioGroup(this).apply {
+                orientation = RadioGroup.HORIZONTAL
+                contentDescription = text("info_unit")
+            }
+            for (choice in listOf("yds", "m")) {
+                val option = RadioButton(this).apply { id = View.generateViewId(); text = choice }
+                units.addView(option)
+                if (choice == unit) units.check(option.id)
+            }
+            units.setOnCheckedChangeListener { group, id ->
+                val next = group.findViewById<RadioButton>(id).text.toString()
+                val amount = value.text.toString().trim()
+                if (amount.isNotEmpty()) value.setText(distanceInput("$amount $unit", next))
+                unit = next
+            }
+            content.addView(units)
+        }
+        content.addView(visible)
+        AlertDialog.Builder(this).setTitle(text("info_" + key)).setView(content)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                remember()
+                val amount = value.text.toString().trim()
+                shot.shotInfo[key] = ShotInfo(if (isDistance && amount.isNotEmpty()) "$amount $unit" else amount, visible.isChecked)
+                changed()
+            }.show()
     }
     private fun jumpToEvent(event: ShotEvent) {
         if(busy || !event.inClip) return
@@ -278,7 +327,7 @@ class MainActivity : Activity() {
         java.nio.file.Files.move(temp.toPath(), File(folder, "mobile-project.json").toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
     }
     private fun changed(save: Boolean = true) {
-        output = null; renderer = EditorRenderer(scene.copy()); overlay(); handles(); controls(); if (save) persist()
+        output = null; renderer = EditorRenderer(scene.copy()) { text("info_" + it) }; overlay(); handles(); controls(); if (save) persist()
     }
     private fun overlay() { preview.overlay?.recycle(); preview.overlay = renderer.overlay(currentTime); preview.invalidate() }
     private fun reference(p: EditPoint): EditPoint { val m = scene.shot.motion(currentTime); return EditPoint(p.x - m.x, p.y - m.y) }
@@ -301,17 +350,40 @@ class MainActivity : Activity() {
         s.ball?.let { points.add(handle("ball", it)) }
         if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt" || s.hasGroundPath()) points.add(handle("apex", s.peak())) }
         if (tool in listOf("line", "circle")) scene.shapes.forEachIndexed { i, shape -> points.add(EditorHandle("shape:$i:a", PointF(shape.a.x.toFloat(), shape.a.y.toFloat()))); points.add(EditorHandle("shape:$i:b", PointF(shape.b.x.toFloat(), shape.b.y.toFloat()))) }
+        preview.placingLanding = tool == "landing" && !s.landingConfirmed
         preview.ball = null; preview.handles = points; preview.invalidate()
+    }
+    private fun selectLandingTool() {
+        stopPlay()
+        tool = "landing"
+        pending = null
+        status.text = text("landing_workflow")
+        handles()
+        controls()
     }
     private fun touch(p: EditPoint) {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { stopPlay(); remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.timingLandingEstimated=null; s.apex = null; changed(); status.text=text("start_options") }
-            "landing", "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
+            "ball" -> { stopPlay(); remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.landingConfirmed = false; s.timingLandingEstimated=null; s.apex = null; changed(); selectLandingTool() }
+            "landing" -> {
+                val flight = currentTime - s.start
+                if (s.ball == null || flight !in .2..15.0) {
+                    status.text = text("landing_workflow")
+                    return
+                }
+                stopPlay()
+                remember()
+                s.flight = flight
+                s.landing = r
+                s.landingConfirmed = true
+                s.timingLandingEstimated = false
+                changed()
+                status.text = text("ready_to_analyze")
+            }
+            "apex" -> { remember(); if (s.ball == null) { s.ball = EditPoint(.2, .8); s.start = currentTime }; handle(tool, p); changed() }
             "path" -> { remember(); if (pending == null) { s.ball = p; s.start = currentTime; s.manual = true; pending = p } else { s.landing = r; pending = null }; changed() }
             "circle", "line" -> { if (pending == null) { pending = p; status.text = text("second_point") } else { remember(); scene.shapes.add(EditShape(tool, pending!!, p)); pending = null; changed() } }
-            "swing" -> { remember(); s.swing.removeAll { abs(it.time - currentTime) < .00001 }; s.swing.add(TimedPoint(currentTime, r.x, r.y)); s.swing.sortBy { it.time }; changed(); refresh(frameIndex + 2) }
         }
     }
     private fun stopPlay() { playing = false; main.removeCallbacksAndMessages("play"); buttons["play"]?.setImageDrawable(ToolIcon("play")) }
@@ -354,8 +426,8 @@ class MainActivity : Activity() {
             ui {
                 source = file; times = rows; loadThumbnails(file, rows); duration = max(seconds, rows.last()); scene = restored; scene.width = frame.width; scene.height = frame.height
                 frameIndex = 0; displayed = 0; undo.clear(); redo.clear(); preview.image?.recycle(); preview.image = frame
-                renderer = EditorRenderer(scene.copy()); overlay(); handles()
-                counter.text = getString(R.string.editor_frame_count, 1, times.size, rows[0]); renderShots(); status.setText(R.string.hint_ball)
+                renderer = EditorRenderer(scene.copy()) { text("info_" + it) }; overlay(); handles()
+                renderShots(); status.setText(R.string.hint_ball)
                 output = file.parentFile?.listFiles()?.filter { it.name.startsWith("traced-") && it.extension == "mp4" }?.maxByOrNull { it.lastModified() }
                 busy = false; controls(); done?.invoke()
             }
@@ -404,7 +476,7 @@ class MainActivity : Activity() {
                 ui {
                     if (token == generation) {
                         preview.image?.recycle(); preview.image = image; displayed = requested; decoding = false
-                        overlay(); handles(); counter.text = getString(R.string.editor_frame_count, requested + 1, times.size, currentTime); controls()
+                        overlay(); handles(); controls()
                         if (playing) playNext()
                     } else image.recycle()
                 }
@@ -432,50 +504,58 @@ class MainActivity : Activity() {
     }
     private fun switchMode(mode: String) {
         if (busy || scene.shot.trackingMode == mode) return
-        stopPlay(); remember(); scene.shot.apply { trackingMode=mode; base=emptyList(); baseModel=null; landing=null; timingLandingEstimated=null; apex=null; manual=false; flight=4.0 }
+        stopPlay(); remember(); scene.shot.apply { trackingMode=mode; base=emptyList(); baseModel=null; landing=null; landingConfirmed=false; timingLandingEstimated=null; apex=null; manual=false; flight=4.0 }
         tool="ball"; pending=null; changed(); status.text=text("mode_changed")
     }
     private fun analyzeFromButton() {
         val file = source ?: return; val s = scene.shot; val ball = s.ball ?: return
-        if (busy) return
+        if (busy || decoding || timelineBefore != null || !s.readyToAnalyze()) return
+        stopPlay()
         status.setText(R.string.status_analyzing)
-        val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val rows = times.copyOf(); val putt = s.trackingMode == "putt"
+        val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val end = start + s.flight; val rows = times.copyOf(); val putt = s.trackingMode == "putt"
         work {
             val result = TrackingSession(width,height,ball.x*width,ball.y*height,putt)
             val retriever = MediaMetadataRetriever()
             var personError = false
-            val person = try { PersonAnalysis(this,File(file.parentFile,"analysis-${UUID.randomUUID()}")) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person task initialization failed",e); personError=true; null }
+            val person = if (!scene.personOcclusion) null else try { PersonAnalysis(this,File(file.parentFile,"analysis-${UUID.randomUUID()}")) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person task initialization failed",e); personError=true; null }
             try {
                 retriever.setDataSource(file.path)
                 var lastSample = Double.NEGATIVE_INFINITY; var lastPerson = Double.NEGATIVE_INFINITY
-                for (i in rows.indices) if (rows[i] >= max(0.0,start-1.2) && rows[i] <= min(duration,start+15) && rows[i]-lastSample >= 1.0/30-1e-6) {
+                for (i in rows.indices) if (rows[i] >= start - 1e-6 && rows[i] <= end + 1e-6 && (rows[i]-lastSample >= 1.0/30-1e-6 || abs(rows[i]-end) <= 1e-6)) {
                     if (Thread.currentThread().isInterrupted) throw InterruptedException()
                     val time = rows[i]; val frame = EditorMedia.frame(retriever,i)
                     try {
-                        if (time >= start) result.push(frame,time)
+                        result.push(frame,time)
                         if (person != null && !personError && time-lastPerson >= (if (abs(time-start) <= 1.2) 1.0/30 else 1.0/15)-1e-6) {
-                            val cam = samples(result.samples(true)).lastOrNull()
-                            try { person.push(frame,time,EditPoint(cam?.x ?: 0.0,cam?.y ?: 0.0)) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person frame analysis failed",e); personError=true }
+                            try { person.push(frame,time) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person frame analysis failed",e); personError=true }
                             lastPerson=time
                         }
                     } finally { frame.recycle() }
                     lastSample=time
-                    if (i%15 == 0) ui { status.text=getString(R.string.editor_analysis_progress,((time-max(0.0,start-1.2))/(min(duration,start+15)-max(0.0,start-1.2))*100).toInt().coerceIn(0,100)) }
+                    if (i%15 == 0) ui { status.text=getString(R.string.editor_analysis_progress,((time-start)/(end-start)*100).toInt().coerceIn(0,100)) }
                 }
                 val observations = samples(result.samples()); val camera = samples(result.samples(true))
                 val model = result.flightModel()
-                val impact = model?.get(3) ?: observations.firstOrNull()?.time ?: start
+                val found = if (putt) observations.size >= 3 else model != null
+                val landingMotion = interpolate(camera, end)
                 ui {
                     remember(); scene.shots.firstOrNull { it.id == id }?.let {
-                        it.base=observations; it.camera=camera; it.baseModel=model; it.start=impact
-                        it.autoHands=person?.hands?.filter { p -> p.time in impact-1.2..impact+1.2 } ?: emptyList()
+                        // Move the marked landing from the old camera reference to the new one.
+                        val oldMotion = it.motion(end)
+                        it.landing = it.landing?.let { point ->
+                            EditPoint(point.x + oldMotion.x - landingMotion.x, point.y + oldMotion.y - landingMotion.y)
+                        }
+                        it.base = if (found) observations else emptyList()
+                        it.camera = camera
+                        it.baseModel = model
+                        it.manual = false
+                        it.apex = null
                         it.masks=person?.masks?.toList() ?: emptyList()
-                        if (putt && observations.size >= 3) it.flight=max(.2,observations.last().time-impact)
-                        if (model != null) { it.flight=model[10]; it.apexFraction=(NativeCore.modelApex(model)/model[10]).coerceIn(.35,.62) }
+                        if (model != null) { it.apexFraction=(NativeCore.modelApex(model)/model[10]).coerceIn(.35,.62) }
                     }
                     changed()
-                    status.text=getString(R.string.editor_analysis_result,observations.size,scene.shot.autoHands.size) +
-                        (if (if (putt) observations.size < 3 else model == null) "\n"+getString(R.string.error_track) else "") + (if (personError) "\n"+text("person_failed") else "")
+                    status.text=getString(R.string.editor_analysis_result,observations.size) +
+                        (if (!found) "\n"+getString(R.string.error_track) else "") + (if (personError) "\n"+text("person_failed") else "")
                 }
             } finally { retriever.release(); result.close(); person?.close() }
         }
@@ -493,8 +573,9 @@ class MainActivity : Activity() {
         output=file; saveOutput(done)
     }
     private fun exportVideo(done: (() -> Unit)? = null) {
+        if (scene.shots.any { it.landingConfirmed } && scene.shots.none { it.hasTrace() }) { done?.invoke(); return }
         val file = source ?: return; stopPlay(); persist()
-        val snapshot = scene.copy(); val draw = EditorRenderer(snapshot); val destination = File(file.parentFile, "traced-${UUID.randomUUID()}.mp4")
+        val snapshot = scene.copy(); val draw = EditorRenderer(snapshot) { text("info_" + it) }; val destination = File(file.parentFile, "traced-${UUID.randomUUID()}.mp4")
         busyTicket++; busy = true; controls(); status.setText(R.string.status_exporting)
         if (snapshot.slowmo) {
             val rows = times.copyOf(); val clipDuration = duration
@@ -546,10 +627,10 @@ class MainActivity : Activity() {
     }
     private fun clearProject() {
         stopPlay(); generation++; clearThumbnails(); source = null; output = null; times = doubleArrayOf(0.0); duration = 0.0
-        frameIndex = 0; displayed = 0; decoding = false; scene = EditorScene(); renderer = EditorRenderer(scene)
+        frameIndex = 0; displayed = 0; decoding = false; scene = EditorScene(); renderer = EditorRenderer(scene) { text("info_" + it) }
         undo.clear(); redo.clear(); pending = null; tool = "ball"
         preview.image?.recycle(); preview.image = null; preview.overlay?.recycle(); preview.overlay = null
-        preview.handles = emptyList(); preview.invalidate(); counter.text = ""
+        preview.handles = emptyList(); preview.invalidate()
         renderShots(); controls(); status.setText(R.string.hint_import)
     }
     private fun deleteProjects(folders: List<File>) {
@@ -618,9 +699,8 @@ class MainActivity : Activity() {
             layout.addView(spinner); edits.add { set(options[spinner.selectedItemPosition]) }
         }
         layout.addView(TextView(this).apply { text=motionReport(); setPadding(0,0,0,dp(12)); setTextIsSelectable(true) })
-        choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.timingLandingEstimated=null; scene.shot.apex=null; scene.shot.manual=false } }
+        choice("tracking_mode", listOf("flight","putt"), scene.shot.trackingMode) { if (scene.shot.trackingMode != it) { scene.shot.trackingMode=it; scene.shot.base=emptyList(); scene.shot.baseModel=null; scene.shot.landing=null; scene.shot.landingConfirmed=false; scene.shot.timingLandingEstimated=null; scene.shot.apex=null; scene.shot.manual=false } }
         check("person_occlusion",scene.personOcclusion) { scene.personOcclusion=it }
-        check("auto_swing", scene.autoWristsEnabled) { scene.autoSwing = if (it) "hands" else "off" }
         choice("preset", listOf("classic", "tv", "neon", "comet", "minimal"), scene.preset) { scene.preset = it }
         layout.addView(TextView(this).apply { text = text("color") }); val color = EditText(this).apply { setText(scene.shot.color); inputType = InputType.TYPE_CLASS_TEXT }; layout.addView(color)
         edits.add { try { Color.parseColor(color.text.toString()); scene.shot.color = color.text.toString() } catch (_: Exception) { } }
@@ -629,7 +709,7 @@ class MainActivity : Activity() {
         number("speed", scene.shot.speed, .5, 4.0) { scene.shot.speed = it }
         number("width", scene.lineWidth, .2, 5.0) { scene.lineWidth = it }; number("glow", scene.glow, 0.0, 3.0) { scene.glow = it }
         number("hold", scene.hold, -1.0, 30.0) { scene.hold = it }
-        check("head", scene.head) { scene.head = it }; check("marker", scene.marker) { scene.marker = it }; check("swing_enabled", scene.swingEnabled) { scene.swingEnabled = it }
+        check("head", scene.head) { scene.head = it }; check("marker", scene.marker) { scene.marker = it }
         check("slowmo", scene.slowmo) { scene.slowmo = it }; number("slow_factor", scene.slowFactor, 1.0, 8.0) { scene.slowFactor = it }
         number("slow_before", scene.slowBefore, 0.0, 5.0) { scene.slowBefore = it }; number("slow_after", scene.slowAfter, 0.0, 10.0) { scene.slowAfter = it }
         number("logo_size", scene.logoSize, .02, .5) { scene.logoSize = it }; number("logo_opacity", scene.logoOpacity, 0.0, 1.0) { scene.logoOpacity = it }

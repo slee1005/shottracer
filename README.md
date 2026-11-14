@@ -5,7 +5,7 @@
 A local editor that draws the ball flight (shot tracer), swing path and data pop-ups
 onto golf swing videos. Everything runs on your machine; videos never leave it.
 
-The [Android/iPhone port](mobile-port/README.md) is prepared for free distribution without subscriptions or trial expiry; device validation and store publication remain pending.
+The [Android/iPhone port](mobile-port/README.md) is prepared for free distribution without subscriptions or trial expiry; device validation and store publication remain pending. In the mobile editor, shot distance and height shape a flat ribbon tracer, and the total-distance counter follows the ball in yards or metres.
 
 - Semi-automatic: click the ball once, the rest is detected
 - Ball flight and putt/chip tracing, club-head swing path

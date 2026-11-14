@@ -56,6 +56,8 @@ def core(tmp_path_factory):
     lib.st_fit_model.argtypes = [c.c_void_p, c.c_int] + [c.c_double] * 8 + [c.POINTER(NativeModel)]
     lib.st_refit_model.argtypes = [c.POINTER(NativeModel), c.c_void_p, c.c_int, c.c_void_p, c.c_double, c.POINTER(NativeModel)]
     lib.st_with_apex.argtypes = [c.POINTER(NativeModel), c.c_void_p, c.c_int, c.c_double, c.POINTER(NativeModel)]
+    lib.st_shot_info_profile.argtypes = [c.c_double] * 4 + [c.POINTER(c.c_double)] * 3
+    lib.st_shot_info_profile.restype = None
     return lib
 
 
@@ -69,6 +71,19 @@ def test_model_matches_desktop(core, lift, height, du, dv):
         assert core.st_model_at(c.byref(native), time, c.byref(x), c.byref(y)) == 0
         np.testing.assert_allclose([x.value, y.value], model.at(time), atol=1e-10)
     assert core.st_model_apex(c.byref(native)) == pytest.approx(model.apex_time(), abs=1e-12)
+
+
+@pytest.mark.parametrize(("carry", "total", "height", "expected"), [
+    (0, 0, 0, (3.2, 1.0, 0.0)),
+    (0, 150 * .9144, 0, (5.1, 1.0, 0.0)),
+    (175 * .9144, 0, 0, (5.45, 1.0, 0.0)),
+    (200 * .9144, 220 * .9144, 50, (5.8, 50 / (9.80665 * 5.8**2 / 8), .1)),
+    (200 * .9144, 180 * .9144, 0, (5.8, 1.0, 0.0)),
+])
+def test_shot_info_profile(core, carry, total, height, expected):
+    outputs = [c.c_double() for _ in range(3)]
+    core.st_shot_info_profile(carry, total, height, 3.2, *(c.byref(value) for value in outputs))
+    assert [value.value for value in outputs] == pytest.approx(expected)
 
 
 def frame(x=None, y=None, background=None):
@@ -167,6 +182,19 @@ def test_flight_rejects_turn_speed_spike_and_outside_point_then_recovers(core, t
     assert core.st_tracker_model(tracker, c.byref(after)) == 0
     assert bytes(before) == bytes(after)
     push(core, tracker, frame(110, 70), 10 / 30)
+    assert core.st_count(tracker) == 10
+
+
+def test_flight_reacquires_a_detection_after_missing_frames(core, tracker):
+    flight(core, tracker)
+    model = NativeModel()
+    assert core.st_tracker_model(tracker, c.byref(model)) == 0
+    for i in range(9, 12):
+        push(core, tracker, frame(), i / 30)
+    x, y = c.c_double(), c.c_double()
+    assert core.st_model_at(c.byref(model), 12 / 30 - model.t0, c.byref(x), c.byref(y)) == 0
+    # Seven pixels from the prediction is outside the base gate but inside the recovery gate.
+    push(core, tracker, frame(round(x.value * 240), round(y.value * 180) + 7), 12 / 30)
     assert core.st_count(tracker) == 10
 
 

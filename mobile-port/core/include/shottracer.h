@@ -56,6 +56,10 @@ int st_with_apex(const STModel *base, const double *samples, int count, double a
    Returns [span, dx, dy, median projected speed px/s, count], or -1 missing/invalid.
    This is NOT a physical launch angle, club speed or carry measurement. */
 int st_motion_summary(const double *samples, int count, double *summary);
+/* Approximate display timing and shape from optional distances in metres.
+   Nonpositive inputs are unset. Roll ratio is relative to projected carry. */
+void st_shot_info_profile(double carry, double total, double height, double source_flight,
+                          double *flight, double *rise_scale, double *roll_ratio);
 #ifdef __cplusplus
 }
 #endif

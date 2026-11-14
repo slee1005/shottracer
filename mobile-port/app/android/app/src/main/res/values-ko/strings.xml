@@ -63,7 +63,7 @@
     <string name="editor_circle">원 그리기</string>
     <string name="editor_line">선 그리기</string>
     <string name="editor_swing">손목 포인트</string>
-    <string name="editor_delete">마지막 도형 / 샷 삭제</string>
+    <string name="editor_delete">지우기</string>
     <string name="editor_hint_ball">현재 프레임에서 시작 공을 누르세요.</string>
     <string name="editor_hint_landing">착지점을 누르거나 초록색 핸들을 드래그하세요.</string>
     <string name="editor_hint_apex">정점을 누르거나 하늘색 핸들을 드래그하세요.</string>
@@ -142,7 +142,7 @@
     <string name="editor_auto_swing">자동 손목 경로 표시</string>
     <string name="editor_person_failed">인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.</string>
     <string name="editor_analysis_progress">기기에서 분석 중 · %1$d%%</string>
-    <string name="editor_analysis_result">공 %1$d · 손목 %2$d</string>
+    <string name="editor_analysis_result">공 검출 %1$d개</string>
     <string name="editor_on_device">기기 내 처리</string>
     <string name="editor_workspace">샷의 흐름을 한눈에</string>
     <string name="editor_mode_changed">모드가 변경되었습니다. 다시 분석해 주세요.</string>
@@ -181,4 +181,15 @@
     <string name="editor_timeline_apex">최고점</string>
     <string name="editor_timeline_tracer">샷 트레이서</string>
     <string name="editor_timeline_seek">프레임 탐색</string>
+    <string name="editor_landing_unset">착지 설정</string>
+    <string name="editor_landing_checked">✓ 착지 설정</string>
+    <string name="editor_landing_workflow">시작 후 0.2~15초 사이의 착지 프레임으로 이동해 공이 떨어진 위치를 누르세요.</string>
+    <string name="editor_ready_to_analyze">시작과 착지가 설정됐습니다. 분석을 누르세요.</string>
+    <string name="editor_info_total">총거리</string>
+    <string name="editor_info_carry">캐리거리</string>
+    <string name="editor_info_height">높이</string>
+    <string name="editor_info_amount">거리 입력</string>
+    <string name="editor_info_unit">거리 단위</string>
+    <string name="editor_info_value">예: 180 m, 200 yd, 90 ft</string>
+    <string name="editor_info_visible">영상에 표시</string>
 </resources>

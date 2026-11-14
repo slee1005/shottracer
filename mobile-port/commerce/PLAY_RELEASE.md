@@ -1,6 +1,6 @@
 # Google Play free release
 
-Package **com.ajc.shottracer**, version **0.0.1**, code **5**, minimum API **34**, compile/target **36**. Separate `.dev` and `.dev.tester` packages retain their own data and now both offer free access. Keep the default watermark.
+Package **com.ajc.shottracer**, version **0.0.1**, code **7**, minimum API **34**, compile/target **36**. Separate `.dev` and `.dev.tester` packages retain their own data and now both offer free access. Keep the default watermark.
 
 ## Local outputs
 
@@ -24,7 +24,7 @@ For an installed Gradle, add `--gradle /absolute/path/gradle`. Pinned bundletool
 ## Before submission
 
 1. Set the app price to **free** in Play Console. No subscription product is required.
-2. Upload the code-**5** free AAB to internal testing, retaining the existing app signing. If code 5 or higher was already uploaded, rebuild with a higher versionCode.
+2. Upload the code-**7** free AAB to internal testing, retaining the existing app signing. If code 7 or higher was already uploaded, rebuild with a higher versionCode.
 3. Complete privacy, Data safety, content rating, app access, review instructions and account-specific testing/production requirements. Recheck current Console requirements when submitting.
 4. Validate physical-device import, tracking, export, album saving, camera, microphone and 16 KB operation.
 

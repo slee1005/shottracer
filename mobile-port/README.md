@@ -2,20 +2,25 @@
 
 # ShotTracer Android and iPhone port plan
 
-**Current as of 2026-11-04: free distribution.** Android and iPhone editing, analysis, export and live recording have no trial expiry, subscription, purchase or code requirement. The watermark stays on by default. Android billing SDK, billing/network permissions and billing-key build requirements have been removed. The free Play build is version 0.0.1 / code 5. Store publication and physical-device validation remain separate. Subscription-related validation below is historical, not a current requirement.
+**Current as of 2026-11-04: free distribution.** Android and iPhone editing, analysis, export and live recording have no trial expiry, subscription, purchase or code requirement. The watermark stays on by default. Android billing SDK, billing/network permissions and billing-key build requirements have been removed. The free Play build is version 0.0.1 / code 7. Store publication and physical-device validation remain separate. Subscription-related validation below is historical, not a current requirement.
 
 For implementation history, validation status and remaining release work, see the
 [mobile work log (Korean, updated 2026-11-04)](WORK_LOG.ko.md).
 
 Date: 2026-11-03. Status: initial development prototype. Android/iPhone app sources and a shared automatic-tracking core are now included here. Store release and physical-device validation remain incomplete.
 
-#Automatic mobile flight tracking uses image-up from the selected start as the forward direction. After camera compensation, only detections inside ±50° are considered. The selected launch reference and the first five valid moving-ball detections seed the flight model using their source timestamps. Later detections must agree with its predicted position, direction and displacement. During a detection gap the curve comes from the model, while the observation list contains only detections. These are projected image measurements.
+Automatic mobile flight tracking uses image-up from the selected start as the forward direction. After camera compensation, only detections inside ±50° are considered. The selected launch reference and the first five valid moving-ball detections seed the flight model using their source timestamps. Later detections must agree with its predicted position, direction and displacement. Like the desktop tracker, it favors stronger motion contrast near the prediction and widens the search after missed frames. Mobile caps the wider search and keeps its direction and displacement checks. During a detection gap the curve comes from the model, while the observation list contains only detections. These are projected image measurements.
 
 The Set start, Analyze and Reset buttons have equal widths and heights on each mobile platform.
 
 ## Current mobile editor controls
 
-Choose videos through the system Photo Picker on Android or Photos on iOS. The mobile editor no longer exposes club-head tracing, its settings, or its analysis results. Automatic wrist paths and manual wrist points are available. Pinch to zoom and drag an empty area to pan. The earlier file picker, dedicated pan tool and club-head display instructions below describe previous versions.
+Choose videos through the system Photo Picker on Android or Photos on iOS. The mobile editor no longer exposes club-head tracing, its settings, or its analysis results. Mobile tracing covers the ball in flight or rolling on the green. Pinch to zoom and drag an empty area to pan. The earlier file picker, dedicated pan tool and club-head display instructions below describe previous versions.
+
+Go to the start frame and tap the ball. Then go to the landing frame and tap where the ball lands. Analyze becomes available after both points are set. The tracer uses the selected start time, landing time and landing position.
+
+The Total distance, Carry distance and Height tabs below the timeline accept a value and unit for each shot. Enable Show on video to include the cards in preview and export. With the landing marker enabled, droplets and ripples play for 0.65 seconds at landing.
+
 
 ## 1. Goal and assumptions
 
@@ -318,12 +323,22 @@ Play now runs at 1× original source time on Android and iPhone, including when 
 
 Validation: 76 Python/shared-core tests, 33 Android JVM tests (including VFR exposure boundaries, stalled-clock catch-up, nonzero starts and single-frame clips), Android assembly/lint and unsigned iPhone build. An isolated Android 14 instrumentation probe measured a synthetic 6-second/180-frame clip at 6.04 real seconds. With a deliberate 350ms decoder-worker stall and export slow motion enabled, the displayed source time at 2 real seconds was 1.933 seconds; end/replay, pause and resume passed. No test videos/probe APK are committed. Real-phone frame rate depends on decode/render performance; iPhone runtime timing remains unverified. The editor's existing raster preview does not add audio playback in this change.
 
+### Shot information and ribbon tracer
+
+The top toolbar has **Clear** in the former analysis-icon slot. Use **Analyze** in the shot setup row. Tap or drag the timeline markers to edit shot events.
+
+With **Total** displayed, the white, dark-outlined number follows the ribbon tip and counts up with the distance travelled along the projected path. If the shot includes a roll, the number reaches carry at landing and total at the end of the roll.
+
+In the Android and iPhone imported-video editor, enter **Total**, **Carry**, and **Height** in the tabs under the timeline. Choose `yds` or `m` separately in the Total and Carry editors. Changing the unit converts the current value. Height accepts metres, yards, or feet. Carry estimates the tracer's time in the air. Total supplies the estimate when carry is blank. When total exceeds carry, the tracer adds a projected roll beyond the selected landing point. Height adjusts the arc above the line from launch to landing. The display toggle controls the on-video label independently of the trajectory.
+
+The selected start and landing frames still identify positions in the source video. Estimated arrival can occur at a different frame, and the splash follows the estimated arrival at the selected landing point. The overlay only appears within the source clip. Preview and export use the same flat, tapered ribbon.
+
 ### Free distribution (2026-11-04)
 
 The three-day trial, monthly subscription and tester extensions have been retired. Both apps remove expiry gates, subscription screens, purchase/restore and code UI. Expired legacy access records do not affect editing, tracking, export or recording. Existing projects and album videos remain intact. The separate Android tester application ID is retained for data continuity but now offers the same free functionality without codes. The local StoreKit fixture has no products; the old issuer remains a historical developer utility only.
 
 ### Google Play free package
 
-Production ID **com.ajc.shottracer**, version **0.0.1** / code **5**, minimum API **34**, compile/target **36**. `tools/build_play_bundle.py` signs with the existing upload key without requiring a billing public key. It rejects billing SDK and billing/network permissions while retaining pinned-model, certificate/JAR, bundletool and 16 KB native alignment checks. Output: `release/ShotTracer-0.0.1-free-play.aab`. Do not distribute the previous code-1 subscription bundle as the free app. See the [free release guide](commerce/PLAY_RELEASE.md). Configure a free store price and complete privacy, review and device checks separately; this task does not upload or publish the app.
+Production ID **com.ajc.shottracer**, version **0.0.1** / code **7**, minimum API **34**, compile/target **36**. `tools/build_play_bundle.py` signs with the existing upload key without requiring a billing public key. It rejects billing SDK and billing/network permissions while retaining pinned-model, certificate/JAR, bundletool and 16 KB native alignment checks. Output: `release/ShotTracer-0.0.1-free-play.aab`. Do not distribute the previous code-1 subscription bundle as the free app. See the [free release guide](commerce/PLAY_RELEASE.md). Configure a free store price and complete privacy, review and device checks separately; this task does not upload or publish the app.
 
 Free-build validation: **92** Python/core/issuer/bundle tests, **33** Android JVM tests, normal/tester APKs, debug/release lint and unsigned iPhone build passed. The free AAB passed signing, model, 16 KB alignment and absence-of-billing/network checks; APK signing also passed. Android 14 emulator checks confirmed editor access despite expired legacy records and no purchase entry in settings. Physical-device quality and store review remain pending.

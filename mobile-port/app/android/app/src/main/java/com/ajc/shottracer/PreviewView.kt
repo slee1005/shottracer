@@ -19,6 +19,7 @@ internal class PreviewView(context: Context) : View(context) {
     var onHandleStart: (() -> Unit)? = null
     var onHandle: ((String, PointF) -> Unit)? = null
     var onHandleEnd: (() -> Unit)? = null
+    var placingLanding = false
     var zoomEnabled = false
     private val rectangle = RectF()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -97,7 +98,7 @@ internal class PreviewView(context: Context) : View(context) {
         val cy=indices.map { event.getY(it).toDouble() }.average().toFloat()
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             transformed = false; downX=cx; downY=cy; lastX=cx; lastY=cy
-            activeHandle = handles.minByOrNull {
+            activeHandle = if (placingLanding) null else handles.minByOrNull {
                 hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height())
             }?.takeIf { hypot(cx - rectangle.left - it.point.x * rectangle.width(), cy - rectangle.top - it.point.y * rectangle.height()) < 26 * resources.displayMetrics.density }?.key
             if (activeHandle != null) onHandleStart?.invoke()

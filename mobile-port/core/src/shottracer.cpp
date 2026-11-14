@@ -7,14 +7,14 @@
 
 namespace {
 struct Camera { double time, x, y; };
-struct Candidate { double x, y, strength; };
+struct Candidate { double x, y, strength, contrast; };
 double length(double x, double y) { return std::hypot(x, y); }
 double travel(double t, double k) { return -std::expm1(-k * t) / k; }
 }
 
 struct STTracker {
     int width, height;
-    int mode = 0, half = 7;
+    int mode = 0, half = 7, flight_misses = 0;
     double putt_x = 0, putt_y = 0, vx = 0, vy = 0, still_since = -1;
     std::vector<double> patch;
     double seed_x, seed_y, last_time = -1, camera_x = 0, camera_y = 0;
@@ -80,11 +80,12 @@ std::vector<Candidate> candidates(const STTracker &t, const uint8_t *gray, int s
         const int first = y * w + x;
         if (!mask[first]) continue;
         todo.clear(); todo.push_back(first); mask[first] = 0;
-        double sx = 0, sy = 0, strength = 0;
+        double sx = 0, sy = 0, strength = 0, contrast = 0;
         int minx = x, maxx = x, miny = y, maxy = y;
         for (size_t i = 0; i < todo.size(); ++i) {
             const int p = todo[i], yy = p / w, xx = p % w;
             sx += xx; sy += yy; strength += gray[yy * stride + xx];
+            contrast += gray[yy * stride + xx] - t.previous[(yy - dy) * w + xx - dx];
             minx = std::min(minx, xx); maxx = std::max(maxx, xx);
             miny = std::min(miny, yy); maxy = std::max(maxy, yy);
             for (const int delta : {-w, w, -1, 1}) {
@@ -94,7 +95,7 @@ std::vector<Candidate> candidates(const STTracker &t, const uint8_t *gray, int s
         }
         const double n = double(todo.size());
         if (n >= 2 && n <= 180 && maxx - minx <= 22 && maxy - miny <= 22)
-            result.push_back({sx / n - t.camera_x, sy / n - t.camera_y, strength / n / 255.0});
+            result.push_back({sx / n - t.camera_x, sy / n - t.camera_y, strength / n / 255.0, contrast / n});
     }
     return result;
 }
@@ -233,25 +234,39 @@ void flight_step(STTracker &t, const std::vector<Candidate> &options, bool addre
         t.ended = true;
         return;
     }
-    double x, y, previous_x, previous_y;
+    double x, y, previous_x, previous_y, frame_x, frame_y;
     if (st_model_at(&t.flight, time - t.flight.t0, &x, &y) ||
-        st_model_at(&t.flight, last.time - t.flight.t0, &previous_x, &previous_y)) return;
+        st_model_at(&t.flight, last.time - t.flight.t0, &previous_x, &previous_y) ||
+        st_model_at(&t.flight, t.last_time - t.flight.t0, &frame_x, &frame_y)) return;
     const double dx = x - previous_x, dy = y - previous_y, expected = length(dx, dy);
-    const double gate = std::clamp(3 + .55 * expected, 4.0, 14.0);
+    // As in desktop tracking, widen the model gate after missed frames, but
+    // keep the mobile bounds and direction/displacement checks on reacquisition.
+    const double step = length(x - frame_x, y - frame_y);
+    const double gate = std::min(14.0, std::max(5.0, .6 * step) + 1.5 * t.flight_misses);
     for (const auto &c : options) {
         if (!inside_launch_cone(t, c)) continue;
         const double vx = c.x - last.x, vy = c.y - last.y, displacement = length(vx, vy);
         if (displacement > 1.65 * expected + 3) continue;
         if (expected > 3 && displacement > 3 && !direction(dx, dy, vx, vy)) continue;
         const double error = length(c.x - x, c.y - y);
-        if (error < gate && error < best) { best = error; chosen = &c; }
+        if (error > gate) continue;
+        const double score = error - .05 * c.contrast;
+        if (score < best) { best = score; chosen = &c; }
     }
-    if (!chosen) return;
+    if (!chosen) {
+        ++t.flight_misses;
+        return;
+    }
 
     t.points.push_back({time, chosen->x, chosen->y, chosen->strength});
     STModel updated{};
-    if (fit_flight(t, t.points, updated)) t.flight = updated;
-    else t.points.pop_back();
+    if (fit_flight(t, t.points, updated)) {
+        t.flight = updated;
+        t.flight_misses = 0;
+    } else {
+        t.points.pop_back();
+        ++t.flight_misses;
+    }
 }
 
 Camera camera_at(const STTracker &t, double time) {
@@ -570,4 +585,27 @@ extern "C" int st_motion_summary(const double *samples, int count, double *out) 
     out[3] = (speeds[(n-1)/2]+speeds[n/2])/2;
     out[4] = count;
     return 0;
+}
+
+extern "C" void st_shot_info_profile(double carry, double total, double height, double source_flight,
+                                      double *flight, double *rise_scale, double *roll_ratio) {
+    // The carry table uses yards. Inputs use metres and source time uses seconds.
+    constexpr double yards[] = {5, 20, 40, 70, 100, 150, 200, 250, 300, 350};
+    constexpr double seconds[] = {.8, 1.5, 2.4, 3.4, 4.2, 5.1, 5.8, 6.4, 6.9, 7.4};
+    *flight = source_flight;
+    *rise_scale = 1;
+    *roll_ratio = 0;
+    const double distance = carry > 0 ? carry : total;
+    if (distance > 0) {
+        const double yd = std::clamp(distance / .9144, yards[0], yards[9]);
+        int next = 1;
+        while (yd > yards[next]) ++next;
+        const double fraction = (yd - yards[next - 1]) / (yards[next] - yards[next - 1]);
+        *flight = seconds[next - 1] + fraction * (seconds[next] - seconds[next - 1]);
+    }
+    if (height > 0) {
+        const double baseline_height = std::max(1.0, 9.80665 * (*flight) * (*flight) / 8);
+        *rise_scale = std::clamp(height / baseline_height, .25, 3.0);
+    }
+    if (carry > 0 && total > carry) *roll_ratio = std::min(.5, (total - carry) / carry);
 }

@@ -19,9 +19,8 @@ internal class PersonAnalysis(context: Context, private val folder: File) : Auto
         .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_full.task").build())
         .setRunningMode(RunningMode.VIDEO).setNumPoses(1).setOutputSegmentationMasks(true).build())
     val masks = mutableListOf<PersonMask>()
-    val hands = mutableListOf<TimedPoint>()
     init { check(folder.mkdirs() || folder.isDirectory) }
-    fun push(bitmap: Bitmap, time: Double, motion: EditPoint) {
+    fun push(bitmap: Bitmap, time: Double) {
         val w = bitmap.width; val h = bitmap.height
         // MPImage.close() recycles its backing bitmap; keep the decoder's frame owned by its caller.
         val image = BitmapImageBuilder(bitmap.copy(Bitmap.Config.ARGB_8888,false)).build()
@@ -41,10 +40,6 @@ internal class PersonAnalysis(context: Context, private val folder: File) : Auto
                 raw.recycle()
             }
         } finally { images.forEach { it.close() } }
-        val p = result.landmarks().firstOrNull()
-        fun visible(index: Int) = p != null && p[index].visibility().orElse(0f) >= .4f && p[index].presence().orElse(0f) >= .4f
-        val hand = if (visible(15) && visible(16)) EditPoint((p!![15].x()+p[16].x())/2.0,(p[15].y()+p[16].y())/2.0) else null
-        if (hand != null) hands.add(TimedPoint(time,hand.x-motion.x,hand.y-motion.y))
     }
     override fun close() { pose.close() }
 }

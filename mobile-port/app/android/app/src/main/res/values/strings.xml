@@ -63,7 +63,7 @@
     <string name="editor_circle">Circle</string>
     <string name="editor_line">Line</string>
     <string name="editor_swing">Wrist points</string>
-    <string name="editor_delete">Delete last shape / shot</string>
+    <string name="editor_delete">Clear</string>
     <string name="editor_hint_ball">Tap the starting ball on the current frame.</string>
     <string name="editor_hint_landing">Tap or drag the green landing handle.</string>
     <string name="editor_hint_apex">Tap or drag the cyan apex handle.</string>
@@ -142,7 +142,7 @@
     <string name="editor_auto_swing">Show automatic wrist path</string>
     <string name="editor_person_failed">Person analysis was unavailable. Ball results are retained; retry analysis.</string>
     <string name="editor_analysis_progress">Analyzing on device · %1$d%%</string>
-    <string name="editor_analysis_result">Ball %1$d · Wrists %2$d</string>
+    <string name="editor_analysis_result">Ball detections: %1$d</string>
     <string name="editor_on_device">ON DEVICE</string>
     <string name="editor_workspace">Your shot, in focus.</string>
     <string name="editor_mode_changed">Mode changed. Analyze again to track this shot.</string>
@@ -181,4 +181,15 @@
     <string name="editor_timeline_apex">Apex</string>
     <string name="editor_timeline_tracer">Shot Tracer</string>
     <string name="editor_timeline_seek">Seek frame</string>
+    <string name="editor_landing_unset">Set landing</string>
+    <string name="editor_landing_checked">✓ Landing set</string>
+    <string name="editor_landing_workflow">Move to the landing frame 0.2–15 seconds after the start and tap where the ball lands.</string>
+    <string name="editor_ready_to_analyze">Start and landing are set. Tap Analyze.</string>
+    <string name="editor_info_total">Total distance</string>
+    <string name="editor_info_carry">Carry distance</string>
+    <string name="editor_info_height">Height</string>
+    <string name="editor_info_amount">Enter distance</string>
+    <string name="editor_info_unit">Distance unit</string>
+    <string name="editor_info_value">e.g. 180 m, 200 yd, 90 ft</string>
+    <string name="editor_info_visible">Show on video</string>
 </resources>
