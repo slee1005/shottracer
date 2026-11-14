@@ -4,6 +4,7 @@
 
 macOS (Apple silicon) -> dist/ShotTracer-<version>-mac-arm64.dmg
 Windows (x64)         -> dist/ShotTracer-<version>-windows-x64.zip
+Mac App Store         -> dist/AJCShotTracer-<version>-build<number>-MacAppStore-arm64.pkg
 
 Downloads are pinned by SHA-256: a static ffmpeg build (GPL, shipped as a separate
 program with its license) and the MediaPipe pose model, so the app works offline.
@@ -11,14 +12,19 @@ program with its license) and the MediaPipe pose model, so the app works offline
 
 from __future__ import annotations
 
+import argparse
 import hashlib
+import os
 import platform
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
+
+import mac_store
 
 ROOT = Path(__file__).resolve().parent.parent
 BUILD, DIST = ROOT / "build", ROOT / "dist"
@@ -114,15 +120,51 @@ def check_platform() -> None:
         raise SystemExit(f"unsupported platform {sys.platform}")
 
 
-def main() -> int:
-    check_platform()
+def freeze(dist: Path, work: Path) -> None:
     vendor()
     subprocess.run(
         [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
-         "--distpath", str(DIST), "--workpath", str(BUILD / "pyinstaller"),
+         "--distpath", str(dist), "--workpath", str(work),
          str(ROOT / "packaging" / "shottracer.spec")],
         check=True,
     )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mac_store.add_arguments(parser)
+    args = parser.parse_args()
+    check_platform()
+    if args.mac_app_store:
+        if sys.platform != "darwin":
+            parser.error("--mac-app-store requires Apple silicon macOS")
+        if not all((args.profile, args.app_identity, args.installer_identity)) or (args.build_number or 0) < 1:
+            parser.error("--mac-app-store requires --profile, both signing identities and a positive --build-number")
+        try:
+            application_id = mac_store.profile_application_id(args.profile)
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
+            parser.error(str(exc))
+
+        DIST.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="shottracer-mac-store-") as temp:
+            stage = Path(temp)
+            freeze(stage / "frozen", stage / "pyinstaller")
+            source = stage / "frozen" / "Shot Tracer.app"
+            # Mac App Store distribution profiles require installation through Apple.
+            # Exercise the same frozen editor before applying the distribution signature.
+            subprocess.run(
+                [source / "Contents" / "MacOS" / "ShotTracer", "--self-test"],
+                env={**os.environ, "SHOTTRACER_HOME": str(stage / "selftest")},
+                check=True,
+                timeout=600,
+            )
+            out = mac_store.package(source, stage, DIST, VERSION, args, application_id)
+        print(f"built {out} ({out.stat().st_size / 1e6:.0f} MB)")
+        return 0
+    if any(value is not None for value in (args.profile, args.app_identity, args.installer_identity, args.build_number)):
+        parser.error("Mac App Store signing options require --mac-app-store")
+
+    freeze(DIST, BUILD / "pyinstaller")
     if sys.platform == "darwin":
         app = DIST / "Shot Tracer.app"
         stage = BUILD / "dmg"
