@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(shottracer_mobile LANGUAGES CXX)
+get_filename_component(CORE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../core" ABSOLUTE)
+add_library(shottracer_mobile SHARED native.cpp "${CORE}/src/shottracer.cpp")
+target_include_directories(shottracer_mobile PRIVATE "${CORE}/include")
+target_compile_features(shottracer_mobile PRIVATE cxx_std_17)
+target_compile_options(shottracer_mobile PRIVATE -Wall -Wextra)
