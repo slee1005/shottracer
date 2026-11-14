@@ -93,7 +93,7 @@ def sign_bundle(app: Path, profile: Path, application_id: str, identity: str) ->
         with path.open("rb") as stream:
             if stream.read(4) not in MACH_O:
                 continue
-        if path == ffmpeg:
+        if path.resolve() == ffmpeg:
             run(*sign, "--identifier", f"{BUNDLE_ID}.ffmpeg", "--entitlements", helper_entitlements, path)
         else:
             run(*sign, path)
