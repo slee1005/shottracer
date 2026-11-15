@@ -149,6 +149,7 @@
 "editor.personFailed" = "Person analysis was unavailable. Ball results are retained; retry analysis.";
 "editor.analysisProgress" = "Analyzing on device · %d%%";
 "editor.analysisResult" = "Ball detections: %d";
+"editor.analysisFallback" = "Automatic tracking could not fit this shot. Showing an estimated trace from your start and landing.";
 "editor.onDevice" = "ON DEVICE";
 "editor.workspace" = "Your shot, in focus.";
 "editor.modeChanged" = "Mode changed. Analyze again to track this shot.";

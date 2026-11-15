@@ -149,6 +149,7 @@
 "editor.personFailed" = "인물 분석을 완료하지 못했습니다. 공 추적 결과는 보관되며 다시 분석할 수 있습니다.";
 "editor.analysisProgress" = "기기에서 분석 중 · %d%%";
 "editor.analysisResult" = "공 검출 %d개";
+"editor.analysisFallback" = "자동 추적에 실패해 지정한 시작점과 착지점으로 추정 궤적을 표시합니다.";
 "editor.onDevice" = "기기 내 처리";
 "editor.workspace" = "샷의 흐름을 한눈에";
 "editor.modeChanged" = "모드가 변경되었습니다. 다시 분석해 주세요.";

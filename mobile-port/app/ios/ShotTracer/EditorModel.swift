@@ -364,13 +364,15 @@ final class EditorModel: ObservableObject {
                 scene.shots[i].baseModel = model
                 scene.shots[i].camera = data.1
                 scene.shots[i].masks = data.2
-                scene.shots[i].manual = false
+                // With confirmed endpoints, an unsuccessful fit still has enough input
+                // for the editor's manual flight curve or ground path.
+                scene.shots[i].manual = !found
                 scene.shots[i].apex = nil
                 if let model { scene.shots[i].apexFraction = min(0.62, max(0.35, NativeFlight.apex(model) / model[10])) }
                 commitEdits()
             }
             status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count)
-            if !found { status += "\n"+NSLocalizedString("error.track",comment:"") }
+            if !found { status += "\n"+NSLocalizedString("editor.analysisFallback",comment:"") }
             if data.3 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
         } catch { status=error.localizedDescription } }
     }

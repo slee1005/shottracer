@@ -19,6 +19,8 @@ Choose videos through the system Photo Picker on Android or Photos on iOS. The m
 
 Go to the start frame and tap the ball. Then go to the landing frame and tap where the ball lands. Analyze becomes available after both points are set. The tracer uses the selected start time, landing time and landing position.
 
+On iOS, if Analyze cannot fit the automatic track, the editor shows an estimated trace using the confirmed start and landing. The status identifies the estimate, and preview and export both use that path.
+
 The Total distance, Carry distance and Height tabs below the timeline accept a value and unit for each shot. Enable Show on video to include the cards in preview and export. With the landing marker enabled, droplets and ripples play for 0.65 seconds at landing.
 
 
