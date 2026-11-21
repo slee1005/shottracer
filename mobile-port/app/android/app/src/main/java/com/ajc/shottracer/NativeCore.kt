@@ -9,6 +9,9 @@ internal object NativeCore {
     init { System.loadLibrary("shottracer_mobile") }
     external fun create(width: Int, height: Int, x: Double, y: Double): Long
     external fun mode(handle: Long, mode: Int): Int
+    external fun desktopTracking(handle: Long, flight: Double): Int
+    external fun finish(handle: Long): Int
+    external fun transforms(handle: Long): DoubleArray
     external fun club(previous: ByteArray, current: ByteArray, next: ByteArray, mask: ByteArray, width: Int, height: Int, pose: DoubleArray, motion: DoubleArray): DoubleArray?
     external fun motion(points: DoubleArray): DoubleArray?
     external fun destroy(handle: Long)
@@ -26,9 +29,13 @@ internal object NativeCore {
 }
 
 /** Lock protects the handle from concurrent preview/export callbacks and destruction. */
-internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Double, putt: Boolean = false) : AutoCloseable {
+internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Double, putt: Boolean = false, flight: Double = 0.0) : AutoCloseable {
     private var handle = NativeCore.create(width, height, x, y)
-    init { require(handle != 0L); check(NativeCore.mode(handle, if (putt) 1 else 0) == 0) }
+    init {
+        require(handle != 0L)
+        check(NativeCore.mode(handle, if (putt) 1 else 0) == 0)
+        check(NativeCore.desktopTracking(handle, flight) == 0)
+    }
 
     @Synchronized fun push(bitmap: Bitmap, time: Double) {
         check(handle != 0L && bitmap.width == width && bitmap.height == height)
@@ -41,6 +48,8 @@ internal class TrackingSession(val width: Int, val height: Int, x: Double, y: Do
     @Synchronized fun samples(camera: Boolean = false): DoubleArray = NativeCore.samples(handle, camera)
 
     @Synchronized fun flightModel(): DoubleArray? = NativeCore.flightModel(handle)
+    @Synchronized fun finish() { check(handle != 0L && NativeCore.finish(handle)>=0) }
+    @Synchronized fun transforms(): List<CameraTransform> = cameraSamples(NativeCore.transforms(handle))
 
     /** The same complete overlay, including watermark, is used by ImageView and Transformer. */
     @Synchronized fun overlay(time: Double): Bitmap {

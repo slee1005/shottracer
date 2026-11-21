@@ -8,6 +8,9 @@ extern "C" {
    never frame number: mobile footage may have variable frame rate. */
 typedef struct STTracker STTracker;
 typedef struct { double time, x, y, confidence; } STPoint;
+/* Reference-normalized coordinates -> frame-normalized coordinates. Old projects
+   containing translation samples alone remain valid in the native adapters. */
+typedef struct { double time, m00, m01, m02, m10, m11, m12; } STCameraTransform;
 typedef struct {
     double u0, v0, vh, t0, a, c, b, g, w, k, flight_time;
     double height, lift, dv, dv_from, du;
@@ -15,6 +18,17 @@ typedef struct {
 STTracker *st_create(int width, int height, double x, double y);
 /* Set before the first frame: 0 flight, 1 rolling template tracker. */
 int st_set_mode(STTracker *tracker, int mode);
+/* Before the first frame, enable the desktop analysis pipeline. flight=0 uses
+   the full-shot prior; .2..15 uses the user's confirmed start/landing duration.
+   Uses bounded frame buffers, source timestamps, LK/RANSAC camera similarity,
+   three-frame motion, address departure, and the unchanged desktop flight fit. */
+int st_use_desktop_tracking(STTracker *tracker, double flight);
+/* Optional first upright RGBA image provides the grass-line horizon. No image is
+   retained here. Without color, the desktop grayscale/fallback horizon is used. */
+int st_reference_rgba(STTracker *tracker, const uint8_t *rgba, int stride);
+/* Flush the short lookahead after imported-video decoding. Last-frame motion is
+   not invented; only frames with both neighbouring images become observations. */
+int st_finish(STTracker *tracker);
 /* Three camera-aligned gray frames plus the current person probability mask.
    Returns 1 observed club tip, 0 missing, -1 invalid. Never invents detections. */
 int st_club_point(const uint8_t *previous, const uint8_t *current, const uint8_t *next,
@@ -24,15 +38,18 @@ int st_club_point(const uint8_t *previous, const uint8_t *current, const uint8_t
 void st_destroy(STTracker *tracker);
 /* Strictly increasing timestamps; first frame establishes the address spot.
    Returns -1 invalid input, 0 waiting/missing, 1 tracking, 2 track ended.
-   Only one frame is retained. Caller serializes mutations and rendering. */
+   Desktop analysis retains two previous images, with a short launch lookahead;
+   the legacy path retains one. Caller serializes mutations and rendering. */
 int st_push(STTracker *tracker, const uint8_t *gray, int stride, double time);
 int st_count(const STTracker *tracker);
 /* Validated automatic flight, in normalized reference coordinates. Returns -1
-   until five moving detections are accepted, or for a rolling putt. */
+   until launch is validated, or for a rolling putt. The desktop pipeline uses
+   three detections plus address departure; the legacy path requires five. */
 int st_tracker_model(const STTracker *tracker, STModel *model);
 int st_point(const STTracker *tracker, int index, STPoint *point);
 int st_camera_count(const STTracker *tracker);
 int st_camera_point(const STTracker *tracker, int index, STPoint *point);
+int st_camera_transform(const STTracker *tracker, int index, STCameraTransform *transform);
 /* Start/apex/landing in normalized reference coordinates, actual flight seconds.
    Speed changes the drawing clock only. The apex and landing are exact. */
 int st_curve_at(const double *controls, double flight, double apex_fraction,

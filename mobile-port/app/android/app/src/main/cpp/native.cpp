@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <algorithm>
 #include <vector>
 #include <cstring>
 #include "shottracer.h"
@@ -26,11 +27,41 @@ Java_com_ajc_shottracer_NativeCore_push(JNIEnv *env, jobject, jlong pointer, jin
     env->GetIntArrayRegion(array, 0, n, pixels.data());
     if (env->ExceptionCheck()) return -1;
     std::vector<uint8_t> gray(n);
+    std::vector<uint8_t> reference;
+    if(st_camera_count(handle->tracker)==0) reference.resize(size_t(n)*4);
     for (int i = 0; i < n; ++i) {
         const auto p = uint32_t(pixels[i]);
         gray[i] = uint8_t((77 * ((p >> 16) & 255) + 150 * ((p >> 8) & 255) + 29 * (p & 255)) >> 8);
+        if(!reference.empty()) {
+            reference[size_t(i)*4]=uint8_t((p>>16)&255); reference[size_t(i)*4+1]=uint8_t((p>>8)&255);
+            reference[size_t(i)*4+2]=uint8_t(p&255); reference[size_t(i)*4+3]=255;
+        }
     }
+    if(!reference.empty()) st_reference_rgba(handle->tracker,reference.data(),handle->width*4);
     return st_push(handle->tracker, gray.data(), handle->width, time);
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ajc_shottracer_NativeCore_desktopTracking(JNIEnv *,jobject,jlong pointer,jdouble flight) {
+    auto *h=get(pointer); return h?st_use_desktop_tracking(h->tracker,flight):-1;
+}
+extern "C" JNIEXPORT jint JNICALL
+Java_com_ajc_shottracer_NativeCore_finish(JNIEnv *,jobject,jlong pointer) {
+    auto *h=get(pointer); return h?st_finish(h->tracker):-1;
+}
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_com_ajc_shottracer_NativeCore_transforms(JNIEnv *env,jobject,jlong pointer) {
+    auto *h=get(pointer); if(!h) return nullptr;
+    const int count=st_camera_count(h->tracker);
+    std::vector<double> values(size_t(count)*7);
+    for(int i=0;i<count;++i) {
+        STCameraTransform camera{};
+        if(st_camera_transform(h->tracker,i,&camera)!=0) return nullptr;
+        const double row[]={camera.time,camera.m00,camera.m01,camera.m02,camera.m10,camera.m11,camera.m12};
+        std::copy(row,row+7,values.begin()+i*7);
+    }
+    auto out=env->NewDoubleArray(count*7);
+    if(out) env->SetDoubleArrayRegion(out,0,count*7,values.data());
+    return out;
 }
 extern "C" JNIEXPORT jint JNICALL
 Java_com_ajc_shottracer_NativeCore_count(JNIEnv *, jobject, jlong pointer) {
