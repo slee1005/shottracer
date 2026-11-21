@@ -28,6 +28,16 @@ private struct PickedMovie: Transferable {
     }
 }
 
+enum AnalysisPhase: String, Sendable { case checking, tracking, person }
+
+private struct AnalysisData: Sendable {
+    var points: [EditSample], camera: [EditSample], transforms: [EditCameraTransform]
+    var model: [Double]?, masks: [PersonMask] = []
+    var personFailed = false
+    var maskFolder: URL?
+    var found: Bool
+}
+
 @MainActor
 final class EditorModel: ObservableObject {
     @Published var image: UIImage?
@@ -37,6 +47,8 @@ final class EditorModel: ObservableObject {
     @Published var time = 0.0
     @Published var duration = 0.0
     @Published var busy = false
+    @Published private(set) var analysisPhase: AnalysisPhase?
+    @Published private(set) var analysisProgress = 0.0
     @Published var playing = false
     @Published var editingTimeline=false
     @Published private(set) var thumbnails: [Int: UIImage] = [:]
@@ -52,6 +64,7 @@ final class EditorModel: ObservableObject {
     private var source: URL?
     private var renderer = EditorRenderer(EditorScene())
     private var task: Task<Void, Never>?
+    private var analysisTask: Task<AnalysisData, Error>?
     private var previewTask: Task<Void, Never>?
     private var playTask: Task<Void, Never>?
     private var frameLoading=false
@@ -66,6 +79,30 @@ final class EditorModel: ObservableObject {
     var canExport: Bool { scene.shots.contains { $0.hasTrace } }
     var canUndo: Bool { !undo.isEmpty }
     var canRedo: Bool { !redo.isEmpty }
+    var isAnalyzing: Bool { analysisPhase != nil }
+    var needsManualTrace: Bool {
+        scene.shot.analysisFailed == true || (!scene.shot.hasTrace && tool == "landing" && scene.shot.ball != nil)
+    }
+    var guidanceTitle: String {
+        if !hasVideo { return "editor.guide.importTitle" }
+        if let analysisPhase { return "editor.guide." + analysisPhase.rawValue + "Title" }
+        if scene.shot.ball == nil || tool == "ball" {
+            return scene.shot.ball == nil ? "editor.guide.impactTitle" : "editor.guide.readyTitle"
+        }
+        if needsManualTrace {
+            return scene.shot.readyForManual ? "editor.guide.confirmTitle" : "editor.guide.landingTitle"
+        }
+        if tool == "landing" { return "editor.guide.landingTitle" }
+        return "editor.guide.previewTitle"
+    }
+    var guidanceMessage: String {
+        if !hasVideo { return "hint.import" }
+        if let analysisPhase { return "editor.guide." + analysisPhase.rawValue + "Message" }
+        if scene.shot.ball == nil || tool == "ball" { return scene.shot.ball == nil ? "editor.guide.impactMessage" : "editor.guide.readyMessage" }
+        if needsManualTrace { return scene.shot.readyForManual ? "editor.guide.confirmMessage" : "editor.guide.landingMessage" }
+        if tool == "landing" { return "editor.hint.landing" }
+        return "editor.guide.previewMessage"
+    }
     var frameCount: Int { times.count }
     var timelineEvents: [ShotEvent] { hasVideo ? makeShotEvents(scene.shot,times,duration) : [] }
     func jumpToEvent(_ event: ShotEvent) {
@@ -95,7 +132,10 @@ final class EditorModel: ObservableObject {
         func point(_ p: EditPoint) -> EditPoint { shot.toFrame(p,at:displayedTime) }
         var result: [(String, EditPoint)] = []
         if let ball = shot.ball { result.append(("ball", point(ball)))
-            if shot.edited || !shot.base.isEmpty { result.append(("landing", point(shot.endpoint))); if shot.trackingMode != "putt" || shot.hasGroundPath { result.append(("apex", point(shot.peak))) } }
+            if shot.landing != nil || shot.hasTrace {
+                result.append(("landing", point(shot.endpoint)))
+                if shot.hasTrace && (shot.trackingMode != "putt" || shot.hasGroundPath) { result.append(("apex", point(shot.peak))) }
+            }
         }
         if tool == "line" || tool == "circle" { for i in scene.shapes.indices { result.append(("shape:\(i):a", scene.shapes[i].a)); result.append(("shape:\(i):b", scene.shapes[i].b)) } }
         return result
@@ -107,8 +147,8 @@ final class EditorModel: ObservableObject {
         projects = folders.flatMap { folder in ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).filter { $0.lastPathComponent.hasPrefix("source.") } }.sorted { $0.path > $1.path }
     }
     func checkpoint() { undo.append(scene); if undo.count > 50 { undo.removeFirst() }; redo.removeAll() }
-    func undoEdit() { guard let previous = undo.popLast() else { return }; redo.append(scene); scene = previous; commitEdits() }
-    func redoEdit() { guard let next = redo.popLast() else { return }; undo.append(scene); scene = next; commitEdits() }
+    func undoEdit() { guard let previous = undo.popLast() else { return }; redo.append(scene); scene = previous; restoreGuidance(); commitEdits() }
+    func redoEdit() { guard let next = redo.popLast() else { return }; undo.append(scene); scene = next; restoreGuidance(); commitEdits() }
     func persist() {
         guard let source else { return }
         do { try JSONEncoder().encode(scene).write(to: source.deletingLastPathComponent().appendingPathComponent("mobile-project.json"), options: .atomic) }
@@ -122,11 +162,12 @@ final class EditorModel: ObservableObject {
     func addShot() {
         guard hasVideo, scene.shots.count < 4 else { status = NSLocalizedString("editor.maxShots", comment: ""); return }
         checkpoint(); var shot = EditShot(); shot.start = displayedTime
-        scene.shots.append(shot); scene.selected = scene.shots.count - 1; tool = "ball"; commitEdits()
+        scene.shots.append(shot); scene.selected = scene.shots.count - 1; restoreGuidance(); commitEdits()
     }
-    func deleteShot() { guard scene.shots.count > 1 else { return }; checkpoint(); scene.shots.remove(at: scene.selected); scene.selected = min(scene.selected, scene.shots.count - 1); commitEdits() }
+    func deleteShot() { guard scene.shots.count > 1 else { return }; checkpoint(); scene.shots.remove(at: scene.selected); scene.selected = min(scene.selected, scene.shots.count - 1); restoreGuidance(); commitEdits() }
     func deleteShape() { if !scene.shapes.isEmpty { checkpoint(); scene.shapes.removeLast(); commitEdits() } else { deleteShot() } }
     func selectLandingTool() {
+        guard scene.shot.ball != nil else { chooseTool("ball"); return }
         pause()
         chooseTool("landing")
         status = NSLocalizedString("editor.landingWorkflow", comment: "")
@@ -158,12 +199,22 @@ final class EditorModel: ObservableObject {
             status = deleted.count == folders.count ? String(format: NSLocalizedString("editor.projectsDeleted", comment: ""), deleted.count) : NSLocalizedString("editor.deleteFailed", comment: "")
         }
     }
-    func selectShot(_ index: Int) { guard !editingTimeline, !busy, scene.shots.indices.contains(index) else { return }; scene.selected = index; persist() }
+    func selectShot(_ index: Int) {
+        guard !editingTimeline, !busy, scene.shots.indices.contains(index) else { return }
+        pause(); scene.selected = index
+        restoreGuidance(); persist()
+    }
+    private func restoreGuidance() {
+        tool = scene.shot.analysisFailed == true ? "landing" : scene.shot.hasTrace ? "preview" : "ball"
+        pending = nil; status=NSLocalizedString(guidanceMessage,comment:"")
+    }
     private func reference(_ p: EditPoint) -> EditPoint { scene.shot.toReference(p,at:displayedTime) }
     func moveHandle(_ key: String, _ p: EditPoint) {
         let ref = reference(p)
         switch key {
-        case "ball": scene.shot.ball = ref; scene.shot.manual = true
+        case "ball":
+            scene.shot.ball = ref
+            if scene.shot.hasTrace { scene.shot.manual = true }
         case "landing": scene.shot.landing = ref; scene.shot.timingLandingEstimated=false
         case "apex": scene.shot.apex = ref
         default:
@@ -178,7 +229,16 @@ final class EditorModel: ObservableObject {
         guard !busy, !frameLoading, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.cameraTransforms=nil; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.landingConfirmed = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); selectLandingTool()
+        case "ball":
+            let fallback = scene.shot.analysisFailed == true
+            checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime
+            scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.cameraTransforms=nil
+            scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil
+            scene.shot.landing = nil; scene.shot.landingConfirmed = nil; scene.shot.timingLandingEstimated=nil
+            scene.shot.apex = nil; scene.shot.manual = false
+            commitEdits()
+            if fallback { selectLandingTool() }
+            else { status = NSLocalizedString("editor.guide.readyMessage", comment: "") }
         case "landing":
             let flight = displayedTime - scene.shot.start
             guard scene.shot.ball != nil, (0.2...15).contains(flight) else {
@@ -192,7 +252,8 @@ final class EditorModel: ObservableObject {
             scene.shot.landingConfirmed = true
             scene.shot.timingLandingEstimated = false
             commitEdits()
-            status = NSLocalizedString("editor.readyToAnalyze", comment: "")
+            if scene.shot.hasTrace { tool = "preview" }
+            status = NSLocalizedString(needsManualTrace ? "editor.guide.confirmMessage" : "editor.guide.previewMessage", comment: "")
         case "apex":
             checkpoint(); if scene.shot.ball == nil { scene.shot.ball = EditPoint(0.2, 0.8); scene.shot.start = displayedTime }
             moveHandle(tool, p); persist()
@@ -243,7 +304,7 @@ final class EditorModel: ObservableObject {
         undo = []; redo = []; image = UIImage(cgImage: frame); renderer = EditorRenderer(scene); overlay = renderer.overlay(displayedTime)
         let files = (try? FileManager.default.contentsOfDirectory(at: file.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
         output = files.filter { $0.lastPathComponent.hasPrefix("traced-") }.max { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) < ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-        status = NSLocalizedString("hint.ball", comment: "")
+        restoreGuidance()
     }
     private func loadThumbnails(_ file: URL, _ rows: [Double]) {
         thumbnailTask?.cancel()
@@ -308,7 +369,7 @@ final class EditorModel: ObservableObject {
     func setTrackingMode(_ mode: String) {
         guard !busy, (scene.shot.trackingMode ?? "flight") != mode else { return }
         checkpoint(); scene.shot.trackingMode=mode; scene.shot.base=[]; scene.shot.baseModel=nil
-        scene.shot.landing=nil; scene.shot.landingConfirmed=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.flight=4
+        scene.shot.landing=nil; scene.shot.landingConfirmed=nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex=nil; scene.shot.manual=false; scene.shot.analysisFailed=nil; scene.shot.flight=4
         chooseTool("ball"); commitEdits(); status=NSLocalizedString("editor.modeChanged",comment:"")
     }
     func motionReport() -> String {
@@ -325,54 +386,118 @@ final class EditorModel: ObservableObject {
     }
     func analyze() {
         guard !busy, !editingTimeline, !frameLoading, scene.shot.readyToAnalyze, let source, let ball = scene.shot.ball else { return }
-        pause(); busy=true; output=nil
-        let start=scene.shot.start, end=start+scene.shot.flight, width=scene.width, height=scene.height, id=scene.shot.id, rows=times
+        pause(); busy=true; analysisPhase = .checking; analysisProgress = 0
+        let start=scene.shot.start, width=scene.width, height=scene.height, id=scene.shot.id, rows=times
+        let confirmedEnd = scene.shot.readyForManual ? start + scene.shot.flight : nil
+        let end = min(times.last ?? duration, confirmedEnd ?? start + 15)
         let putt=scene.shot.trackingMode == "putt"
         let personOcclusion = scene.personOcclusion != false
-        status=NSLocalizedString("status.analyzing",comment:"")
-        task=Task { defer { busy=false }; do {
-            let data=try await Task.detached {
-                let result=try TrackingSession(width:width,height:height,ball:CGPoint(x:ball.x*Double(width),y:ball.y*Double(height)),putt:putt,flight:putt ? 0 : end-start)
-                let folder=source.deletingLastPathComponent().appendingPathComponent("analysis-"+UUID().uuidString,isDirectory:true)
-                let person = personOcclusion ? try? PersonAnalysis(folder) : nil
-                var personError = personOcclusion && person == nil
-                let generator=Self.generator(source); var last = -1.0, lastPerson = -1.0
-                for time in rows where time >= start - 0.000001 && time <= end + 0.000001 {
-                    if last >= 0 && time-last < 1.0/30-0.000001 && abs(time-end) > 0.000001 { continue }
-                    try Task.checkCancellation(); let frame=try await generator.image(at:CMTime(seconds:time,preferredTimescale:60000))
-                    let actual=frame.actualTime.seconds
-                    if actual <= last { continue }
-                    try result.push(frame.image,time:actual)
-                    if let person,!personError,actual-lastPerson >= (abs(actual-start) <= 1.2 ? 1.0/30 : 1.0/15)-0.000001 {
-                        do { try person.push(frame.image,actual) } catch { personError=true }
-                        lastPerson=actual
-                    }
-                    last=actual
+        status=NSLocalizedString("editor.guide.checkingMessage",comment:"")
+        let worker = Task.detached(priority: .userInitiated) { [weak self] () async throws -> AnalysisData in
+            let result=try TrackingSession(width:width,height:height,ball:CGPoint(x:ball.x*Double(width),y:ball.y*Double(height)),putt:putt,flight:putt ? 0 : confirmedEnd.map { $0-start } ?? 0)
+            let generator=Self.generator(source)
+            let began=ProcessInfo.processInfo.systemUptime
+            var last = -1.0, count = 0, hasLaunch = false, rejected = false
+            var analyzedTimes: [Double] = []
+            // Person segmentation runs only after launch validation; a failed
+            // ball probe must not pay for an entire clip of Vision requests.
+            for time in rows where time >= start - 0.000001 && time <= end + 0.000001 {
+                if last >= 0 && time-last < 1.0/30-0.000001 && abs(time-end) > 0.000001 { continue }
+                try Task.checkCancellation()
+                let frame=try await generator.image(at:CMTime(seconds:time,preferredTimescale:60000))
+                try Task.checkCancellation()
+                let actual=frame.actualTime.seconds
+                if actual <= last { continue }
+                try result.push(frame.image,time:actual)
+                hasLaunch = putt ? result.count >= 3 : result.flightModel() != nil
+                if LaunchProbe.shouldStop(sourceElapsed:actual-start,workElapsed:ProcessInfo.processInfo.systemUptime-began,hasLaunch:hasLaunch) {
+                    rejected=true; break
                 }
-                try result.finish()
-                return (result.samples(),result.samples(camera:true),person?.masks ?? [],personError,result.flightModel(),result.transforms())
-            }.value
-            let found = putt ? data.0.count >= 3 : data.4 != nil
-            if let i=scene.shots.firstIndex(where: { $0.id == id }) {
-                checkpoint(); let model = data.4
-                let landingOnFrame=scene.shots[i].landing.map { scene.shots[i].toFrame($0,at:end) }
-                scene.shots[i].base = found ? data.0 : []
-                scene.shots[i].baseModel = model
-                scene.shots[i].camera = data.1
-                scene.shots[i].cameraTransforms = data.5
-                if let landingOnFrame { scene.shots[i].landing=scene.shots[i].toReference(landingOnFrame,at:end) }
-                scene.shots[i].masks = data.2
-                // With confirmed endpoints, an unsuccessful fit still has enough input
-                // for the editor's manual flight curve or ground path.
-                scene.shots[i].manual = !found
-                scene.shots[i].apex = nil
-                if let model { scene.shots[i].apexFraction = min(0.62, max(0.35, NativeFlight.apex(model) / model[10])) }
-                commitEdits()
+                analyzedTimes.append(actual); count += 1; last=actual
+                if count % 6 == 0 || count == 1 {
+                    // Keep camera transforms past the predicted landing so fast
+                    // duration/distance edits can reuse them without re-analysis.
+                    let progress=min(1,max(0,(actual-start)/max(0.01,end-start)))
+                    await self?.reportAnalysis(hasLaunch ? .tracking : .checking,progress)
+                }
             }
-            status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.0.count)
-            if !found { status += "\n"+NSLocalizedString("editor.analysisFallback",comment:"") }
-            if data.3 { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
-        } catch { status=error.localizedDescription } }
+            try Task.checkCancellation()
+            try result.finish()
+            let points=result.samples(), model=result.flightModel()
+            let found = !rejected && (putt ? points.count >= 3 : model != nil)
+            var data=AnalysisData(points:points,camera:result.samples(camera:true),transforms:result.transforms(),model:model,found:found)
+            guard found,personOcclusion else { return data }
+            await self?.reportAnalysis(.person,0)
+            let folder=source.deletingLastPathComponent().appendingPathComponent("analysis-"+UUID().uuidString,isDirectory:true)
+            var retained=false
+            defer { if !retained { try? FileManager.default.removeItem(at:folder) } }
+            do {
+                let person=try PersonAnalysis(folder)
+                var previous = -1.0
+                for (index,time) in analyzedTimes.enumerated() {
+                    try Task.checkCancellation()
+                    if previous >= 0 && time-previous < 1.0/15-0.000001 { continue }
+                    let frame=try await generator.image(at:CMTime(seconds:time,preferredTimescale:60000))
+                    try Task.checkCancellation()
+                    try person.push(frame.image,frame.actualTime.seconds); previous=time
+                    if index % 6 == 0 { await self?.reportAnalysis(.person,Double(index+1)/Double(analyzedTimes.count)) }
+                }
+                data.masks=person.masks; data.maskFolder=folder; retained=true
+            } catch is CancellationError { throw CancellationError() }
+            catch { data.personFailed=true }
+            return data
+        }
+        analysisTask=worker
+        task=Task {
+            defer { busy=false; analysisPhase=nil; analysisTask=nil; refreshFrame() }
+            do {
+                let data=try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                if Task.isCancelled {
+                    if let folder=data.maskFolder { try? FileManager.default.removeItem(at:folder) }
+                    throw CancellationError()
+                }
+                guard data.found else { manualFallback(id); return }
+                if let i=scene.shots.firstIndex(where: { $0.id == id }) {
+                    checkpoint()
+                    let landingOnFrame=confirmedEnd.flatMap { end in scene.shots[i].landing.map { scene.shots[i].toFrame($0,at:end) } }
+                    scene.shots[i].base=data.points; scene.shots[i].baseModel=data.model
+                    scene.shots[i].camera=data.camera; scene.shots[i].cameraTransforms=data.transforms
+                    scene.shots[i].masks=data.masks; scene.shots[i].manual=false
+                    scene.shots[i].analysisFailed=false; scene.shots[i].apex=nil
+                    if let impact=data.points.first?.time { scene.shots[i].start=impact }
+                    if let confirmedEnd { scene.shots[i].flight=max(0.2,confirmedEnd-scene.shots[i].start) }
+                    else if let model=data.model { scene.shots[i].flight=model[10] }
+                    else if let last=data.points.last { scene.shots[i].flight=max(0.2,last.time-scene.shots[i].start) }
+                    if let landingOnFrame,let confirmedEnd { scene.shots[i].landing=scene.shots[i].toReference(landingOnFrame,at:confirmedEnd) }
+                    if let model=data.model { scene.shots[i].apexFraction=min(0.62,max(0.35,NativeFlight.apex(model)/model[10])) }
+                    tool="preview"; commitEdits()
+                }
+                status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.points.count)
+                if data.personFailed { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
+            } catch is CancellationError { status=NSLocalizedString("editor.analysisCancelled",comment:"") }
+            catch { manualFallback(id); status=error.localizedDescription+"\n"+NSLocalizedString("editor.analysisFallback",comment:"") }
+        }
+    }
+    private func reportAnalysis(_ phase: AnalysisPhase,_ progress: Double) {
+        guard isAnalyzing else { return }
+        analysisPhase=phase; analysisProgress=progress
+        status=NSLocalizedString("editor.guide."+phase.rawValue+"Message",comment:"")
+    }
+    func cancelAnalysis() {
+        guard isAnalyzing else { return }
+        analysisTask?.cancel(); task?.cancel()
+    }
+    private func manualFallback(_ id: String) {
+        guard let index=scene.shots.firstIndex(where: { $0.id == id }) else { return }
+        checkpoint(); scene.shots[index].analysisFailed=true
+        tool="landing"; commitEdits()
+        status=NSLocalizedString("editor.analysisFallback",comment:"")
+    }
+    func confirmManualTrace() {
+        guard !busy,!editingTimeline,scene.shot.readyForManual else { return }
+        pause(); checkpoint(); scene.shot.manual=true; scene.shot.analysisFailed=false
+        tool="preview"; commitEdits(); status=NSLocalizedString("editor.manualCreated",comment:"")
+        seek(nearestSourceFrame(times,scene.shot.start))
     }
     @discardableResult func previewPopup(_ index: Int) -> Bool {
         guard !busy,hasVideo,scene.shot.popups.indices.contains(index) else { return false }

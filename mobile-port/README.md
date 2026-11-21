@@ -11,17 +11,21 @@ Date: 2026-11-03. Status: initial development prototype. Android/iPhone app sour
 
 Automatic mobile flight tracking now uses the desktop analysis stages: corner features, pyramidal LK and RANSAC similarity camera compensation, three-frame motion candidates, address-patch departure, three-detection launch validation, gap-tolerant retry, and perspective flight fitting with regularized horizontal curvature. The first color frame supplies a grass/brightness horizon. Native adapters save full camera matrices and use them for editing, preview and export; old translation-only projects still load. Actual source timestamps and only detected observations are retained. See the [algorithm comparison (Korean)](DESKTOP_ALGORITHM_PARITY.ko.md) for validation and deliberate mobile differences.
 
-The Set start, Analyze and Reset buttons have equal widths and heights on each mobile platform.
+Android keeps its existing setup row. The iOS imported-video editor uses the guided icon workflow below.
 
 ## Current mobile editor controls
 
 Choose videos through the system Photo Picker on Android or Photos on iOS. The mobile editor no longer exposes club-head tracing, its settings, or its analysis results. Mobile tracing covers the ball in flight or rolling on the green. Pinch to zoom and drag an empty area to pan. The earlier file picker, dedicated pan tool and club-head display instructions below describe previous versions.
 
-Go to the start frame and tap the ball. Then go to the landing frame and tap where the ball lands. Analyze becomes available after both points are set. The tracer uses the selected start time, landing time and landing position.
+On Android, go to the start frame and tap the ball, then go to the landing frame and tap where the ball lands. Analyze becomes available after both points are set.
 
-On iOS, if Analyze cannot fit the automatic track, the editor shows an estimated trace using the confirmed start and landing. The status identifies the estimate, and preview and export both use that path.
+On iOS, select the ball at impact, then tap the analysis/viewfinder icon. Automatic tracking does not require a landing point. If the initial probe cannot establish a launch, the app stops early, keeps the impact crosshair, and asks for the landing frame and position. Place the flag and tap the checkmark to create an estimated tracer. Cancelling analysis keeps previous results. The optional failure state remains compatible with older projects.
 
-The Total distance, Carry distance and Height tabs below the timeline accept a value and unit for each shot. Enable Show on video to include the cards in preview and export. With the landing marker enabled, droplets and ripples play for 0.65 seconds at landing.
+The Total distance, Carry distance and Height controls below the timeline accept a value and unit for each shot. On iOS these are ruler, diagonal-arrow and height-arrow icons, with instructions outside buttons, localized accessibility labels and 44-point targets. More actions contains import, recording, undo/redo, reset, extra shots and output review. Flight/Putt is in Settings. The editor follows system appearance and scrolls at accessibility text sizes. Enable Show on video to include labels in preview and export. The iOS distance badge follows the exact tracer tip, changes side near an edge, and stays in frame. Its estimated value comes from the entered total distance, not a physical video measurement. Landing effects remain unchanged.
+
+The iOS launch probe checks at most 1.5 source seconds after impact. A 4-second work deadline also ends an unvalidated probe after at least 0.35 source seconds of native lookahead; a single decode/native call can overrun that deadline. These are fallback limits, not a guaranteed completion time or accuracy. Person segmentation starts only after launch validation. Successful tracks continue camera compensation through their flight. Cancellation/background interruption discards incomplete work. Preview and export share the distance-badge raster and default watermark. Real golf footage and physical-device performance still require validation.
+
+Validation for the guided iOS workflow: 128 pytest checks (including 13 portable Swift deadline/layout cases), iPhone Release and simulator builds, and iOS 27.0 simulator checks on an iPhone 17. Synthetic clips verified impact-only automatic analysis, early failure with retained impact, manual landing confirmation, distance input and MP4/Photos export, legacy-project loading, cancellation preserving prior results, and reachable controls in dark mode, maximum accessibility text and landscape. The exported 8-second portrait MP4 retains its source audio. These checks do not establish physical-device performance or real-golf tracking accuracy.
 
 
 ## 1. Goal and assumptions
@@ -327,9 +331,9 @@ Validation: 76 Python/shared-core tests, 33 Android JVM tests (including VFR exp
 
 ### Shot information and ribbon tracer
 
-The top toolbar has **Clear** in the former analysis-icon slot. Use **Analyze** in the shot setup row. Tap or drag the timeline markers to edit shot events.
+Android keeps **Clear** in the top toolbar and **Analyze** in the setup row. iOS uses the bottom viewfinder to analyze, the checkmark to confirm a manual tracer, and the export icon when ready; Reset is in More actions. Tap or drag timeline markers to edit shot events.
 
-With **Total** displayed, the white, dark-outlined number follows the ribbon tip and counts up with the distance travelled along the projected path. If the shot includes a roll, the number reaches carry at landing and total at the end of the roll.
+With **Total** displayed, the number follows the ribbon tip and counts up along the projected path. iOS uses a dark estimated-distance badge beside the ball; Android retains outlined text. If the shot includes a roll, the number reaches carry at landing and total at the end of the roll.
 
 In the Android and iPhone imported-video editor, enter **Total**, **Carry**, and **Height** in the tabs under the timeline. Choose `yds` or `m` separately in the Total and Carry editors. Changing the unit converts the current value. Height accepts metres, yards, or feet. Carry estimates the tracer's time in the air. Total supplies the estimate when carry is blank. When total exceeds carry, the tracer adds a projected roll beyond the selected landing point. Height adjusts the arc above the line from launch to landing. The display toggle controls the on-video label independently of the trajectory.
 
