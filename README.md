@@ -54,6 +54,9 @@ The macOS app uses Python's built-in file types so the TestFlight/App Store sand
 serve the editor styles, scripts, preview frames and exports without reading system MIME
 files. The build self-test also checks the styles and scripts referenced by the editor page.
 
+The macOS timeline and sandbox fixes are in version **0.0.2**. Apple has closed the
+approved 0.0.1 version to further builds, so TestFlight uploads use the newer app version.
+
 ## Installation (developer version)
 
 To run from source instead of the app:
