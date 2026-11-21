@@ -193,7 +193,7 @@ class Layer:
 
     def _tracer(self, out: np.ndarray, index: float, t: float, alpha: float) -> bool:
         path = self.path
-        n = int(np.searchsorted(path.times, min(t, path.end), side="right"))
+        n = int(np.searchsorted(path.times, min(t, path.end) + 1e-6, side="right"))
         if n < 2:
             return False
         first = 0
@@ -333,7 +333,10 @@ def timeline(p: Project) -> list[float]:
     n = int(p.info["frames"])
     fps = float(p.info["fps"])
     sm = p.slowmo
-    impacts = sorted(float(tr.analysis["impact"]) for tr in p.traces if engine.has_path(tr))
+    impacts = sorted(
+        float(tr.shot.timeline_start if tr.shot.timeline_start is not None else tr.analysis["impact"])
+        for tr in p.traces if engine.has_path(tr)
+    )
     if not sm.enabled or not impacts or sm.factor <= 1.0:
         return [float(i) for i in range(n)]
     windows: list[list[float]] = []

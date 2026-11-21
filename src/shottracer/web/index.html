@@ -32,14 +32,25 @@
         <div id="busy" hidden><div class="spinner"></div><span id="busyText"></span></div>
       </div>
     </div>
+    <div id="filmstrip" hidden>
+      <div id="filmViewport" tabindex="0" role="group" data-i18n-label="timeline.scrub">
+        <div id="filmFrames"></div>
+        <div id="filmGuides"></div>
+        <div id="filmLane"><span data-i18n="timeline.tracer"></span><div id="marks"></div></div>
+        <div id="playhead"></div>
+      </div>
+      <div id="filmControls">
+        <span data-i18n="timeline.help"></span>
+        <button id="filmZoomOut" class="icon" data-i18n-title="timeline.zoomOut" data-i18n-label="timeline.zoomOut">−</button>
+        <button id="filmZoomReset" class="zoomlabel" data-i18n-title="timeline.zoomReset">100%</button>
+        <button id="filmZoomIn" class="icon" data-i18n-title="timeline.zoomIn" data-i18n-label="timeline.zoomIn">+</button>
+      </div>
+    </div>
+    <input id="timeline" class="timeline-keyboard" type="range" min="0" max="0" value="0" data-i18n-title="timeline.scrub">
     <div id="transport">
       <button id="prev" class="icon" data-i18n-title="app.prev">◀︎</button>
       <button id="play" class="icon" data-i18n-title="app.play">▶︎</button>
       <button id="next" class="icon" data-i18n-title="app.next">▶︎▏</button>
-      <div id="timelineWrap">
-        <input id="timeline" type="range" min="0" max="0" value="0">
-        <div id="marks"></div>
-      </div>
       <span id="time">0 / 0</span>
       <div id="zoomBox">
         <button id="zoomOut" class="icon" data-i18n-title="zoom.out">−</button>

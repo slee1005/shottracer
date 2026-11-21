@@ -10,6 +10,7 @@ import sys
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -123,9 +124,10 @@ def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85
 
     workers = max(2, min(8, (os.cpu_count() or 4) - 1))
     count = 0
+    times: list[float] = []
     pending: deque = deque()
     with ThreadPoolExecutor(workers) as pool:
-        for i, frame in enumerate(iter_frames(path)):
+        for i, frame in enumerate(iter_frames(path, times.append)):
             if stop is not None and stop.is_set():
                 raise Cancelled
             pending.append(pool.submit(store, i, frame))
@@ -134,16 +136,41 @@ def write_previews(path: Path, out_dir: Path, work_width: int, quality: int = 85
             count = i + 1
         for f in pending:
             f.result()
+    tmp = out_dir / ".times.tmp"
+    tmp.write_text(json.dumps(_normalize_times(times)))
+    tmp.replace(out_dir / ".times.json")
     return count
 
 
-def iter_frames(path: Path):
+def _normalize_times(times: list[float]) -> list[float]:
+    """Some decoders cannot supply presentation times. Leave their clock to the FPS fallback."""
+    if not times or not all(np.isfinite(times)) or any(a >= b for a, b in zip(times, times[1:])):
+        return []
+    return [round((time - times[0]) / 1000, 7) for time in times]
+
+
+@lru_cache(maxsize=8)
+def frame_times(path: Path, modified_ns: int) -> list[float]:
+    """Read the presentation clock for projects whose JPEG cache predates timestamps."""
+    cap = cv2.VideoCapture(str(path))
+    times = []
+    try:
+        while cap.grab():
+            times.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+    finally:
+        cap.release()
+    return _normalize_times(times)
+
+
+def iter_frames(path: Path, on_time=None):
     cap = cv2.VideoCapture(str(path))
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 return
+            if on_time is not None:
+                on_time(cap.get(cv2.CAP_PROP_POS_MSEC))
             yield frame
     finally:
         cap.release()

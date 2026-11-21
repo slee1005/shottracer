@@ -79,3 +79,46 @@ def test_manual_path_reaches_its_apex_at_the_set_time(monkeypatch):
     monkeypatch.setattr(engine, "transforms", lambda p, tr: [np.eye(3)] * 200)
     path = engine.ShotPath(p, tr)
     assert path.flight_apex_time == pytest.approx(2.4, abs=0.02)
+
+
+def test_timeline_retimes_flight_without_rewriting_auto_fit():
+    p, tr = _flight_project(flight_time=4.0)
+    engine.apply_edits(p, tr)
+    original_fit = tr.analysis["base_model"].copy()
+    original = engine.ShotPath(p, tr)
+    landing_frame = original.t0 + original.flight * FPS
+    engine.retime_shot(p, tr, "start", int(original.t0) + 6)
+    engine.apply_edits(p, tr)
+    shifted = engine.ShotPath(p, tr)
+    assert shifted.t0 == int(original.t0) + 6
+    assert shifted.t0 + shifted.flight * FPS == pytest.approx(landing_frame)
+    apex_frame = round(shifted.t0 + .55 * shifted.flight * FPS)
+    engine.retime_shot(p, tr, "apex", apex_frame)
+    engine.apply_edits(p, tr)
+    edited = engine.ShotPath(p, tr)
+    assert edited.t0 + edited.flight_apex_time * FPS == pytest.approx(apex_frame, abs=1e-4)
+    np.testing.assert_allclose(edited.points[-1], original.points[-1], atol=1e-5)
+    assert tr.analysis["base_model"] == original_fit
+    engine.retime_shot(p, tr, "landing", round(landing_frame) + 9)
+    engine.apply_edits(p, tr)
+    edited = engine.ShotPath(p, tr)
+    assert edited.t0 == shifted.t0
+    assert edited.t0 + edited.flight * FPS == pytest.approx(round(landing_frame) + 9)
+    np.testing.assert_allclose(edited.points[-1], original.points[-1], atol=1e-5)
+
+
+def test_timeline_retimes_putt_without_changing_its_ground_points():
+    tr = Trace()
+    tr.shot.mode = "putt"
+    observations = [(10, 0, 0), (20, 10, 10), (40, 35, 40)]
+    tr.analysis = {"mode": "putt", "observations": observations, "impact": 10.0}
+    p = Project(id="putt", name="p.mp4", source="p.mp4", info={"fps": 10, "frames": 100}, traces=[tr])
+    original = engine.ShotPath(p, tr)
+    engine.retime_shot(p, tr, "landing", 60)
+    path = engine.ShotPath(p, tr)
+    assert path.t0 == 10
+    assert path.flight == 5
+    np.testing.assert_array_equal(path.points, original.points)
+    assert tr.analysis["observations"] == observations
+    with pytest.raises(ValueError):
+        engine.retime_shot(p, tr, "apex", 30)

@@ -29,6 +29,7 @@ def test_macos_file_responses_without_system_mime_access(monkeypatch):
         raise PermissionError("App Sandbox denies /etc/apache2/mime.types")
 
     monkeypatch.setattr(mimetypes.MimeTypes, "read", denied)
+    monkeypatch.setattr(mimetypes.MimeTypes, "read_windows_registry", lambda *_: None)
     desktop._prepare_environment(log=False)
     static = StaticFiles(directory=Path(desktop.__file__).parent / "web")
     for name, expected in (("style.css", "text/css"), ("i18n.js", "text/javascript"), ("app.js", "text/javascript")):

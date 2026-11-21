@@ -22,7 +22,7 @@ from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import camera, engine, render, trajectory, watermark
+from . import camera, engine, render, trajectory, video, watermark
 from .settings import Annotation, Logo, Popup, Project, Shot, SlowMo, Style, Swing, Trace
 from .trajectory import AnalysisError
 
@@ -160,7 +160,7 @@ def _summary(p: Project) -> dict:
             path = engine.ShotPath(p, tr)
             td["result"] = {
                 "mode": path.mode,
-                "impact": float(tr.analysis["impact"]),
+                "impact": float(path.t0),
                 "tracked": len(tr.analysis["observations"]),
                 "duration": path.flight,
                 "apex_time": path.flight_apex_time,
@@ -168,7 +168,9 @@ def _summary(p: Project) -> dict:
                 "apex_range": [f * path.flight for f in trajectory.APEX_FRACTION],
                 "draw_time": float(path.end),
                 # Where/when the ball comes down (video frame, preview px of that frame).
-                "landing_frame": float(tr.analysis["impact"]) + path.flight * float(p.info["fps"]),
+                "landing_frame": path.t0 + path.flight * float(p.info["fps"]),
+                "apex_frame": path.t0 + path.flight_apex_time * float(p.info["fps"])
+                if tr.shot.mode == "flight" and 0 < path.apex_index < len(path.points) - 1 else None,
                 "landing_set": bool(tr.shot.landing) if path.mode == "flight" else bool(tr.shot.manual),
                 "distance_time": engine.distance_time(tr),
             }
@@ -281,6 +283,11 @@ def update(pid: str, body: dict = Body(...)) -> dict:
                     engine.apply_edits(p, other)
             if "landing_frame" in body and tr.shot.landing and tr.analysis:
                 tr.shot.landing = _to_reference(p, tr, tr.shot.landing, int(body["landing_frame"]))
+            if "timeline_edit" in body:
+                edit = body["timeline_edit"]
+                if not isinstance(edit, dict) or type(edit.get("frame")) is not int:
+                    raise ValueError("invalid timeline edit")
+                engine.retime_shot(p, tr, edit.get("key"), edit["frame"])
             engine.sync_manual(p, tr)
             if tr.analysis:
                 engine.apply_edits(p, tr)
@@ -402,6 +409,38 @@ def preview(pid: str, index: int, ann: bool = True) -> Response:
         return _jpeg(render.preview(p, index, ann))
     except KeyError:
         raise HTTPException(404) from None
+
+
+@app.get("/api/projects/{pid}/snapshot/{index}.jpg")
+def snapshot(pid: str, index: int) -> Response:
+    """Small, uncomposited frames for the filmstrip, without blocking frame scrubbing."""
+    path = engine.preview_frame(pid, index, timeout=0)
+    image = cv2.imread(str(path)) if path else None
+    if image is None:
+        raise HTTPException(404, headers={"Cache-Control": "no-store"})
+    h, w = image.shape[:2]
+    scale = min(1, 176 / max(h, w))
+    if scale < 1:
+        image = cv2.resize(image, (max(1, round(w * scale)), max(1, round(h * scale))), interpolation=cv2.INTER_AREA)
+    response = _jpeg(image)
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+@app.get("/api/projects/{pid}/timeline-times")
+def timeline_times(pid: str):
+    """Source presentation times in JPEG frame order."""
+    p = _project(pid)
+    if not engine.previews_ready(pid):
+        return []
+    cached = engine.previews_dir(pid) / ".times.json"
+    try:
+        if cached.is_file():
+            return Response(cached.read_bytes(), media_type="application/json")
+        source = engine.source_path(p)
+        return video.frame_times(source, source.stat().st_mtime_ns)
+    except OSError:
+        return []
 
 
 @app.get("/api/projects/{pid}/overlay/{index}")

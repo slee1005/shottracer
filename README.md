@@ -231,6 +231,15 @@ The server only listens on `127.0.0.1`.
 
 ## Features
 
+The timeline uses the iPhone editor's thumbnail strip and centered playhead. Drag the
+thumbnails or scroll to scrub; use the timeline − / + buttons (or Ctrl/⌘+scroll) to zoom.
+Impact, Apex and Landing markers sit below the strip, with colored guides aligned to the
+same source-frame time as the thumbnails. Click a marker to seek, drag it to change its
+time, or use its arrow keys to adjust one source frame at a time. Moving Impact holds the
+landing time; moving Landing holds Impact. Each drag is one undo step, and Escape cancels
+it. Putts show Impact and Landing. Events beyond the video are marked “outside clip”.
+Timing edits are saved with the selected shot and apply to preview and export without re-analysis.
+
 | Tab | What you can do |
 | --- | --- |
 | Shot | Ball flight or putt/chip mode, shot type (bounds the flight time), manual impact frame, edit flight time, time to apex, height and landing spot, tracer drawing speed (×0.5–×4) |
