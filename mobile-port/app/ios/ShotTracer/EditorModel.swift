@@ -91,8 +91,8 @@ final class EditorModel: ObservableObject {
         timeUndo=nil; editingTimeline=false
     }
     var handles: [(String, EditPoint)] {
-        let shot = scene.shot, m = interpolated(shot.camera, displayedTime)
-        func point(_ p: EditPoint) -> EditPoint { EditPoint(p.x + m.x, p.y + m.y) }
+        let shot = scene.shot
+        func point(_ p: EditPoint) -> EditPoint { shot.toFrame(p,at:displayedTime) }
         var result: [(String, EditPoint)] = []
         if let ball = shot.ball { result.append(("ball", point(ball)))
             if shot.edited || !shot.base.isEmpty { result.append(("landing", point(shot.endpoint))); if shot.trackingMode != "putt" || shot.hasGroundPath { result.append(("apex", point(shot.peak))) } }
@@ -159,7 +159,7 @@ final class EditorModel: ObservableObject {
         }
     }
     func selectShot(_ index: Int) { guard !editingTimeline, !busy, scene.shots.indices.contains(index) else { return }; scene.selected = index; persist() }
-    private func reference(_ p: EditPoint) -> EditPoint { let m = interpolated(scene.shot.camera, displayedTime); return EditPoint(p.x - m.x, p.y - m.y) }
+    private func reference(_ p: EditPoint) -> EditPoint { scene.shot.toReference(p,at:displayedTime) }
     func moveHandle(_ key: String, _ p: EditPoint) {
         let ref = reference(p)
         switch key {
@@ -178,7 +178,7 @@ final class EditorModel: ObservableObject {
         guard !busy, !frameLoading, hasVideo else { return }
         let p = EditPoint(min(1, max(0, point.x)), min(1, max(0, point.y))), r = reference(point)
         switch tool {
-        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.landingConfirmed = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); selectLandingTool()
+        case "ball": checkpoint(); scene.shot.ball = p; scene.shot.start = displayedTime; scene.shot.base = []; scene.shot.baseModel = nil; scene.shot.camera = []; scene.shot.cameraTransforms=nil; scene.shot.autoHands=nil; scene.shot.autoClub=nil; scene.shot.masks=nil; scene.shot.landing = nil; scene.shot.landingConfirmed = nil; scene.shot.timingLandingEstimated=nil; scene.shot.apex = nil; scene.shot.manual = false; commitEdits(); selectLandingTool()
         case "landing":
             let flight = displayedTime - scene.shot.start
             guard scene.shot.ball != nil, (0.2...15).contains(flight) else {
@@ -332,7 +332,7 @@ final class EditorModel: ObservableObject {
         status=NSLocalizedString("status.analyzing",comment:"")
         task=Task { defer { busy=false }; do {
             let data=try await Task.detached {
-                let result=try TrackingSession(width:width,height:height,ball:CGPoint(x:ball.x*Double(width),y:ball.y*Double(height)),putt:putt)
+                let result=try TrackingSession(width:width,height:height,ball:CGPoint(x:ball.x*Double(width),y:ball.y*Double(height)),putt:putt,flight:putt ? 0 : end-start)
                 let folder=source.deletingLastPathComponent().appendingPathComponent("analysis-"+UUID().uuidString,isDirectory:true)
                 let person = personOcclusion ? try? PersonAnalysis(folder) : nil
                 var personError = personOcclusion && person == nil
@@ -349,20 +349,18 @@ final class EditorModel: ObservableObject {
                     }
                     last=actual
                 }
-                return (result.samples(),result.samples(camera:true),person?.masks ?? [],personError,result.flightModel())
+                try result.finish()
+                return (result.samples(),result.samples(camera:true),person?.masks ?? [],personError,result.flightModel(),result.transforms())
             }.value
             let found = putt ? data.0.count >= 3 : data.4 != nil
             if let i=scene.shots.firstIndex(where: { $0.id == id }) {
                 checkpoint(); let model = data.4
-                let oldMotion = interpolated(scene.shots[i].camera, end)
-                let newMotion = interpolated(data.1, end)
-                if let landing = scene.shots[i].landing {
-                    scene.shots[i].landing = EditPoint(landing.x + oldMotion.x - newMotion.x,
-                                                      landing.y + oldMotion.y - newMotion.y)
-                }
+                let landingOnFrame=scene.shots[i].landing.map { scene.shots[i].toFrame($0,at:end) }
                 scene.shots[i].base = found ? data.0 : []
                 scene.shots[i].baseModel = model
                 scene.shots[i].camera = data.1
+                scene.shots[i].cameraTransforms = data.5
+                if let landingOnFrame { scene.shots[i].landing=scene.shots[i].toReference(landingOnFrame,at:end) }
                 scene.shots[i].masks = data.2
                 // With confirmed endpoints, an unsuccessful fit still has enough input
                 // for the editor's manual flight curve or ground path.

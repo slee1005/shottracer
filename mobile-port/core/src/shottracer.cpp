@@ -3,10 +3,12 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <memory>
 #include <vector>
+#include "desktop_tracking.hpp"
 
 namespace {
-struct Camera { double time, x, y; };
+struct Camera { double time, x, y, a=1, b=0; };
 struct Candidate { double x, y, strength, contrast; };
 double length(double x, double y) { return std::hypot(x, y); }
 double travel(double t, double k) { return -std::expm1(-k * t) / k; }
@@ -24,6 +26,7 @@ struct STTracker {
     std::vector<uint8_t> previous;
     std::vector<STPoint> points, pending;
     std::vector<Camera> cameras;
+    std::unique_ptr<st_desktop::Tracker> desktop;
 };
 
 extern "C" STTracker *st_create(int w, int h, double x, double y) {
@@ -40,7 +43,24 @@ extern "C" void st_destroy(STTracker *t) { delete t; }
 
 extern "C" int st_set_mode(STTracker *t, int mode) {
     if (!t || t->last_time >= 0 || (mode != 0 && mode != 1)) return -1;
-    t->mode = mode; return 0;
+    t->mode = mode;
+    if(t->desktop) t->desktop->mode(mode);
+    return 0;
+}
+
+extern "C" int st_use_desktop_tracking(STTracker *t,double flight) {
+    if(!t || t->last_time>=0 || !std::isfinite(flight) || (flight!=0 && (flight<.2 || flight>15))) return -1;
+    try { t->desktop=std::make_unique<st_desktop::Tracker>(t->width,t->height,t->seed_x,t->seed_y,t->mode,flight); return 0; }
+    catch(...) { return -1; }
+}
+extern "C" int st_reference_rgba(STTracker *t,const uint8_t *rgba,int stride) {
+    try { return t && t->desktop && t->desktop->reference_rgba(rgba,stride)?0:-1; }
+    catch(...) { return -1; }
+}
+extern "C" int st_finish(STTracker *t) {
+    if(!t) return -1;
+    try { return t->desktop?t->desktop->finish():(t->ended?2:t->launched?1:0); }
+    catch(...) { return -1; }
 }
 
 namespace {
@@ -285,6 +305,11 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
     if (!t || !gray || stride < t->width || !std::isfinite(time) || time < 0 ||
         time <= t->last_time || t->cameras.size() >= 2000) return -1;
     try {
+        if(t->desktop) {
+            const int status=t->desktop->push(gray,stride,time);
+            if(status>=0) t->last_time=time;
+            return status;
+        }
         const bool first = t->previous.empty();
         if (!first) {
             const auto [dx, dy] = translation(*t, gray, stride);
@@ -308,20 +333,30 @@ extern "C" int st_push(STTracker *t, const uint8_t *gray, int stride, double tim
         return t->ended ? 2 : t->launched ? 1 : 0;
     } catch (...) { return -1; }
 }
-extern "C" int st_count(const STTracker *t) { return t ? int(t->points.size()) : 0; }
+extern "C" int st_count(const STTracker *t) { return t ? int(t->desktop?t->desktop->points().size():t->points.size()) : 0; }
 extern "C" int st_tracker_model(const STTracker *t, STModel *model) {
-    if (!t || !model || t->mode != 0 || !t->launched) return -1;
-    *model = t->flight;
+    if (!t || !model || t->mode != 0 || !(t->desktop?t->desktop->launched():t->launched)) return -1;
+    *model = t->desktop?t->desktop->model():t->flight;
     model->u0 /= t->width; model->a /= t->width; model->c /= t->width; model->du /= t->width;
     model->v0 /= t->height; model->vh /= t->height; model->b /= t->height;
     model->g /= t->height; model->lift /= t->height; model->dv /= t->height;
     return 0;
 }
-extern "C" int st_camera_count(const STTracker *t) { return t ? int(t->cameras.size()) : 0; }
+extern "C" int st_camera_count(const STTracker *t) { return t ? int(t->desktop?t->desktop->cameras().size():t->cameras.size()) : 0; }
 extern "C" int st_camera_point(const STTracker *t, int i, STPoint *p) {
-    if (!t || !p || i < 0 || i >= int(t->cameras.size())) return -1;
+    if (!t || !p || i < 0 || i >= st_camera_count(t)) return -1;
+    if(t->desktop) { const auto &c=t->desktop->cameras()[size_t(i)]; *p={c.time,c.camera.x,c.camera.y,1}; return 0; }
     const auto &c = t->cameras[size_t(i)];
     *p = {c.time, c.x, c.y, 1}; return 0;
+}
+extern "C" int st_camera_transform(const STTracker *t,int i,STCameraTransform *out) {
+    if(!t || !out || i<0 || i>=st_camera_count(t)) return -1;
+    st_desktop::Transform camera; double time;
+    if(t->desktop) { const auto &c=t->desktop->cameras()[size_t(i)]; camera=c.camera; time=c.time; }
+    else { const auto &c=t->cameras[size_t(i)]; camera={1,0,c.x,c.y}; time=c.time; }
+    *out={time,camera.a,-camera.b*t->height/t->width,camera.x/t->width,
+          camera.b*t->width/t->height,camera.a,camera.y/t->height};
+    return 0;
 }
 extern "C" int st_curve_at(const double *p, double flight, double apex, double speed,
                             double time, double *x, double *y) {
@@ -342,18 +377,23 @@ extern "C" int st_curve_at(const double *p, double flight, double apex, double s
     return 0;
 }
 extern "C" int st_point(const STTracker *t, int i, STPoint *p) {
-    if (!t || !p || i < 0 || i >= int(t->points.size())) return -1;
-    *p = t->points[size_t(i)]; return 0;
+    if (!t || !p || i < 0 || i >= st_count(t)) return -1;
+    *p = (t->desktop?t->desktop->points():t->points)[size_t(i)]; return 0;
 }
 extern "C" int st_render(const STTracker *t, double time, uint8_t *rgba, int stride) {
     if (!t || !rgba || stride < t->width * 4 || !std::isfinite(time)) return -1;
     for (int y = 0; y < t->height; ++y) std::memset(rgba + y * stride, 0, t->width * 4);
-    if (t->points.size() < 4 || time < t->points[1].time) return 0;
-    const double end = t->mode == 0 ? t->flight.t0 + t->flight.flight_time : t->points.back().time;
+    const auto &points=t->desktop?t->desktop->points():t->points;
+    const auto &flight=t->desktop?t->desktop->model():t->flight;
+    if (points.size() < 4 || time < points[1].time) return 0;
+    const double end = t->mode == 0 ? flight.t0 + flight.flight_time : points.back().time;
     if (time > end + 1) return 0;
-    const auto camera = camera_at(*t, time);
+    Camera camera=camera_at(*t,time);
+    if(t->desktop) { const auto c=t->desktop->camera(time); camera={time,c.x,c.y,c.a,c.b}; }
     const int radius = std::max(1, t->width / 240);
     auto dot = [&](double x, double y) {
+        const double u=camera.a*x-camera.b*y+camera.x;
+        y=camera.b*x+camera.a*y+camera.y; x=u;
         if (x < -radius || y < -radius || x > t->width + radius || y > t->height + radius) return;
         const int cx = int(std::round(x)), cy = int(std::round(y));
         for (int yy = std::max(0, cy - radius); yy <= std::min(t->height - 1, cy + radius); ++yy)
@@ -364,26 +404,26 @@ extern "C" int st_render(const STTracker *t, double time, uint8_t *rgba, int str
             }
     };
     if (t->mode == 0) {
-        const double elapsed = std::min(time - t->flight.t0, t->flight.flight_time);
-        double x = t->flight.u0, y = t->flight.v0;
+        const double elapsed = std::min(time - flight.t0, flight.flight_time);
+        double x = flight.u0, y = flight.v0;
         for (int i = 1; i <= 128; ++i) {
             double next_x, next_y;
-            if (st_model_at(&t->flight, elapsed * i / 128, &next_x, &next_y) != 0) break;
+            if (st_model_at(&flight, elapsed * i / 128, &next_x, &next_y) != 0) break;
             const int steps = int(std::clamp(std::ceil(length(next_x - x, next_y - y) * 2), 1.0, 4096.0));
             for (int j = 0; j <= steps; ++j)
-                dot(x + (next_x - x) * j / steps + camera.x, y + (next_y - y) * j / steps + camera.y);
+                dot(x + (next_x - x) * j / steps, y + (next_y - y) * j / steps);
             x = next_x; y = next_y;
         }
         return 0;
     }
-    for (size_t i = 1; i < t->points.size(); ++i) {
-        const auto &a = t->points[i - 1], &b = t->points[i];
+    for (size_t i = 1; i < points.size(); ++i) {
+        const auto &a = points[i - 1], &b = points[i];
         if (time <= a.time) break;
         const double f = std::clamp((time - a.time) / (b.time - a.time), 0.0, 1.0);
         const double dx = (b.x - a.x) * f, dy = (b.y - a.y) * f;
         const int steps = std::max(1, int(std::ceil(length(dx, dy) * 2)));
         for (int j = 0; j <= steps; ++j)
-            dot(a.x + dx * j / steps + camera.x, a.y + dy * j / steps + camera.y);
+            dot(a.x + dx * j / steps, a.y + dy * j / steps);
     }
     return 0;
 }

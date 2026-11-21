@@ -7,6 +7,8 @@ onto golf swing videos. Everything runs on your machine; videos never leave it.
 
 The [Android/iPhone port](mobile-port/README.md) is prepared for free distribution without subscriptions or trial expiry; device validation and store publication remain pending. In the mobile editor, shot distance and height shape a flat ribbon tracer, and the total-distance counter follows the ball in yards or metres.
 
+The mobile tracker now uses the desktop analysis stages for camera similarity compensation, three-frame ball candidates, launch detection and perspective flight fitting. See the [mobile algorithm comparison (Korean)](mobile-port/DESKTOP_ALGORITHM_PARITY.ko.md) for validation and platform differences.
+
 - Semi-automatic: click the ball once, the rest is detected
 - Ball flight and putt/chip tracing, club-head swing path
 - Golfer cut-out (tracer passes behind the golfer), camera-shake compensation

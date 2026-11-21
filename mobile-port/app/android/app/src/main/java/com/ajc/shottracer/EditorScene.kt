@@ -24,7 +24,8 @@ internal data class EditShot(
     var baseModel: DoubleArray? = null, var trackingMode: String = "flight",
     var autoHands: List<TimedPoint> = emptyList(), var autoClub: List<TimedPoint> = emptyList(),
     var masks: List<PersonMask> = emptyList(), var timingLandingEstimated: Boolean? = null, var landingConfirmed: Boolean = false,
-    val shotInfo: MutableMap<String, ShotInfo> = mutableMapOf()
+    val shotInfo: MutableMap<String, ShotInfo> = mutableMapOf(),
+    var cameraTransforms: List<CameraTransform> = emptyList()
 ) {
     fun hasTrace() = ball != null && (edited() || base.isNotEmpty()) &&
         (!landingConfirmed || manual || base.isNotEmpty())
@@ -41,6 +42,10 @@ internal data class EditShot(
     fun observations() = base.drop(1).flatMap { listOf(it.time, it.x, it.y) }.toDoubleArray()
     fun modelPoint(time: Double): EditPoint? = model()?.let { NativeCore.modelPoint(it, time)?.let { p -> EditPoint(p[0], p[1]) } }
     fun motion(time: Double): EditPoint = interpolate(camera, time).let { EditPoint(it.x, it.y) }
+    fun toFrame(p: EditPoint, time: Double): EditPoint = cameraAt(cameraTransforms,time)?.frame(p)
+        ?: motion(time).let { EditPoint(p.x+it.x,p.y+it.y) }
+    fun toReference(p: EditPoint, time: Double): EditPoint = cameraAt(cameraTransforms,time)?.reference(p)
+        ?: motion(time).let { EditPoint(p.x-it.x,p.y-it.y) }
     fun endpoint() = landing ?: modelPoint(flight) ?: base.lastOrNull()?.let { EditPoint(it.x, it.y) } ?: EditPoint(.75, .65)
     fun peak(): EditPoint {
         if (trackingMode == "putt") return apex ?: ground(flight*.5)
@@ -114,6 +119,7 @@ internal class EditorScene {
                 put("id", s.id); put("start", s.start); put("ball", point(s.ball)); put("landing", point(s.landing)); put("apex", point(s.apex))
                 put("flight", s.flight); put("apexFraction", s.apexFraction); put("speed", s.speed); put("color", s.color); put("manual", s.manual)
                 put("base", rows(s.base)); put("camera", rows(s.camera)); put("swing", rows(s.swing))
+                put("cameraTransforms", JSONArray(s.cameraTransforms.map { JSONArray(it.values()) }))
                 put("timingLandingEstimated",s.timingLandingEstimated ?: JSONObject.NULL)
                 put("trackingMode", s.trackingMode); put("autoHands", rows(s.autoHands)); put("autoClub", rows(s.autoClub))
                 put("masks", JSONArray(s.masks.map { JSONObject().put("time", it.time).put("path", it.path) }))
@@ -169,6 +175,12 @@ internal class EditorScene {
                         }
                         shot.trackingMode = s.optString("trackingMode","flight")
                         shot.autoHands = rows(s.optJSONArray("autoHands")); shot.autoClub = rows(s.optJSONArray("autoClub"))
+                        s.optJSONArray("cameraTransforms")?.let { a ->
+                            shot.cameraTransforms=cameraSamples((0 until a.length()).flatMap { index ->
+                                val row=a.getJSONArray(index)
+                                if(row.length()!=7) emptyList() else (0 until 7).map { row.getDouble(it) }
+                            }.toDoubleArray())
+                        }
                         s.optJSONArray("masks")?.let { a -> shot.masks = (0 until a.length()).map { i -> a.getJSONObject(i).let { PersonMask(it.getDouble("time"),it.getString("path")) } }.sortedBy { it.time } }
                         shots.add(shot)
                         s.optJSONArray("baseModel")?.takeIf { it.length() == 16 }?.let { a -> shot.baseModel = DoubleArray(16) { a.getDouble(it) } }
@@ -372,7 +384,7 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
         fun pos(p: EditPoint, motion: EditPoint = EditPoint(0.0, 0.0)) = PointF(((p.x + motion.x) * w).toFloat(), ((p.y + motion.y) * h).toFloat())
         val occupied=mutableListOf<PopupBox>()
         for (s in scene.shots) {
-            val motion = s.motion(time)
+            fun frame(p: EditPoint) = pos(s.toFrame(p,time))
             val trajectory = trajectories.getValue(s.id)
             val airTime = trajectory.airTime
             val duration = trajectory.duration
@@ -388,7 +400,7 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
             canvas.saveLayer(0f,0f,w.toFloat(),h.toFloat(),null)
             if (points.size >= 2) {
                 val width = (max(1.5, h / 240.0) * scene.lineWidth).toFloat()
-                val path = ribbon(points.map { pos(it, motion) }, width)
+                val path = ribbon(points.map(::frame), width)
                 paint.style = Paint.Style.FILL
                 paint.color = color(s.color)
                 if (scene.preset != "minimal" && scene.glow > 0) {
@@ -399,10 +411,10 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
                 }
                 paint.alpha = 255
                 canvas.drawPath(path, paint)
-                val end = pos(points.last(), motion)
+                val end = frame(points.last())
                 if (scene.head) { paint.style = Paint.Style.FILL; paint.color = Color.WHITE; canvas.drawCircle(end.x, end.y, width, paint) }
                 if (scene.marker && elapsed >= airTime && landing != null) {
-                    val contact = pos(landing, motion)
+                    val contact = frame(landing)
                     paint.style = Paint.Style.STROKE
                     paint.color = color(s.color)
                     paint.strokeWidth = 2f
@@ -411,7 +423,7 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
             }
             val splashAge = time - (s.start + airTime / s.speed)
             if (scene.marker && s.hasTrace() && splashAge >= -1e-6 && splashAge < .65) {
-                drawLandingSplash(canvas, pos(s.endpoint(), motion), min(w, h).toFloat(), (splashAge / .65).coerceAtLeast(0.0).toFloat(), paint)
+                drawLandingSplash(canvas, frame(s.endpoint()), min(w, h).toFloat(), (splashAge / .65).coerceAtLeast(0.0).toFloat(), paint)
             }
             if (scene.personOcclusion) s.masks.minByOrNull { abs(it.time-time) }?.takeIf { abs(it.time-time) <= .11 }?.let { m ->
                 val mask = maskCache.get(m.path) ?: BitmapFactory.decodeFile(m.path)?.also { maskCache.put(m.path,it) }
@@ -421,10 +433,11 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
             points.lastOrNull()?.let { tip ->
                 trajectory.distance(min(elapsed, duration))?.let { label ->
                     // Sample source-time camera offsets symmetrically so seeks and exports agree.
-                    val before = s.motion(time - .045)
-                    val after = s.motion(time + .045)
-                    val stable = EditPoint((before.x + 2 * motion.x + after.x) / 4, (before.y + 2 * motion.y + after.y) / 4)
-                    drawDistance(canvas, label, pos(tip, stable), w, h, paint)
+                    val before = s.toFrame(tip,time - .045)
+                    val after = s.toFrame(tip,time + .045)
+                    val now = s.toFrame(tip,time)
+                    val stable = EditPoint((before.x + 2 * now.x + after.x) / 4, (before.y + 2 * now.y + after.y) / 4)
+                    drawDistance(canvas, label, pos(stable), w, h, paint)
                 }
             }
             val infoCards = if (s.hasTrace()) shotInfoKeys.filter { it != "total" }.mapNotNull { key ->
@@ -436,9 +449,9 @@ internal class EditorRenderer(private val scene: EditorScene, private val shotIn
                 val window=popupWindow(s,p) ?: continue
                 if(!window.contains(time)) continue
                 val at = when (p.anchor) {
-                    "start" -> pos(s.ball ?: EditPoint(.1, .8), motion)
-                    "apex" -> pos(s.peak(), motion)
-                    "landing" -> pos(s.endpoint(), motion)
+                    "start" -> frame(s.ball ?: EditPoint(.1, .8))
+                    "apex" -> frame(s.peak())
+                    "landing" -> frame(s.endpoint())
                     "top-right" -> PointF(w * .72f, h * .08f)
                     "bottom-left" -> PointF(w * .04f, h * .8f)
                     "bottom-right" -> PointF(w * .72f, h * .8f)

@@ -10,14 +10,17 @@ final class TrackingSession: @unchecked Sendable {
     private let handle: OpaquePointer
     private let lock = NSLock()
 
-    init(width: Int, height: Int, ball: CGPoint, putt: Bool = false) throws {
+    init(width: Int, height: Int, ball: CGPoint, putt: Bool = false, flight: Double = 0) throws {
         guard let handle = st_create(Int32(width), Int32(height), ball.x, ball.y) else {
             throw MobileError.invalidBall
+        }
+        guard st_set_mode(handle, putt ? 1 : 0) == 0, st_use_desktop_tracking(handle, flight) == 0 else {
+            st_destroy(handle)
+            throw MobileError.invalidFrame
         }
         self.width = width
         self.height = height
         self.handle = handle
-        _ = st_set_mode(handle, putt ? 1 : 0)
     }
 
     deinit { st_destroy(handle) }
@@ -33,8 +36,20 @@ final class TrackingSession: @unchecked Sendable {
             }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             lock.lock()
+            defer { lock.unlock() }
+            if st_camera_count(handle) == 0 {
+                var rgba = [UInt8](repeating: 0, count: width * height * 4)
+                try rgba.withUnsafeMutableBytes { color in
+                    guard let reference = CGContext(data: color.baseAddress, width: width, height: height,
+                        bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                        throw MobileError.invalidFrame
+                    }
+                    reference.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+                    guard st_reference_rgba(handle, color.baseAddress?.assumingMemoryBound(to: UInt8.self), Int32(width * 4)) == 0 else { throw MobileError.invalidFrame }
+                }
+            }
             let status = st_push(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), Int32(width), time)
-            lock.unlock()
             if status < 0 { throw MobileError.invalidFrame }
         }
     }
@@ -110,6 +125,37 @@ struct EditSample: Codable, Sendable {
     init(from decoder: Decoder) throws { var c = try decoder.unkeyedContainer(); time = try c.decode(Double.self); x = try c.decode(Double.self); y = try c.decode(Double.self) }
     func encode(to encoder: Encoder) throws { var c = encoder.unkeyedContainer(); try c.encode(time); try c.encode(x); try c.encode(y) }
 }
+struct EditCameraTransform: Codable, Sendable {
+    var time: Double, m00: Double, m01: Double, m02: Double, m10: Double, m11: Double, m12: Double
+    init(_ time: Double, _ m00: Double, _ m01: Double, _ m02: Double, _ m10: Double, _ m11: Double, _ m12: Double) {
+        self.time=time; self.m00=m00; self.m01=m01; self.m02=m02; self.m10=m10; self.m11=m11; self.m12=m12
+    }
+    init(from decoder: Decoder) throws {
+        var c=try decoder.unkeyedContainer()
+        let v=try (0..<7).map { _ in try c.decode(Double.self) }
+        self.init(v[0],v[1],v[2],v[3],v[4],v[5],v[6])
+    }
+    func encode(to encoder: Encoder) throws {
+        var c=encoder.unkeyedContainer()
+        for value in [time,m00,m01,m02,m10,m11,m12] { try c.encode(value) }
+    }
+    func frame(_ p: EditPoint) -> EditPoint { EditPoint(m00*p.x+m01*p.y+m02,m10*p.x+m11*p.y+m12) }
+    func reference(_ p: EditPoint) -> EditPoint {
+        let determinant=m00*m11-m01*m10
+        guard abs(determinant)>1e-10 else { return p }
+        let x=p.x-m02,y=p.y-m12
+        return EditPoint((m11*x-m01*y)/determinant,(-m10*x+m00*y)/determinant)
+    }
+}
+func cameraAt(_ rows: [EditCameraTransform], _ time: Double) -> EditCameraTransform? {
+    guard let first=rows.first,let last=rows.last else { return nil }
+    if time<=first.time { return first }; if time>=last.time { return last }
+    var low=0,high=rows.count-1
+    while high-low>1 { let mid=(low+high)/2; if rows[mid].time<time { low=mid } else { high=mid } }
+    let a=rows[low],b=rows[high],f=(time-a.time)/(b.time-a.time)
+    return EditCameraTransform(time,a.m00+f*(b.m00-a.m00),a.m01+f*(b.m01-a.m01),a.m02+f*(b.m02-a.m02),
+                               a.m10+f*(b.m10-a.m10),a.m11+f*(b.m11-a.m11),a.m12+f*(b.m12-a.m12))
+}
 func interpolated(_ rows: [EditSample], _ time: Double) -> EditPoint {
     guard let first = rows.first, let last = rows.last else { return EditPoint(0, 0) }
     if time <= first.time { return EditPoint(first.x, first.y) }
@@ -135,6 +181,7 @@ struct EditShot: Codable, Identifiable, Sendable {
     var ball: EditPoint?, landing: EditPoint?, apex: EditPoint?
     var flight = 4.0, apexFraction = 0.5, speed = 1.0, color = "#FF2D2D", manual = false
     var base: [EditSample] = [], camera: [EditSample] = [], swing: [EditSample] = []
+    var cameraTransforms: [EditCameraTransform]?
     var timingLandingEstimated: Bool?
     var shotInfo: [String: ShotInfo]?
     var landingConfirmed: Bool?
@@ -145,6 +192,14 @@ struct EditShot: Codable, Identifiable, Sendable {
     var baseModel: [Double]?
     var popups: [EditPopup] = []
     var edited: Bool { baseModel != nil || manual || landing != nil || apex != nil }
+    func toFrame(_ p: EditPoint, at time: Double) -> EditPoint {
+        if let transform=cameraAt(cameraTransforms ?? [],time) { return transform.frame(p) }
+        let offset=interpolated(camera,time); return EditPoint(p.x+offset.x,p.y+offset.y)
+    }
+    func toReference(_ p: EditPoint, at time: Double) -> EditPoint {
+        if let transform=cameraAt(cameraTransforms ?? [],time) { return transform.reference(p) }
+        let offset=interpolated(camera,time); return EditPoint(p.x-offset.x,p.y-offset.y)
+    }
     var model: [Double]? {
         guard trackingMode != "putt", let baseModel, baseModel.count == 16, !manual, apex == nil else { return nil }
         guard let result = landing == nil && abs(flight - baseModel[10]) < 1e-8 ? baseModel : NativeFlight.refit(baseModel, base, landing, flight) else { return nil }
@@ -195,6 +250,18 @@ struct EditorScene: Codable, Sendable {
 }
 
 extension TrackingSession {
+    func finish() throws {
+        lock.lock(); defer { lock.unlock() }
+        if st_finish(handle)<0 { throw MobileError.invalidFrame }
+    }
+    func transforms() -> [EditCameraTransform] {
+        lock.lock(); defer { lock.unlock() }
+        return (0..<st_camera_count(handle)).compactMap { index in
+            var p=STCameraTransform()
+            guard st_camera_transform(handle,index,&p)==0 else { return nil }
+            return EditCameraTransform(p.time,p.m00,p.m01,p.m02,p.m10,p.m11,p.m12)
+        }
+    }
     func flightModel() -> [Double]? {
         lock.lock(); defer { lock.unlock() }
         var model = STModel()
@@ -243,7 +310,7 @@ final class EditorRenderer: @unchecked Sendable {
                 let airTime = trajectory.airTime
                 let duration = trajectory.duration
                 let landing = trajectory.landing
-                let motion = interpolated(s.camera, time)
+                func frame(_ p: EditPoint) -> CGPoint { pos(s.toFrame(p,at:time)) }
                 let elapsed = (time - s.start) * s.speed
                 var points: [EditPoint] = []
                 if s.hasTrace && (s.trackingMode != "putt" || s.hasGroundPath) && elapsed >= 0 &&
@@ -255,7 +322,7 @@ final class EditorRenderer: @unchecked Sendable {
                 ctx.beginTransparencyLayer(auxiliaryInfo: nil)
                 if points.count >= 2 {
                     let width = max(1.5, h / 240) * scene.lineWidth
-                    let path = ribbon(points.map { pos($0, motion) }, width: width)
+                    let path = ribbon(points.map(frame), width: width)
                     ctx.saveGState()
                     if scene.preset != "minimal" && scene.glow > 0 {
                         ctx.setShadow(offset: .zero, blur: width * scene.glow, color: color(s.color).cgColor)
@@ -264,10 +331,10 @@ final class EditorRenderer: @unchecked Sendable {
                     ctx.addPath(path)
                     ctx.fillPath()
                     ctx.restoreGState()
-                    let p = pos(points.last!, motion)
+                    let p = frame(points.last!)
                     if scene.head { ctx.setFillColor(UIColor.white.cgColor); ctx.fillEllipse(in: CGRect(x: p.x - width, y: p.y - width, width: 2 * width, height: 2 * width)) }
                     if scene.marker, elapsed >= airTime, let landing {
-                        let contact = pos(landing, motion)
+                        let contact = frame(landing)
                         let r = h * 0.02
                         ctx.setStrokeColor(color(s.color).cgColor)
                         ctx.setLineWidth(2)
@@ -276,7 +343,7 @@ final class EditorRenderer: @unchecked Sendable {
                 }
                 let splashAge = time - (s.start + airTime / s.speed)
                 if scene.marker && s.hasTrace && splashAge >= -0.000001 && splashAge < 0.65 {
-                    drawLandingSplash(ctx, at: pos(s.endpoint, motion), size: min(w, h), progress: max(0, splashAge / 0.65))
+                    drawLandingSplash(ctx, at: frame(s.endpoint), size: min(w, h), progress: max(0, splashAge / 0.65))
                 }
                 if scene.personOcclusion != false, let m = s.masks?.min(by: { abs($0.time-time) < abs($1.time-time) }), abs(m.time-time) <= 0.11 {
                     if let mask = maskCache.object(forKey:m.path as NSString) ?? UIImage(contentsOfFile:m.path) {
@@ -287,10 +354,11 @@ final class EditorRenderer: @unchecked Sendable {
                 ctx.endTransparencyLayer()
                 if let tip = points.last, let label = trajectory.distance(at: min(elapsed, duration)) {
                     // Symmetric source-time sampling keeps seeks and exports deterministic.
-                    let before = interpolated(s.camera, time - 0.045)
-                    let after = interpolated(s.camera, time + 0.045)
-                    let stable = EditPoint((before.x + 2 * motion.x + after.x) / 4, (before.y + 2 * motion.y + after.y) / 4)
-                    drawDistance(label, at: pos(tip, stable), width: w, height: h)
+                    let before = s.toFrame(tip,at:time-0.045)
+                    let after = s.toFrame(tip,at:time+0.045)
+                    let now = s.toFrame(tip,at:time)
+                    let stable = EditPoint((before.x + 2 * now.x + after.x) / 4, (before.y + 2 * now.y + after.y) / 4)
+                    drawDistance(label, at: pos(stable), width: w, height: h)
                 }
                 let infoCards: [EditPopup] = s.hasTrace ? shotInfoKeys.compactMap { key in
                     guard key != "total", let info = s.shotInfo?[key], info.visible, !info.value.isEmpty else { return nil }
@@ -303,9 +371,9 @@ final class EditorRenderer: @unchecked Sendable {
                     guard let window=popupWindow(s,p),window.contains(time) else { continue }
                     let at: CGPoint
                     switch p.anchor {
-                    case "start": at = pos(s.ball ?? EditPoint(0.1, 0.8), motion)
-                    case "apex": at = pos(s.peak, motion)
-                    case "landing": at = pos(s.endpoint, motion)
+                    case "start": at = frame(s.ball ?? EditPoint(0.1, 0.8))
+                    case "apex": at = frame(s.peak)
+                    case "landing": at = frame(s.endpoint)
                     case "top-right": at = CGPoint(x: w * 0.72, y: h * 0.08)
                     case "bottom-left": at = CGPoint(x: w * 0.04, y: h * 0.8)
                     case "bottom-right": at = CGPoint(x: w * 0.72, y: h * 0.8)

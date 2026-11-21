@@ -330,7 +330,7 @@ class MainActivity : Activity() {
         output = null; renderer = EditorRenderer(scene.copy()) { text("info_" + it) }; overlay(); handles(); controls(); if (save) persist()
     }
     private fun overlay() { preview.overlay?.recycle(); preview.overlay = renderer.overlay(currentTime); preview.invalidate() }
-    private fun reference(p: EditPoint): EditPoint { val m = scene.shot.motion(currentTime); return EditPoint(p.x - m.x, p.y - m.y) }
+    private fun reference(p: EditPoint): EditPoint = scene.shot.toReference(p,currentTime)
     private fun handle(key: String, p: EditPoint) {
         val point = reference(p)
         when {
@@ -344,8 +344,11 @@ class MainActivity : Activity() {
         }
     }
     private fun handles() {
-        val s = scene.shot; val m = s.motion(currentTime)
-        fun handle(key: String, p: EditPoint) = EditorHandle(key, PointF((p.x + m.x).toFloat(), (p.y + m.y).toFloat()),if(key=="ball") text("timeline_start") else if(key=="landing") text("timeline_landing") else if(key=="apex" && s.trackingMode=="putt") text("putt_curve") else "")
+        val s = scene.shot
+        fun handle(key: String, p: EditPoint): EditorHandle {
+            val q=s.toFrame(p,currentTime)
+            return EditorHandle(key, PointF(q.x.toFloat(),q.y.toFloat()),if(key=="ball") text("timeline_start") else if(key=="landing") text("timeline_landing") else if(key=="apex" && s.trackingMode=="putt") text("putt_curve") else "")
+        }
         val points = mutableListOf<EditorHandle>()
         s.ball?.let { points.add(handle("ball", it)) }
         if (s.ball != null && (s.edited() || s.base.isNotEmpty())) { points.add(handle("landing", s.endpoint())); if (s.trackingMode != "putt" || s.hasGroundPath()) points.add(handle("apex", s.peak())) }
@@ -365,7 +368,7 @@ class MainActivity : Activity() {
         if (busy || source == null) return
         val s = scene.shot; val r = reference(p)
         when (tool) {
-            "ball" -> { stopPlay(); remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.landingConfirmed = false; s.timingLandingEstimated=null; s.apex = null; changed(); selectLandingTool() }
+            "ball" -> { stopPlay(); remember(); s.ball = p; s.start = currentTime; s.base = emptyList(); s.baseModel = null; s.camera = emptyList(); s.cameraTransforms=emptyList(); s.autoHands=emptyList(); s.autoClub=emptyList(); s.masks=emptyList(); s.manual = false; s.landing = null; s.landingConfirmed = false; s.timingLandingEstimated=null; s.apex = null; changed(); selectLandingTool() }
             "landing" -> {
                 val flight = currentTime - s.start
                 if (s.ball == null || flight !in .2..15.0) {
@@ -514,7 +517,7 @@ class MainActivity : Activity() {
         status.setText(R.string.status_analyzing)
         val width = scene.width; val height = scene.height; val id = s.id; val start = s.start; val end = start + s.flight; val rows = times.copyOf(); val putt = s.trackingMode == "putt"
         work {
-            val result = TrackingSession(width,height,ball.x*width,ball.y*height,putt)
+            val result = TrackingSession(width,height,ball.x*width,ball.y*height,putt,if(putt) 0.0 else end-start)
             val retriever = MediaMetadataRetriever()
             var personError = false
             val person = if (!scene.personOcclusion) null else try { PersonAnalysis(this,File(file.parentFile,"analysis-${UUID.randomUUID()}")) } catch (e: Exception) { android.util.Log.w("ShotTracer","Person task initialization failed",e); personError=true; null }
@@ -534,19 +537,19 @@ class MainActivity : Activity() {
                     lastSample=time
                     if (i%15 == 0) ui { status.text=getString(R.string.editor_analysis_progress,((time-start)/(end-start)*100).toInt().coerceIn(0,100)) }
                 }
+                result.finish()
                 val observations = samples(result.samples()); val camera = samples(result.samples(true))
+                val transforms=result.transforms()
                 val model = result.flightModel()
                 val found = if (putt) observations.size >= 3 else model != null
-                val landingMotion = interpolate(camera, end)
                 ui {
                     remember(); scene.shots.firstOrNull { it.id == id }?.let {
                         // Move the marked landing from the old camera reference to the new one.
-                        val oldMotion = it.motion(end)
-                        it.landing = it.landing?.let { point ->
-                            EditPoint(point.x + oldMotion.x - landingMotion.x, point.y + oldMotion.y - landingMotion.y)
-                        }
+                        val landingOnFrame=it.landing?.let { point -> it.toFrame(point,end) }
                         it.base = if (found) observations else emptyList()
                         it.camera = camera
+                        it.cameraTransforms=transforms
+                        it.landing=landingOnFrame?.let { point -> it.toReference(point,end) }
                         it.baseModel = model
                         it.manual = false
                         it.apex = null
