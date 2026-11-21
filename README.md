@@ -50,6 +50,13 @@ inside the app.
 For Apple silicon Mac App Store distribution, use the signed PKG build mode.
 See the [Mac App Store build and submission guide (Korean)](docs/MAC_APP_STORE.ko.md).
 
+The macOS app uses Python's built-in file types so the TestFlight/App Store sandbox can
+serve the editor styles, scripts, preview frames and exports without reading system MIME
+files. The build self-test also checks the styles and scripts referenced by the editor page.
+
+The macOS timeline and sandbox fixes are in version **0.0.2**. Apple has closed the
+approved 0.0.1 version to further builds, so TestFlight uploads use the newer app version.
+
 ## Installation (developer version)
 
 To run from source instead of the app:
@@ -226,6 +233,15 @@ the browser language. You can also open `http://127.0.0.1:8765/#lang=ko`.
 The server only listens on `127.0.0.1`.
 
 ## Features
+
+The timeline uses the iPhone editor's thumbnail strip and centered playhead. Drag the
+thumbnails or scroll to scrub; use the timeline − / + buttons (or Ctrl/⌘+scroll) to zoom.
+Impact, Apex and Landing markers sit below the strip, with colored guides aligned to the
+same source-frame time as the thumbnails. Click a marker to seek, drag it to change its
+time, or use its arrow keys to adjust one source frame at a time. Moving Impact holds the
+landing time; moving Landing holds Impact. Each drag is one undo step, and Escape cancels
+it. Putts show Impact and Landing. Events beyond the video are marked “outside clip”.
+Timing edits are saved with the selected shot and apply to preview and export without re-analysis.
 
 | Tab | What you can do |
 | --- | --- |

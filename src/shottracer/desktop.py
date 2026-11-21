@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import json
+import mimetypes
 import os
 import shutil
 import socket
@@ -24,6 +25,7 @@ import threading
 import time
 import urllib.request
 import webbrowser
+from html.parser import HTMLParser
 from pathlib import Path
 
 APP_NAME = "Shot Tracer"
@@ -34,6 +36,12 @@ def _bundle_dir() -> Path:
 
 
 def _prepare_environment(log: bool) -> None:
+    if sys.platform == "darwin":
+        # App Sandbox denies /etc/apache2/mime.types. Lazy MIME discovery would
+        # otherwise make every FileResponse (including CSS/JS) fail with HTTP 500.
+        # init(files=[]) still reads knownfiles on a fresh Python 3.13 process.
+        mimetypes.knownfiles = []
+        mimetypes.init()
     # MediaPipe imports matplotlib; never let it pick a GUI backend inside the app window.
     os.environ.setdefault("MPLBACKEND", "Agg")
     # Bundled ffmpeg first on PATH: video.py finds it like a system install.
@@ -143,8 +151,49 @@ def _watch_drops(window) -> None:
     window.dom.document.events.drop += DOMEventHandler(on_drop, prevent_default=True, stop_propagation=True)
 
 
+class _EditorAssets(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urls: dict[str, str] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in ("script", "link"):
+            return
+        attributes = dict(attrs)
+        url = attributes.get("src" if tag == "script" else "href")
+        if url and url.startswith("/static/"):
+            self.urls[url.split("?", 1)[0].removeprefix("/static/")] = url
+
+
+def _check_editor(url: str) -> dict:
+    """Fetch the assets referenced by the page: HTML alone can hide a broken editor."""
+    with urllib.request.urlopen(url, timeout=10) as response:
+        page = response.read().decode("utf-8")
+        report = {"editor_page": response.status, "editor_assets": {}}
+    parser = _EditorAssets()
+    parser.feed(page)
+    for name, allowed in {
+        "style.css": ("text/css",),
+        "i18n.js": ("text/javascript", "application/javascript"),
+        "app.js": ("text/javascript", "application/javascript"),
+    }.items():
+        if name not in parser.urls:
+            raise RuntimeError(f"editor page does not reference {name}")
+        with urllib.request.urlopen(url + parser.urls[name], timeout=10) as response:
+            content = response.read()
+            content_type = response.headers.get_content_type()
+            if content_type not in allowed:
+                raise RuntimeError(f"{name}: unexpected Content-Type {content_type}")
+            if not content or content != (Path(__file__).parent / "web" / name).read_bytes():
+                raise RuntimeError(f"{name}: response differs from the bundled editor asset")
+            report["editor_assets"][name] = {
+                "status": response.status, "content_type": content_type, "bytes": len(content),
+            }
+    return report
+
+
 def self_test() -> int:
-    """Smoke test for packaged builds (CI): imports, ffmpeg, pose model, server."""
+    """Smoke test for packaged builds: imports, ffmpeg, pose model, server and UI assets."""
     report: dict = {}
     import cv2
     import mediapipe
@@ -162,9 +211,11 @@ def self_test() -> int:
         raise RuntimeError("ffmpeg has no libx264")
     report["model"] = str(person.model_path())
     server, url = _start_server(_free_port(0))
-    report["projects"] = len(json.loads(urllib.request.urlopen(f"{url}/api/projects").read()))
-    report["editor_page"] = urllib.request.urlopen(url).status
-    server.should_exit = True
+    try:
+        report["projects"] = len(json.loads(urllib.request.urlopen(f"{url}/api/projects").read()))
+        report.update(_check_editor(url))
+    finally:
+        server.should_exit = True
     print(json.dumps(report, indent=2))
     print("SELF-TEST OK")
     return 0

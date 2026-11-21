@@ -48,7 +48,7 @@ if MAC:
         bundle_identifier="com.ajc.shottracer",
         info_plist={
             "CFBundleDisplayName": "Shot Tracer",
-            "CFBundleShortVersionString": "0.0.1",
+            "CFBundleShortVersionString": "0.0.2",
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "12.0",
             "NSHumanReadableCopyright": "Create by AJC_shottracer",

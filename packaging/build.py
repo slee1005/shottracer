@@ -29,7 +29,7 @@ import mac_store
 ROOT = Path(__file__).resolve().parent.parent
 BUILD, DIST = ROOT / "build", ROOT / "dist"
 VENDOR = BUILD / "vendor"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 
 FFMPEG_VERSION = "9.0.2"
 # (mirrors tried in order, SHA-256). Each must be the exact same file.

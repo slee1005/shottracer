@@ -12,6 +12,7 @@ A project lives in WORKSPACE/<id>/:
 from __future__ import annotations
 
 import atexit
+import math
 import os
 import re
 import shutil
@@ -449,6 +450,48 @@ def apply_edits(p: Project, tr: Trace) -> None:
     a["model"] = m.to_dict()
 
 
+def retime_shot(p: Project, tr: Trace, key: str, frame: int) -> None:
+    """Snap a timing edit to a legal source frame without changing automatic data."""
+    shot = tr.shot
+    if key not in ("start", "apex", "landing") or not (shot.ball or has_path(tr)):
+        raise ValueError("invalid timeline event")
+    fps = float(p.info["fps"])
+    first, last = 0, int(p.info["frames"]) - 1
+    if not has_path(tr):
+        if key != "start":
+            raise ValueError("invalid timeline event")
+        shot.timeline_start = max(first, min(frame, last))
+        return
+
+    path = ShotPath(p, tr)
+    start, end = path.t0, path.t0 + path.flight * fps
+    if key == "apex":
+        if shot.mode != "flight" or not 0 < path.apex_index < len(path.points) - 1:
+            raise ValueError("invalid timeline event")
+        lo, hi = trajectory.APEX_FRACTION
+        first = max(first, math.ceil(start + lo * (end - start) - 1e-7))
+        last = min(last, math.floor(start + hi * (end - start) + 1e-7))
+    elif key == "start":
+        first = max(first, math.ceil(end - 15 * fps - 1e-7))
+        last = min(last, math.floor(end - .2 * fps + 1e-7))
+    else:
+        first = max(first, math.ceil(start + .2 * fps - 1e-7))
+        last = min(last, math.floor(start + 15 * fps + 1e-7))
+    if first > last:
+        return
+    frame = max(first, min(frame, last))
+    if key == "apex":
+        shot.apex_time = (frame - start) / fps
+        return
+    if path.mode == "flight" and shot.landing is None:
+        shot.landing = tuple(float(v * tr.analysis["scale"]) for v in path.points[-1])
+    if key == "start":
+        shot.timeline_start = frame
+        shot.flight_time = (end - frame) / fps
+    else:
+        shot.flight_time = (frame - start) / fps
+
+
 # --------------------------------------------------------------------------- manual path
 
 
@@ -519,13 +562,15 @@ class ShotPath:
             self.model = Model.from_dict(a["model"])
             self.t0 = self.model.t0
             self.end = self.model.flight_time
-            self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 6)))
+            self.model_apex = self.model.apex_time()
+            grid = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 6)))
+            self.times = np.unique(np.append(grid, self.model_apex))
             self.points = self.model.at(self.times)
             s = (1.0 - np.exp(-self.model.k * self.times)) / self.model.k
             self.depth = 1.0 / (1.0 + self.model.w * s)
             # The real (height) apex, not the highest image point: perspective moves that
             # earlier when the ball flies away from the camera.
-            self.apex_index = int(np.argmin(np.abs(self.times - self.model.apex_time())))
+            self.apex_index = int(np.searchsorted(self.times, self.model_apex))
         else:
             obs = np.array(a["observations"], dtype=np.float64)
             self.t0 = float(a["impact"])
@@ -534,13 +579,21 @@ class ShotPath:
             self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 4)))
             self.points = np.stack([np.interp(self.times, t, obs[:, 1]), np.interp(self.times, t, obs[:, 2])], 1)
             self.depth = np.ones(len(self.times))
+            if tr.shot.flight_time is not None and self.end > 0:
+                self.times *= tr.shot.flight_time / self.end
+                self.end = tr.shot.flight_time
+        if tr.shot.timeline_start is not None:
+            self.t0 = tr.shot.timeline_start
         if self.mode == "putt":
             self.apex_index = len(self.points) - 1
         elif not hasattr(self, "apex_index"):
             self.apex_index = int(np.argmin(self.points[:, 1]))
         # Real flight/roll time; the drawing timeline below is compressed by the speed.
         self.flight = float(self.end)
-        self.flight_apex_time = float(self.times[self.apex_index])
+        self.flight_apex_time = (
+            self.model_apex if self.mode == "flight"
+            else getattr(self, "_manual_apex", float(self.times[self.apex_index]))
+        )
         self.speed = float(tr.shot.speed)
         if self.speed != 1.0:
             self.times = self.times / self.speed
@@ -561,26 +614,33 @@ class ShotPath:
         self.t0 = float(a["impact"])
         self.end = manual_duration(tr)
         self.times = np.linspace(0.0, self.end, max(2, int(self.end * self.fps * 6)))
-        u = 1.0 - (1.0 - self.times / self.end) ** 1.6
         apex = tr.shot.apex_time if tr.shot.mode == "flight" else None
         top = int(np.argmin(pts[:, 1]))
+        tau = self.times
+        if 0 < top < len(pts) - 1:
+            self._manual_apex = self.end * (1.0 - (1.0 - arc[top]) ** (1 / 1.6))
+            if apex is None:
+                self.times = np.unique(np.append(self.times, self._manual_apex))
+                tau = self.times
         if apex is not None and 0 < top < len(pts) - 1:
             # One ease-out (launch fastest), its clock stretched so the drawn apex is
             # reached at the requested time.
             lo, hi = trajectory.APEX_FRACTION
             T = self.end
             ta = float(np.clip(apex, lo * T, hi * T))
+            self._manual_apex = ta
+            self.times = np.unique(np.append(self.times, ta))
             tau_a = T * (1.0 - (1.0 - arc[top]) ** (1 / 1.6))  # when the plain ease reaches it
             tau = np.where(self.times <= ta, self.times * tau_a / ta,
                            tau_a + (self.times - ta) * (T - tau_a) / (T - ta))
-            u = 1.0 - (1.0 - tau / T) ** 1.6
+        u = 1.0 - (1.0 - tau / self.end) ** 1.6
         self.points = np.stack([np.interp(u, arc, pts[:, 0]), np.interp(u, arc, pts[:, 1])], 1)
         self.depth = np.ones(len(self.times))
 
     @property
     def apex_time(self) -> float:
         """Apex on the drawing timeline (seconds after impact, speed applied)."""
-        return float(self.times[self.apex_index])
+        return self.flight_apex_time / self.speed
 
     def point_at(self, t: float) -> np.ndarray:
         t = float(np.clip(t, 0.0, self.end))
