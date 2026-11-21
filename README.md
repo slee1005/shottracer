@@ -9,6 +9,8 @@ The [Android/iPhone port](mobile-port/README.md) is prepared for free distributi
 
 The mobile tracker now uses the desktop analysis stages for camera similarity compensation, three-frame ball candidates, launch detection and perspective flight fitting. See the [mobile algorithm comparison (Korean)](mobile-port/DESKTOP_ALGORITHM_PARITY.ko.md) for validation and platform differences.
 
+The iOS editor gives the video the available screen space, with small transparent impact/landing markers and only two compact selection prompts. Automatic analysis, manual correction and the moving estimated-distance badge follow the [iOS workflow](mobile-port/README.md#current-mobile-editor-controls); the entered total distance is used in both preview and export.
+
 - Semi-automatic: click the ball once, the rest is detected
 - Ball flight and putt/chip tracing, club-head swing path
 - Golfer cut-out (tracer passes behind the golfer), camera-shake compensation

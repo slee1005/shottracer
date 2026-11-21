@@ -22,7 +22,7 @@ def main() -> None:
         return add(f'isa = PBXFileReference; lastKnownFileType = {kind}; path = "{path}"; sourceTree = "<group>";')
 
     sources = [file(f"ShotTracer/{name}.swift", "sourcecode.swift")
-               for name in ("ShotTracerApp", "EditorModel", "TrackingSession", "LiveCamera")]
+               for name in ("ShotTracerApp", "EditorModel", "TrackingSession", "LiveCamera", "TracingWorkflow")]
     sources.append(file("../../core/src/shottracer.cpp", "sourcecode.cpp.cpp"))
     headers = [file("ShotTracer/Bridge.h", "sourcecode.c.h"), file("../../core/include/shottracer.h", "sourcecode.c.h")]
     languages = [file(f"ShotTracer/{lang}.lproj/Localizable.strings", "text.plist.strings") for lang in ("en", "ko")]

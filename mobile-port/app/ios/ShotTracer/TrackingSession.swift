@@ -25,10 +25,10 @@ final class TrackingSession: @unchecked Sendable {
 
     deinit { st_destroy(handle) }
 
-    func push(_ image: CGImage, time: Double) throws {
+    @discardableResult func push(_ image: CGImage, time: Double) throws -> Int {
         guard image.width == width, image.height == height else { throw MobileError.invalidFrame }
         var bytes = [UInt8](repeating: 0, count: width * height)
-        try bytes.withUnsafeMutableBytes { raw in
+        return try bytes.withUnsafeMutableBytes { raw in
             guard let context = CGContext(data: raw.baseAddress, width: width, height: height,
                                           bitsPerComponent: 8, bytesPerRow: width,
                                           space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0) else {
@@ -51,6 +51,7 @@ final class TrackingSession: @unchecked Sendable {
             }
             let status = st_push(handle, raw.baseAddress?.assumingMemoryBound(to: UInt8.self), Int32(width), time)
             if status < 0 { throw MobileError.invalidFrame }
+            return Int(status)
         }
     }
 
@@ -185,8 +186,10 @@ struct EditShot: Codable, Identifiable, Sendable {
     var timingLandingEstimated: Bool?
     var shotInfo: [String: ShotInfo]?
     var landingConfirmed: Bool?
-    var hasTrace: Bool { ball != nil && (edited || !base.isEmpty) && (landingConfirmed != true || manual || !base.isEmpty) }
-    var readyToAnalyze: Bool { ball != nil && landing != nil && landingConfirmed == true && (0.2...15).contains(flight) }
+    var analysisFailed: Bool?
+    var hasTrace: Bool { ball != nil && analysisFailed != true && (edited || !base.isEmpty) && (landingConfirmed != true || manual || !base.isEmpty) }
+    var readyToAnalyze: Bool { ball != nil }
+    var readyForManual: Bool { ball != nil && landing != nil && landingConfirmed == true && (0.2...15).contains(flight) }
     var trackingMode: String?
     var autoHands: [EditSample]?, autoClub: [EditSample]?, masks: [PersonMask]?
     var baseModel: [Double]?
@@ -353,12 +356,9 @@ final class EditorRenderer: @unchecked Sendable {
                 }
                 ctx.endTransparencyLayer()
                 if let tip = points.last, let label = trajectory.distance(at: min(elapsed, duration)) {
-                    // Symmetric source-time sampling keeps seeks and exports deterministic.
-                    let before = s.toFrame(tip,at:time-0.045)
-                    let after = s.toFrame(tip,at:time+0.045)
-                    let now = s.toFrame(tip,at:time)
-                    let stable = EditPoint((before.x + 2 * now.x + after.x) / 4, (before.y + 2 * now.y + after.y) / 4)
-                    drawDistance(label, at: pos(stable), width: w, height: h)
+                    // Use the exact same tip as the ball head, including camera motion.
+                    let value = String(format: NSLocalizedString("editor.distanceEstimate", comment: ""), label)
+                    occupied.append(drawDistance(value, at: frame(tip), width: w, height: h))
                 }
                 let infoCards: [EditPopup] = s.hasTrace ? shotInfoKeys.compactMap { key in
                     guard key != "total", let info = s.shotInfo?[key], info.visible, !info.value.isEmpty else { return nil }
@@ -533,19 +533,19 @@ private struct ShotTrajectory {
     }
 }
 
-private func drawDistance(_ label: String, at point: CGPoint, width: CGFloat, height: CGFloat) {
+@discardableResult private func drawDistance(_ label: String, at point: CGPoint, width: CGFloat, height: CGFloat) -> CGRect {
     let size = min(width, height)
     let text = label as NSString
     var font = UIFont.boldSystemFont(ofSize: max(1, size * 0.052))
     let labelWidth = text.size(withAttributes: [.font: font]).width
     if labelWidth > width * 0.85 { font = font.withSize(font.pointSize * width * 0.85 / labelWidth) }
     let bounds = text.size(withAttributes: [.font: font])
-    let margin = size * 0.018
-    let origin = CGPoint(x: max(margin, min(width - bounds.width - margin, point.x - bounds.width / 2)),
-                         y: max(margin, min(height - bounds.height - margin, point.y - size * 0.045 - font.ascender)))
-    text.draw(at: origin, withAttributes: [
-        .font: font, .foregroundColor: UIColor.white, .strokeColor: UIColor.black, .strokeWidth: -6.0
-    ])
+    let box = distanceBadgeRect(at: point, text: bounds, canvas: CGSize(width: width, height: height))
+    UIColor(red: 0.04, green: 0.13, blue: 0.1, alpha: 0.94).setFill()
+    UIBezierPath(roundedRect: box, cornerRadius: size * 0.025).fill()
+    text.draw(at: CGPoint(x: box.midX - bounds.width / 2, y: box.midY - bounds.height / 2),
+              withAttributes: [.font: font, .foregroundColor: UIColor.white])
+    return box
 }
 
 private func ribbon(_ points: [CGPoint], width: CGFloat) -> CGPath {

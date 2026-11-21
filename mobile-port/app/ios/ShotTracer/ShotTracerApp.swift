@@ -33,44 +33,23 @@ struct EditorView: View {
     @State private var panOrigin: Double?
     @Environment(\.horizontalSizeClass) private var timelineSize
     @Environment(\.scenePhase) private var editorPhase
-    private func icon(_ key: String, _ symbol: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 21)).frame(width: 44, height: 44).glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16)) }
-            .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key))).disabled(disabled || model.busy || model.editingTimeline)
+    private func icon(_ key: String, _ symbol: String, disabled: Bool = false, selected: Bool = false,
+                      primary: Bool = false, allowsBusy: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 21, weight: .medium)).frame(width: 44, height: 44)
+                .foregroundStyle(primary ? Color.white : selected ? Color.blue : Color.primary)
+                .background(primary ? Color.blue : selected ? Color.blue.opacity(0.12) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain).contentShape(Rectangle())
+            .accessibilityIdentifier(key)
+            .accessibilityLabel(Text(LocalizedStringKey(key))).help(Text(LocalizedStringKey(key)))
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .disabled(disabled || model.busy && !allowsBusy || model.editingTimeline)
     }
     var body: some View {
         NavigationStack {
-            VStack(spacing: 4) {
-                if fullscreen {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen = false }
-                            transport
-                        }
-                    }.fixedSize(horizontal: false, vertical: true)
-                } else {
-                    header
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            workflow.frame(width: 328)
-                            shotBar.fixedSize(horizontal: true, vertical: false)
-                        }
-                    }.fixedSize(horizontal: false, vertical: true)
-                }
-                HStack {
-                    Text(model.status).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    if model.busy { ProgressView().controlSize(.small) }
-                }.font(.caption2).foregroundStyle(.secondary)
-                GeometryReader { area in
-                    let timelineHeight = model.hasVideo ? area.size.height * 0.2 : 0
-                    VStack(spacing: 0) {
-                        preview.frame(width: area.size.width, height: area.size.height - timelineHeight)
-                            .background(.black).clipShape(RoundedRectangle(cornerRadius: 18))
-                        if model.hasVideo { filmstrip.frame(height: timelineHeight) }
-                    }
-                }
-                if model.hasVideo { shotInfoTabs }
-            }
-            .padding(.horizontal, 8).background(LinearGradient(colors:[Color(red:0.04,green:0.09,blue:0.12),Color(red:0.03,green:0.05,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing)).preferredColorScheme(.dark).tint(.mint)
+            workspace
+            .background(Color(uiColor: .systemGroupedBackground)).tint(.blue)
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fullScreenCover(isPresented: $reviewing) { if let url = model.output { ReviewView(url: url) } }
@@ -78,70 +57,105 @@ struct EditorView: View {
             .sheet(isPresented: $settings) { EditorSettings(model: model).onAppear { model.checkpoint() }.onDisappear { model.commitEdits() } }
             .sheet(isPresented: $showingProjects) { ProjectList(model: model) }
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
+            .alert("editor.operationFailed", isPresented: Binding(get: { model.operationError != nil }, set: { if !$0 { model.operationError=nil } })) {
+                Button("editor.done") { model.operationError=nil }
+            } message: { Text(model.operationError ?? "") }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
-            .onDisappear { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil }
-            .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil } }
+            .onDisappear { model.pause(); model.cancelAnalysis(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil }
+            .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.cancelAnalysis(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil } }
         }
+    }
+    private var workspace: some View {
+        VStack(spacing: 0) {
+            if !model.hasVideo { header.padding(.horizontal,8) }
+            preview.background(.black)
+                .frame(minHeight:120,maxHeight:.infinity)
+                .layoutPriority(1)
+            if model.hasVideo {
+                if !fullscreen {
+                    filmstrip.frame(height:64)
+                    compactPrompts.padding(.horizontal,12).padding(.top,3)
+                }
+                compactToolbar.padding(.horizontal,4).padding(.vertical,2)
+            } else {
+                if model.busy { ProgressView().accessibilityLabel(Text(model.status)) }
+                PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
+                    Image(systemName: "photo.on.rectangle.angled").font(.title2).frame(width: 52, height: 48)
+                }.buttonStyle(.borderedProminent).accessibilityLabel(Text("action.photos")).disabled(model.busy)
+            }
+        }.padding(.bottom,2)
     }
     private var header: some View {
-        VStack(spacing:6) {
-            HStack {
-                Image("Brand").resizable().scaledToFit().frame(width:36,height:36).clipShape(RoundedRectangle(cornerRadius:8)).accessibilityHidden(true)
-                VStack(alignment:.leading,spacing:1) { Text("app.title").font(.title3.bold()); Text("editor.onDevice").font(.system(size:9,weight:.bold,design:.rounded)).tracking(2).foregroundStyle(.mint) }
-                Spacer()
-                Picker("editor.trackingMode",selection:Binding(get:{ model.scene.shot.trackingMode ?? "flight" },set:{ model.setTrackingMode($0) })) {
-                    Text("editor.modeFlight").tag("flight"); Text("editor.putt").tag("putt")
-                }.pickerStyle(.segmented).frame(width:150).disabled(model.busy || !model.hasVideo)
-            }
-        ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 4) {
-            PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
-                Image(systemName: "photo.on.rectangle.angled").font(.system(size: 21)).frame(width: 44, height: 44)
-            }.accessibilityLabel(Text("action.photos")).disabled(model.busy)
-            icon("camera.open", "camera.fill") { model.pause(); showingCamera = true }
-            icon("editor.projects", "square.stack") { model.reloadProjects(); showingProjects = true }
-            icon("editor.fullscreen", "arrow.up.left.and.arrow.down.right") { fullscreen = true }
-            transport
-            icon("editor.undo", "arrow.uturn.backward", disabled: !model.canUndo) { model.undoEdit() }
-            icon("editor.redo", "arrow.uturn.forward", disabled: !model.canRedo) { model.redoEdit() }
-            icon("editor.settings", "slider.horizontal.3", disabled: !model.hasVideo) { settings = true }
-        } }
-        }
-    }
-    private var shotBar: some View {
-        HStack {
-            ForEach(model.scene.shots.indices, id: \.self) { index in
-                Button(String(format: NSLocalizedString("editor.shotNumber", comment: ""), index + 1)) { model.selectShot(index) }
-                    .font(.caption).padding(.horizontal, 12).padding(.vertical, 6).background(index == model.scene.selected ? Color.mint.opacity(0.25) : Color.white.opacity(0.08), in: Capsule())
-            }
-            icon("editor.add", "plus.circle.fill", disabled: !model.hasVideo || model.scene.shots.count >= 4) { model.addShot() }
-            Spacer(minLength: 0)
-        }.frame(height: 34)
-    }
-    private func workflowLabel(_ title: LocalizedStringKey, icon: String? = nil) -> some View {
-        HStack(spacing: 3) {
-            if let icon { Image(systemName: icon) }
-            Text(title).lineLimit(1).minimumScaleFactor(0.65)
-        }
-        .frame(minWidth: 0, maxWidth: .infinity)
-        .frame(height: 32)
-    }
-    private var workflow: some View {
         HStack(spacing: 4) {
-            Button { model.pause(); model.chooseTool("ball") } label: {
-                let selected = model.scene.shot.ball != nil
-                workflowLabel(selected ? "editor.startChecked" : "editor.startUnset",
-                              icon: selected ? "checkmark.circle.fill" : "scope")
-            }.tint(model.scene.shot.ball == nil ? .white : .green)
-            Button { model.selectLandingTool() } label: {
-                workflowLabel(model.scene.shot.landingConfirmed == true ? "editor.landingChecked" : "editor.landingUnset")
-            }.disabled(model.scene.shot.ball == nil)
-            Button { model.analyze() } label: {
-                workflowLabel("editor.analyzeAction")
-            }.buttonStyle(.glassProminent).tint(.mint).disabled(!model.scene.shot.readyToAnalyze)
-            Button { model.pause(); resetConfirm = true } label: {
-                workflowLabel("editor.resetAction", icon: "arrow.counterclockwise")
+            icon("editor.projects", "square.stack") { model.reloadProjects(); showingProjects = true }
+            Text("app.title").font(.headline).lineLimit(1).minimumScaleFactor(0.6)
+            Spacer(minLength: 0)
+            icon("editor.settings", "slider.horizontal.3", disabled: !model.hasVideo) { settings = true }
+            moreActions
+        }
+    }
+    private var moreActions: some View {
+        Menu {
+                Button { model.reloadProjects(); showingProjects=true } label: { Label("editor.projects",systemImage:"square.stack") }.accessibilityIdentifier("editor.projects.menu")
+                Button { settings=true } label: { Label("editor.settings",systemImage:"slider.horizontal.3") }.accessibilityIdentifier("editor.settings.menu")
+                PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) { Label("action.photos", systemImage: "photo.on.rectangle.angled") }
+                Button { model.pause(); showingCamera=true } label: { Label("camera.open", systemImage:"camera.fill") }
+                Button { fullscreen.toggle() } label: { Label("editor.fullscreen", systemImage:"arrow.up.left.and.arrow.down.right") }.disabled(!model.hasVideo)
+                if model.hasVideo {
+                    ForEach(shotInfoKeys,id:\.self) { key in
+                        Button { editInfo(key) } label: { Label(LocalizedStringKey("editor.info."+key),systemImage:key == "total" ? "ruler" : key == "carry" ? "arrow.up.forward" : "arrow.up.to.line") }
+                            .accessibilityIdentifier("editor.info."+key)
+                    }
+                    if model.scene.shots.count>1 {
+                        Picker("editor.shotSelection",selection:Binding(get:{model.scene.selected},set:{model.selectShot($0)})) {
+                            ForEach(model.scene.shots.indices,id:\.self) { index in
+                                Text(String(format:NSLocalizedString("editor.shotNumber",comment:""),index+1)).tag(index)
+                            }
+                        }
+                    }
+                }
+                Button { model.undoEdit() } label: { Label("editor.undo", systemImage:"arrow.uturn.backward") }.disabled(!model.canUndo)
+                Button { model.redoEdit() } label: { Label("editor.redo", systemImage:"arrow.uturn.forward") }.disabled(!model.canRedo)
+                Button { model.addShot() } label: { Label("editor.add", systemImage:"plus.circle") }.disabled(!model.hasVideo || model.scene.shots.count>=4)
+                if model.output != nil {
+                    Button { reviewing=true } label: { Label("editor.review", systemImage:"play.rectangle") }
+                    Button { model.saveToAlbum() } label: { Label("editor.albumSave", systemImage:"square.and.arrow.down") }
+                }
+                Button(role:.destructive) { resetConfirm=true } label: { Label("editor.resetAction", systemImage:"arrow.counterclockwise") }.disabled(!model.hasVideo)
+            } label: { Image(systemName:"ellipsis.circle").font(.system(size:21)).frame(width:44,height:44) }
+                .accessibilityLabel(Text("editor.more")).accessibilityIdentifier("editor.more").disabled(model.busy || model.editingTimeline)
+    }
+    private var compactPrompts: some View {
+        HStack {
+            Text("editor.pickImpactCompact").foregroundStyle(model.tool == "ball" ? Color.blue : Color.secondary)
+            Spacer(minLength:8)
+            Text("editor.pickLandingCompact").foregroundStyle(model.tool == "landing" ? Color.blue : Color.secondary)
+        }.font(.caption2).lineLimit(1).minimumScaleFactor(0.6).accessibilityHidden(true)
+    }
+    private var compactToolbar: some View {
+        HStack(spacing:0) {
+            transport
+            Spacer(minLength:0)
+            if fullscreen {
+                icon("editor.fullscreen","arrow.down.right.and.arrow.up.left") { fullscreen=false }
+            } else {
+                icon("editor.ball", "scope", selected:model.tool == "ball") { model.pause(); model.chooseTool("ball") }
+                icon("editor.landing", "flag", disabled:model.scene.shot.ball == nil, selected:model.tool == "landing") { model.selectLandingTool() }
             }
-        }.font(.caption).buttonStyle(.glass).disabled(model.busy || !model.hasVideo)
+            primaryAction.accessibilityHint(Text(model.status))
+            moreActions
+        }
+    }
+    @ViewBuilder private var primaryAction: some View {
+            if model.isAnalyzing {
+                icon("editor.cancelAnalysis", "xmark", primary:true, allowsBusy:true) { model.cancelAnalysis() }
+            } else if model.needsManualTrace {
+                icon("editor.confirmManual", "checkmark", disabled:!model.scene.shot.readyForManual, primary:true) { model.confirmManualTrace() }
+            } else if model.scene.shot.hasTrace && model.tool != "ball" {
+                icon("action.export", "square.and.arrow.up", primary:true) { model.export() }
+            } else {
+                icon("editor.analyzeAction", "viewfinder", disabled:!model.scene.shot.readyToAnalyze, primary:true) { model.analyze() }
+            }
     }
     private func viewportPan(_ value: CGSize, _ fitted: CGSize) -> CGSize {
         let x=fitted.width*max(0,zoom-1)/2, y=fitted.height*max(0,zoom-1)/2
@@ -160,22 +174,23 @@ struct EditorView: View {
                 let fitted=CGSize(width:width,height:height)
                 ZStack {
                     ZStack(alignment: .topLeading) {
-                        Image(uiImage: image).resizable()
+                        Image(uiImage: image).resizable().accessibilityIdentifier("editor.sourceFrame")
                         if let overlay = model.overlay { Image(uiImage: overlay).resizable() }
                         ForEach(model.handles, id: \.0) { key, point in
-                            Circle().stroke(key == "landing" ? Color.green : key == "apex" ? Color.cyan : Color.yellow, lineWidth: 2 / zoom)
-                                .frame(width: 18 / zoom, height: 18 / zoom)
-                                .overlay(alignment:point.x > 0.7 ? .topTrailing : .topLeading) {
-                                    if key == "ball" || key == "landing" || (key == "apex" && model.scene.shot.trackingMode == "putt") {
-                                        Text(LocalizedStringKey(key == "ball" ? "editor.timelineStart" : key == "apex" ? "editor.puttCurve" : "editor.timelineLanding"))
-                                            .font(.system(size:10/zoom,weight:.bold)).foregroundStyle(key == "ball" ? Color.yellow : key == "apex" ? Color.cyan : Color.green)
-                                            .padding(3/zoom).background(.black.opacity(0.8),in:RoundedRectangle(cornerRadius:3/zoom)).fixedSize()
-                                            .offset(x:(point.x > 0.7 ? -20 : 20)/zoom,y:(point.y < 0.08 ? 20 : -14)/zoom)
-                                    }
-                                }.position(x: point.x * width, y: point.y * height)
+                            if !model.playing && !model.busy {
+                                Image(systemName: key == "ball" ? "scope" : key == "landing" ? "flag" : "circle.dotted")
+                                    .font(.system(size:16/zoom,weight:.regular))
+                                    .foregroundStyle(eventColor(key).opacity(model.tool == key ? 0.95 : 0.8))
+                                    .shadow(color:.black.opacity(0.6),radius:1/zoom)
+                                    .frame(width:44/zoom,height:44/zoom)
+                                    .contentShape(Rectangle())
+                                    .position(x: point.x * width, y: point.y * height)
+                                    .accessibilityLabel(Text(LocalizedStringKey(key == "ball" ? "editor.ball" : key == "landing" ? "editor.landing" : "editor.apex")))
+                                    .accessibilityHint(Text("editor.handleHint")).accessibilityIdentifier("editor.handle."+key)
+                            }
                         }
                     }
-                    .frame(width: width, height: height)
+                    .frame(width: width, height: height).accessibilityElement(children:.contain).accessibilityIdentifier("editor.videoFrame")
                     .scaleEffect(zoom).offset(pan)
                 }.frame(width: area.size.width, height: area.size.height).contentShape(Rectangle())
                     .coordinateSpace(name:"videoViewport")
@@ -185,8 +200,8 @@ struct EditorView: View {
                         if !dragging {
                             dragging=true; dragPanning=false; lastPan=pan
                             let start=videoPoint(value.startLocation,area.size,fitted)
-                            let placingLanding = model.tool == "landing" && model.scene.shot.landingConfirmed != true
-                            dragHandle = placingLanding ? nil : model.handles.min {
+                            let placingPoint = model.tool == "ball" && !model.scene.shot.hasTrace || model.tool == "landing" && model.scene.shot.landingConfirmed != true
+                            dragHandle = placingPoint ? nil : model.handles.min {
                                 hypot(($0.1.x-start.x)*width,($0.1.y-start.y)*height) < hypot(($1.1.x-start.x)*width,($1.1.y-start.y)*height)
                             }.flatMap { key,p in hypot((p.x-start.x)*width*zoom,(p.y-start.y)*height*zoom)<25 ? key : nil }
                             if dragHandle != nil { model.checkpoint() }
@@ -221,14 +236,12 @@ struct EditorView: View {
     }
     @ViewBuilder private var transport: some View {
         icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
-        icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
-        icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
-        if !fullscreen {
-            icon("editor.delete", "trash", disabled: !model.hasVideo || (model.scene.shapes.isEmpty && model.scene.shots.count <= 1)) { model.deleteShape() }
+        if model.busy {
+            ProgressView().frame(width:44,height:44).accessibilityLabel(Text(model.status))
+        } else {
+            icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
         }
-        icon("action.export", "square.and.arrow.up", disabled: !model.canExport) { model.export() }
-        icon("editor.review", "play.rectangle.fill", disabled: model.output == nil) { reviewing = true }
-        if model.output != nil { icon("editor.albumSave","square.and.arrow.down") { model.saveToAlbum() } }
+        icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
     }
     private var filmstrip: some View {
         let tile: CGFloat = timelineSize == .regular ? 108 : 72
@@ -238,13 +251,13 @@ struct EditorView: View {
             let clock = model.time
             let events = model.timelineEvents
             let px = tile / interval
-            let laneHeight = min(66, area.size.height * 0.56)
+            let laneHeight = min(26, area.size.height * 0.4)
             let lane = area.size.height - laneHeight
-            let ruler = min(18, area.size.height * 0.18)
+            let ruler = min(14, area.size.height * 0.24)
             let snapshot = lane - ruler
-            let labelSize = min(10, laneHeight * 0.21)
+            let labelSize: CGFloat = 11
             ZStack(alignment: .topLeading) {
-                Rectangle().fill(Color(red: 0.06, green: 0.09, blue: 0.13))
+                Rectangle().fill(Color(uiColor: .secondarySystemGroupedBackground))
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip"))
                         .onChanged { value in
@@ -260,6 +273,7 @@ struct EditorView: View {
                             panOrigin = nil
                         })
                     .accessibilityLabel(Text("editor.timelineSeek"))
+                    .accessibilityIdentifier("editor.timeline.seek")
                     .accessibilityValue(filmClock(clock))
                     .accessibilityAdjustableAction { direction in
                         if !model.busy { model.step(direction == .increment ? 1 : -1) }
@@ -273,7 +287,7 @@ struct EditorView: View {
                                 Text(filmClock(time)).font(.system(size: labelSize)).monospacedDigit().padding(.leading, 3)
                                     .frame(height: ruler)
                                 ZStack {
-                                    Color.white.opacity(0.08)
+                                    Color.primary.opacity(0.08)
                                     if let image = model.thumbnails[index] {
                                         Image(uiImage: image).resizable().scaledToFit()
                                     }
@@ -283,7 +297,7 @@ struct EditorView: View {
                         }
                     }
                 }
-                Rectangle().fill(.white.opacity(0.06)).frame(height: laneHeight).offset(y: lane).allowsHitTesting(false)
+                Rectangle().fill(Color.primary.opacity(0.04)).frame(height: laneHeight).offset(y: lane).allowsHitTesting(false)
                 if let first = events.first, let last = events.last, events.count > 1 {
                     let left = max(0, center + (first.time - clock) * px)
                     let right = min(area.size.width, center + (last.time - clock) * px)
@@ -292,19 +306,14 @@ struct EditorView: View {
                             .offset(x: left, y: lane + 2).allowsHitTesting(false)
                     }
                 }
-                if laneHeight >= 58 {
-                    Text("editor.timelineTracer").font(.system(size: 10)).foregroundStyle(.secondary)
-                        .offset(x: 5, y: area.size.height - 13).allowsHitTesting(false)
-                }
                 ForEach(events) { event in
                     if let firstTime = model.times.first, let lastTime = model.times.last {
-                        let row = event.key == "ball" ? 0 : event.key == "apex" ? 1 : 2
                         let edgeTime = min(lastTime, max(firstTime, event.time))
                         let x = center + (edgeTime - clock) * px
-                        Text("▴ " + eventLabel(event, compact: true)).font(.system(size: labelSize, weight: .medium)).monospacedDigit()
-                            .padding(.horizontal, 4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).fixedSize().contentShape(Rectangle())
-                            .position(x: x, y: lane + laneHeight * (0.20 + CGFloat(row) * 0.25))
+                        Image(systemName:event.key == "ball" ? "scope" : event.key == "landing" ? "flag" : "circle.dotted")
+                            .font(.system(size:labelSize,weight:.medium)).frame(width:24,height:laneHeight)
+                            .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).contentShape(Rectangle())
+                            .position(x:x,y:lane+laneHeight/2)
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip")).onChanged { value in
                                 guard !model.busy, panOrigin == nil else { return }
                                 if draggingTime == nil && abs(value.translation.width) > 3 {
@@ -326,7 +335,7 @@ struct EditorView: View {
                             }
                     }
                 }
-                Rectangle().fill(.white).frame(width: 2, height: area.size.height)
+                Rectangle().fill(Color.primary).frame(width: 2, height: area.size.height)
                     .position(x: center, y: area.size.height / 2).allowsHitTesting(false).accessibilityHidden(true)
             }.coordinateSpace(name: "shotFilmstrip").clipped()
         }
@@ -353,27 +362,15 @@ struct EditorView: View {
         return (compact || event.inClip) ? name + " " + filmClock(event.time)
             : String(format: NSLocalizedString("editor.timelineOutside", comment: ""), name, event.time)
     }
-    private var shotInfoTabs: some View {
-        HStack(spacing: 4) {
-            ForEach(shotInfoKeys, id: \.self) { key in
-                Button {
-                    model.pause()
-                    infoKey = key
-                    infoDraft = model.scene.shot.shotInfo?[key] ?? ShotInfo()
-                    if key != "height" {
-                        infoUnit = ShotMeasurement(infoDraft.value)?.unit == "yds" ? "yds" : "m"
-                        infoDraft.value = distanceInput(infoDraft.value, unit: infoUnit)
-                    }
-                    editingInfo = true
-                } label: {
-                    Text(LocalizedStringKey("editor.info." + key))
-                        .lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity, minHeight: 28)
-                }
-                .tint(model.scene.shot.shotInfo?[key]?.visible == true ? .mint : .white)
-            }
-        }.font(.caption).buttonStyle(.glass).disabled(model.busy || model.editingTimeline)
+    private func editInfo(_ key: String) {
+        model.pause(); infoKey=key
+        infoDraft=model.scene.shot.shotInfo?[key] ?? ShotInfo()
+        if key != "height" {
+            infoUnit=ShotMeasurement(infoDraft.value)?.unit == "yds" ? "yds" : "m"
+            infoDraft.value=distanceInput(infoDraft.value,unit:infoUnit)
+        }
+        editingInfo=true
     }
-
     private var shotInfoEditor: some View {
         NavigationStack {
             Form {
@@ -395,10 +392,10 @@ struct EditorView: View {
             .navigationTitle(LocalizedStringKey("editor.info." + (infoKey ?? "total")))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("editor.info.cancel") { editingInfo = false }
+                    Button { editingInfo=false } label: { Image(systemName:"xmark").frame(width:44,height:44) }.accessibilityLabel(Text("editor.info.cancel"))
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("editor.info.done") {
+                    Button {
                         if let infoKey {
                             model.checkpoint()
                             let amount = String(infoDraft.value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
@@ -409,7 +406,7 @@ struct EditorView: View {
                             model.commitEdits()
                         }
                         editingInfo = false
-                    }
+                    } label: { Image(systemName:"checkmark").frame(width:44,height:44) }.accessibilityLabel(Text("editor.info.done")).accessibilityIdentifier("editor.info.done")
                 }
             }
         }.presentationDetents([.medium])
@@ -491,8 +488,11 @@ struct EditorSettings: View {
                 Toggle("editor.personOcclusion", isOn: Binding(
                     get: { model.scene.personOcclusion != false },
                     set: { model.scene.personOcclusion = $0 }
-                ))
+                )).accessibilityIdentifier("editor.personOcclusion")
                 Section("editor.shotSettings") {
+                    Picker("editor.trackingMode", selection:Binding(get:{ model.scene.shot.trackingMode ?? "flight" },set:{ model.setTrackingMode($0) })) {
+                        Text("editor.modeFlight").tag("flight"); Text("editor.putt").tag("putt")
+                    }
                     number("flight", value: $model.scene.shot.flight, range: 0.2...15)
                     if model.scene.shot.trackingMode != "putt" { number("apexFraction", value: Binding(get: { model.scene.shot.apexFraction * model.scene.shot.flight }, set: { model.scene.shot.apexFraction = min(0.62, max(0.35, $0 / model.scene.shot.flight)) }), range: (0.35 * model.scene.shot.flight)...(0.62 * model.scene.shot.flight)) }
                     number("speed", value: $model.scene.shot.speed, range: 0.5...4)
@@ -523,7 +523,7 @@ struct EditorSettings: View {
                 Button("editor.reset", role: .destructive) { resetConfirm = true }
             }
             .navigationTitle(Text("editor.settings"))
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("editor.done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Image(systemName:"checkmark").frame(width:44,height:44) }.accessibilityLabel(Text("editor.done")).accessibilityIdentifier("editor.settings.done") } }
             .fileImporter(isPresented: $logoPicker, allowedContentTypes: [.image]) { result in if case .success(let url) = result { model.importLogo(url) } }
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.reset", role: .destructive) { model.reset(); dismiss() } }
         }
