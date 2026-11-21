@@ -40,6 +40,10 @@ GitHub에서는 **Actions → Build app → Run workflow** 로 macOS·Windows용
 Apple Silicon용 Mac App Store 배포에는 서명된 PKG 빌드 모드를 사용합니다.
 [Mac App Store 빌드 및 심사 제출 안내](docs/MAC_APP_STORE.ko.md)를 참고하세요.
 
+macOS 앱은 Python 내장 파일 형식 정보를 사용하므로 TestFlight/App Store 샌드박스에서 시스템 MIME
+파일을 읽지 않고 편집기의 스타일, 스크립트, 미리보기 프레임과 내보낸 영상을 제공합니다.
+빌드 자체 테스트에서도 편집기 HTML이 참조하는 스타일과 스크립트의 응답을 검사합니다.
+
 ## 설치 (개발자 버전)
 
 앱 대신 소스에서 실행하려면:

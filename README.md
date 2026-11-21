@@ -50,6 +50,10 @@ inside the app.
 For Apple silicon Mac App Store distribution, use the signed PKG build mode.
 See the [Mac App Store build and submission guide (Korean)](docs/MAC_APP_STORE.ko.md).
 
+The macOS app uses Python's built-in file types so the TestFlight/App Store sandbox can
+serve the editor styles, scripts, preview frames and exports without reading system MIME
+files. The build self-test also checks the styles and scripts referenced by the editor page.
+
 ## Installation (developer version)
 
 To run from source instead of the app:
