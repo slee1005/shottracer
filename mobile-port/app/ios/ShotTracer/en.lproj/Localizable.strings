@@ -210,6 +210,10 @@
 "editor.info.done" = "Done";
 
 "editor.more" = "More actions";
+"editor.pickImpactCompact" = "+ Set impact";
+"editor.pickLandingCompact" = "+ Set landing";
+"editor.shotSelection" = "Selected shot";
+"editor.operationFailed" = "Unable to complete the action";
 "editor.cancelAnalysis" = "Cancel analysis";
 "editor.confirmManual" = "Create tracer from the two positions";
 "editor.manualNotice" = "Automatic tracking was unavailable. Set the two positions.";

@@ -210,6 +210,10 @@
 "editor.info.done" = "완료";
 
 "editor.more" = "더 보기";
+"editor.pickImpactCompact" = "+ 임팩트 구간 지정";
+"editor.pickLandingCompact" = "+ 랜딩 지정";
+"editor.shotSelection" = "선택한 샷";
+"editor.operationFailed" = "작업을 완료하지 못했어요";
 "editor.cancelAnalysis" = "분석 중단";
 "editor.confirmManual" = "두 위치로 트레이서 만들기";
 "editor.manualNotice" = "자동 추적이 어려워 두 위치를 지정해야 해요";

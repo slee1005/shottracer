@@ -58,6 +58,7 @@ final class EditorModel: ObservableObject {
     private var timeUndo: EditorScene?
     @Published var tool = "ball"
     @Published var status = NSLocalizedString("hint.import", comment: "")
+    @Published var operationError: String?
     @Published var output: URL?
     @Published var projects: [URL] = []
     private(set) var times = [0.0]
@@ -147,12 +148,13 @@ final class EditorModel: ObservableObject {
         projects = folders.flatMap { folder in ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).filter { $0.lastPathComponent.hasPrefix("source.") } }.sorted { $0.path > $1.path }
     }
     func checkpoint() { undo.append(scene); if undo.count > 50 { undo.removeFirst() }; redo.removeAll() }
+    private func reportFailure(_ message: String) { status=message; operationError=message }
     func undoEdit() { guard let previous = undo.popLast() else { return }; redo.append(scene); scene = previous; restoreGuidance(); commitEdits() }
     func redoEdit() { guard let next = redo.popLast() else { return }; undo.append(scene); scene = next; restoreGuidance(); commitEdits() }
     func persist() {
         guard let source else { return }
         do { try JSONEncoder().encode(scene).write(to: source.deletingLastPathComponent().appendingPathComponent("mobile-project.json"), options: .atomic) }
-        catch { status = error.localizedDescription }
+        catch { reportFailure(error.localizedDescription) }
     }
     func commitEdits(save: Bool = true) {
         output = nil; renderer = EditorRenderer(scene); overlay = renderer.overlay(displayedTime)
@@ -197,6 +199,7 @@ final class EditorModel: ObservableObject {
             }
             reloadProjects(); busy = false
             status = deleted.count == folders.count ? String(format: NSLocalizedString("editor.projectsDeleted", comment: ""), deleted.count) : NSLocalizedString("editor.deleteFailed", comment: "")
+            if deleted.count != folders.count { operationError=status }
         }
     }
     func selectShot(_ index: Int) {
@@ -268,7 +271,7 @@ final class EditorModel: ObservableObject {
             guard let movie = try await item.loadTransferable(type: PickedMovie.self) else { throw MobileError.missingVideo }
             defer { try? FileManager.default.removeItem(at: movie.url.deletingLastPathComponent()) }
             try await copyVideo(movie.url)
-        } catch { status = error.localizedDescription } }
+        } catch { reportFailure(error.localizedDescription) } }
     }
     private func beginImport() -> Bool {
         guard !busy,!editingTimeline else { return false }; pause(); previewTask?.cancel(); previewGeneration += 1; frameLoading=false
@@ -287,7 +290,7 @@ final class EditorModel: ObservableObject {
     }
     func openProject(_ file: URL) {
         guard beginImport() else { return }
-        task = Task { defer { busy = false }; do { try await prepare(file) } catch { status = error.localizedDescription } }
+        task = Task { defer { busy = false }; do { try await prepare(file) } catch { reportFailure(error.localizedDescription) } }
     }
     private func prepare(_ file: URL) async throws {
         let asset = AVURLAsset(url: file); let seconds = try await asset.load(.duration).seconds
@@ -331,7 +334,7 @@ final class EditorModel: ObservableObject {
         do {
             let target = source.deletingLastPathComponent().appendingPathComponent("logo-\(UUID().uuidString).png")
             try FileManager.default.copyItem(at: file, to: target); checkpoint(); scene.logo = target.path; commitEdits()
-        } catch { status = error.localizedDescription }
+        } catch { reportFailure(error.localizedDescription) }
     }
     func seek(_ frame: Int) { frameIndex = min(max(0, frame), times.count - 1); time = times[frameIndex]; refreshFrame() }
     func step(_ delta: Int) { pause(); seek(frameIndex + delta) }
@@ -363,7 +366,7 @@ final class EditorModel: ObservableObject {
             do { let (frame, actual) = try await Self.frame(source, at: requested)
                 guard !Task.isCancelled, generation == previewGeneration else { return }
                 image = UIImage(cgImage: frame); displayedTime = actual; overlay = renderer.overlay(actual)
-            } catch { if generation == previewGeneration { pause(); status = error.localizedDescription } }
+            } catch { if generation == previewGeneration { pause(); reportFailure(error.localizedDescription) } }
         }
     }
     func setTrackingMode(_ mode: String) {
@@ -475,7 +478,10 @@ final class EditorModel: ObservableObject {
                 status=String(format:NSLocalizedString("editor.analysisResult",comment:""),data.points.count)
                 if data.personFailed { status += "\n"+NSLocalizedString("editor.personFailed",comment:"") }
             } catch is CancellationError { status=NSLocalizedString("editor.analysisCancelled",comment:"") }
-            catch { manualFallback(id); status=error.localizedDescription+"\n"+NSLocalizedString("editor.analysisFallback",comment:"") }
+            catch {
+                if Task.isCancelled { status=NSLocalizedString("editor.analysisCancelled",comment:"") }
+                else { manualFallback(id); reportFailure(error.localizedDescription) }
+            }
         }
     }
     private func reportAnalysis(_ phase: AnalysisPhase,_ progress: Double) {
@@ -518,7 +524,7 @@ final class EditorModel: ObservableObject {
     private func storeInAlbum(_ url: URL) async {
         status=NSLocalizedString("editor.albumSaving",comment:"")
         do { try await PhotoAlbum.shared.save(url); status=NSLocalizedString("editor.albumSaved",comment:"") }
-        catch { status=(error as? PhotoAlbumError)?.localizedDescription ?? NSLocalizedString("editor.albumFailed",comment:"") }
+        catch { reportFailure((error as? PhotoAlbumError)?.localizedDescription ?? NSLocalizedString("editor.albumFailed",comment:"")) }
     }
     func export() {
         guard !busy,!editingTimeline, let source else { return }; pause(); persist(); busy = true; output = nil
@@ -527,7 +533,7 @@ final class EditorModel: ObservableObject {
         task = Task { defer { busy = false }; do {
             output = try await Self.renderProject(source, snapshot, seconds)
             if let output { await storeInAlbum(output) }
-        } catch { status = error.localizedDescription } }
+        } catch { reportFailure(error.localizedDescription) } }
     }
     func exportAll() {
         guard !busy, !projects.isEmpty else { return }; pause(); persist(); busy = true
@@ -539,7 +545,7 @@ final class EditorModel: ObservableObject {
                 output = try await Self.renderProject(file, scene, duration)
                 if let output { await storeInAlbum(output) }
             }
-        } catch { status = error.localizedDescription } }
+        } catch { reportFailure(error.localizedDescription) } }
     }
     nonisolated private static func renderProject(_ source: URL, _ snapshot: EditorScene, _ duration: Double) async throws -> URL {
         let draw = EditorRenderer(snapshot)

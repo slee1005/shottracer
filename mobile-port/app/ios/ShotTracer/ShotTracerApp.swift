@@ -32,10 +32,7 @@ struct EditorView: View {
     @State private var markerOrigin: Double?
     @State private var panOrigin: Double?
     @Environment(\.horizontalSizeClass) private var timelineSize
-    @Environment(\.verticalSizeClass) private var verticalSize
     @Environment(\.scenePhase) private var editorPhase
-    @Environment(\.dynamicTypeSize) private var typeSize
-    private var scrollsWorkspace: Bool { typeSize.isAccessibilitySize || verticalSize == .compact }
     private func icon(_ key: String, _ symbol: String, disabled: Bool = false, selected: Bool = false,
                       primary: Bool = false, allowsBusy: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -51,12 +48,8 @@ struct EditorView: View {
     }
     var body: some View {
         NavigationStack {
-            Group {
-                if scrollsWorkspace {
-                    ScrollView { workspace }
-                } else { workspace }
-            }
-            .padding(.horizontal, 12).background(Color(uiColor: .systemGroupedBackground)).tint(.blue)
+            workspace
+            .background(Color(uiColor: .systemGroupedBackground)).tint(.blue)
             .toolbar(.hidden, for: .navigationBar)
             .fullScreenCover(isPresented: $showingCamera) { LiveCameraView() }
             .fullScreenCover(isPresented: $reviewing) { if let url = model.output { ReviewView(url: url) } }
@@ -64,46 +57,33 @@ struct EditorView: View {
             .sheet(isPresented: $settings) { EditorSettings(model: model).onAppear { model.checkpoint() }.onDisappear { model.commitEdits() } }
             .sheet(isPresented: $showingProjects) { ProjectList(model: model) }
             .confirmationDialog("editor.resetConfirm", isPresented: $resetConfirm) { Button("editor.resetAction", role: .destructive) { model.reset() } }
+            .alert("editor.operationFailed", isPresented: Binding(get: { model.operationError != nil }, set: { if !$0 { model.operationError=nil } })) {
+                Button("editor.done") { model.operationError=nil }
+            } message: { Text(model.operationError ?? "") }
             .onChange(of: selectedPhoto) { _, item in guard let item else { return }; model.importPhoto(item); selectedPhoto = nil }
             .onDisappear { model.pause(); model.cancelAnalysis(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil }
             .onChange(of:editorPhase) { _,phase in if phase != .active { model.pause(); model.cancelAnalysis(); model.endTimeEdit(cancel:true); draggingTime=nil; markerOrigin=nil; panOrigin=nil } }
         }
     }
     private var workspace: some View {
-        VStack(spacing: 8) {
-            if !fullscreen { header; guidance }
-            ZStack(alignment: .bottom) {
-                preview.background(.black).clipShape(RoundedRectangle(cornerRadius: 18))
-                if model.isAnalyzing { analysisIndicator.padding(12) }
-            }.frame(minHeight: 120, idealHeight: scrollsWorkspace ? 300 : nil,
-                    maxHeight: scrollsWorkspace ? 300 : .infinity)
+        VStack(spacing: 0) {
+            if !model.hasVideo { header.padding(.horizontal,8) }
+            preview.background(.black)
+                .frame(minHeight:120,maxHeight:.infinity)
+                .layoutPriority(1)
             if model.hasVideo {
-                if model.scene.shot.analysisFailed == true {
-                    Label("editor.manualNotice", systemImage: "exclamationmark.circle")
-                        .font(.caption).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                filmstrip.frame(height: typeSize.isAccessibilitySize ? 132 : 98)
-                HStack(spacing: 4) {
-                    if fullscreen { icon("editor.fullscreen", "arrow.down.right.and.arrow.up.left") { fullscreen=false } }
-                    Spacer(minLength: 0); transport; Spacer(minLength: 0)
-                }
                 if !fullscreen {
-                    workflow
-                    if model.scene.shots.count > 1 { shotBar }
-                    shotInfoTabs
+                    filmstrip.frame(height:64)
+                    compactPrompts.padding(.horizontal,12).padding(.top,3)
                 }
+                compactToolbar.padding(.horizontal,4).padding(.vertical,2)
             } else {
+                if model.busy { ProgressView().accessibilityLabel(Text(model.status)) }
                 PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) {
                     Image(systemName: "photo.on.rectangle.angled").font(.title2).frame(width: 52, height: 48)
                 }.buttonStyle(.borderedProminent).accessibilityLabel(Text("action.photos")).disabled(model.busy)
             }
-            if !model.isAnalyzing && (model.hasVideo || model.busy || model.status != NSLocalizedString("hint.import", comment:"")) {
-                HStack {
-                    if model.busy { ProgressView().controlSize(.small) }
-                    Text(model.status).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("editor.status")
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }.padding(.bottom, 6)
+        }.padding(.bottom,2)
     }
     private var header: some View {
         HStack(spacing: 4) {
@@ -111,10 +91,29 @@ struct EditorView: View {
             Text("app.title").font(.headline).lineLimit(1).minimumScaleFactor(0.6)
             Spacer(minLength: 0)
             icon("editor.settings", "slider.horizontal.3", disabled: !model.hasVideo) { settings = true }
-            Menu {
+            moreActions
+        }
+    }
+    private var moreActions: some View {
+        Menu {
+                Button { model.reloadProjects(); showingProjects=true } label: { Label("editor.projects",systemImage:"square.stack") }.accessibilityIdentifier("editor.projects.menu")
+                Button { settings=true } label: { Label("editor.settings",systemImage:"slider.horizontal.3") }.accessibilityIdentifier("editor.settings.menu")
                 PhotosPicker(selection: $selectedPhoto, matching: .videos, preferredItemEncoding: .current) { Label("action.photos", systemImage: "photo.on.rectangle.angled") }
                 Button { model.pause(); showingCamera=true } label: { Label("camera.open", systemImage:"camera.fill") }
-                Button { fullscreen=true } label: { Label("editor.fullscreen", systemImage:"arrow.up.left.and.arrow.down.right") }.disabled(!model.hasVideo)
+                Button { fullscreen.toggle() } label: { Label("editor.fullscreen", systemImage:"arrow.up.left.and.arrow.down.right") }.disabled(!model.hasVideo)
+                if model.hasVideo {
+                    ForEach(shotInfoKeys,id:\.self) { key in
+                        Button { editInfo(key) } label: { Label(LocalizedStringKey("editor.info."+key),systemImage:key == "total" ? "ruler" : key == "carry" ? "arrow.up.forward" : "arrow.up.to.line") }
+                            .accessibilityIdentifier("editor.info."+key)
+                    }
+                    if model.scene.shots.count>1 {
+                        Picker("editor.shotSelection",selection:Binding(get:{model.scene.selected},set:{model.selectShot($0)})) {
+                            ForEach(model.scene.shots.indices,id:\.self) { index in
+                                Text(String(format:NSLocalizedString("editor.shotNumber",comment:""),index+1)).tag(index)
+                            }
+                        }
+                    }
+                }
                 Button { model.undoEdit() } label: { Label("editor.undo", systemImage:"arrow.uturn.backward") }.disabled(!model.canUndo)
                 Button { model.redoEdit() } label: { Label("editor.redo", systemImage:"arrow.uturn.forward") }.disabled(!model.canRedo)
                 Button { model.addShot() } label: { Label("editor.add", systemImage:"plus.circle") }.disabled(!model.hasVideo || model.scene.shots.count>=4)
@@ -124,46 +123,30 @@ struct EditorView: View {
                 }
                 Button(role:.destructive) { resetConfirm=true } label: { Label("editor.resetAction", systemImage:"arrow.counterclockwise") }.disabled(!model.hasVideo)
             } label: { Image(systemName:"ellipsis.circle").font(.system(size:21)).frame(width:44,height:44) }
-                .accessibilityLabel(Text("editor.more")).disabled(model.busy || model.editingTimeline)
+                .accessibilityLabel(Text("editor.more")).accessibilityIdentifier("editor.more").disabled(model.busy || model.editingTimeline)
+    }
+    private var compactPrompts: some View {
+        HStack {
+            Text("editor.pickImpactCompact").foregroundStyle(model.tool == "ball" ? Color.blue : Color.secondary)
+            Spacer(minLength:8)
+            Text("editor.pickLandingCompact").foregroundStyle(model.tool == "landing" ? Color.blue : Color.secondary)
+        }.font(.caption2).lineLimit(1).minimumScaleFactor(0.6).accessibilityHidden(true)
+    }
+    private var compactToolbar: some View {
+        HStack(spacing:0) {
+            transport
+            Spacer(minLength:0)
+            if fullscreen {
+                icon("editor.fullscreen","arrow.down.right.and.arrow.up.left") { fullscreen=false }
+            } else {
+                icon("editor.ball", "scope", selected:model.tool == "ball") { model.pause(); model.chooseTool("ball") }
+                icon("editor.landing", "flag", disabled:model.scene.shot.ball == nil, selected:model.tool == "landing") { model.selectLandingTool() }
+            }
+            primaryAction.accessibilityHint(Text(model.status))
+            moreActions
         }
     }
-    private var guidance: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(LocalizedStringKey(model.isAnalyzing ? "editor.guide.analysisStage" : model.needsManualTrace ? "editor.guide.landingStage" : model.scene.shot.hasTrace ? "editor.guide.previewStage" : "editor.guide.impactStage"),
-                  systemImage: model.isAnalyzing ? "viewfinder" : model.needsManualTrace ? "flag" : model.scene.shot.hasTrace ? "point.topleft.down.to.point.bottomright.curvepath" : "scope")
-                .font(.caption).foregroundStyle(.secondary)
-            Text(LocalizedStringKey(model.guidanceTitle)).font(.headline).accessibilityIdentifier("editor.guidance.title")
-            Text(LocalizedStringKey(model.guidanceMessage)).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-    }
-    private var analysisIndicator: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-            VStack(alignment: .leading, spacing: 4) {
-                Text(LocalizedStringKey(model.guidanceTitle)).font(.caption)
-                if model.analysisPhase != .checking { ProgressView(value:model.analysisProgress) }
-            }
-            icon("editor.cancelAnalysis", "xmark", allowsBusy:true) { model.cancelAnalysis() }
-        }.padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-    }
-    private var shotBar: some View {
-        HStack {
-            ForEach(model.scene.shots.indices, id: \.self) { index in
-                Button { model.selectShot(index) } label: {
-                    Image(systemName:"\(index+1).circle\(index == model.scene.selected ? ".fill" : "")").font(.title2).frame(width:44,height:44)
-                }.accessibilityLabel(String(format:NSLocalizedString("editor.shotNumber",comment:""),index+1))
-                    .accessibilityAddTraits(index == model.scene.selected ? .isSelected : [])
-            }
-            icon("editor.add", "plus.circle.fill", disabled: !model.hasVideo || model.scene.shots.count >= 4) { model.addShot() }
-            Spacer(minLength: 0)
-        }.disabled(model.busy || model.editingTimeline)
-    }
-    private var workflow: some View {
-        HStack {
-            icon("editor.ball", "scope", selected:model.tool == "ball") { model.pause(); model.chooseTool("ball") }
-            Spacer()
-            icon("editor.landing", "flag.fill", disabled:model.scene.shot.ball == nil, selected:model.tool == "landing") { model.selectLandingTool() }
-            Spacer()
+    @ViewBuilder private var primaryAction: some View {
             if model.isAnalyzing {
                 icon("editor.cancelAnalysis", "xmark", primary:true, allowsBusy:true) { model.cancelAnalysis() }
             } else if model.needsManualTrace {
@@ -173,7 +156,6 @@ struct EditorView: View {
             } else {
                 icon("editor.analyzeAction", "viewfinder", disabled:!model.scene.shot.readyToAnalyze, primary:true) { model.analyze() }
             }
-        }.padding(.horizontal, 14).padding(.vertical, 4)
     }
     private func viewportPan(_ value: CGSize, _ fitted: CGSize) -> CGSize {
         let x=fitted.width*max(0,zoom-1)/2, y=fitted.height*max(0,zoom-1)/2
@@ -196,11 +178,12 @@ struct EditorView: View {
                         if let overlay = model.overlay { Image(uiImage: overlay).resizable() }
                         ForEach(model.handles, id: \.0) { key, point in
                             if !model.playing && !model.busy {
-                                Image(systemName: key == "ball" ? "scope" : key == "landing" ? "flag.fill" : "circle.dotted")
-                                    .font(.system(size:25/zoom,weight:.medium)).foregroundStyle(.white)
+                                Image(systemName: key == "ball" ? "scope" : key == "landing" ? "flag" : "circle.dotted")
+                                    .font(.system(size:16/zoom,weight:.regular))
+                                    .foregroundStyle(eventColor(key).opacity(model.tool == key ? 0.95 : 0.8))
+                                    .shadow(color:.black.opacity(0.6),radius:1/zoom)
                                     .frame(width:44/zoom,height:44/zoom)
-                                    .background(.black.opacity(0.55),in:Circle())
-                                    .overlay(Circle().stroke(model.tool == key ? Color.blue : Color.clear,lineWidth:2/zoom))
+                                    .contentShape(Rectangle())
                                     .position(x: point.x * width, y: point.y * height)
                                     .accessibilityLabel(Text(LocalizedStringKey(key == "ball" ? "editor.ball" : key == "landing" ? "editor.landing" : "editor.apex")))
                                     .accessibilityHint(Text("editor.handleHint")).accessibilityIdentifier("editor.handle."+key)
@@ -253,9 +236,12 @@ struct EditorView: View {
     }
     @ViewBuilder private var transport: some View {
         icon("editor.previous", "backward.frame.fill", disabled: !model.hasVideo) { model.step(-1) }
-        icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
+        if model.busy {
+            ProgressView().frame(width:44,height:44).accessibilityLabel(Text(model.status))
+        } else {
+            icon("editor.play", model.playing ? "pause.fill" : "play.fill", disabled: !model.hasVideo) { if model.playing { model.pause() } else { model.play() } }
+        }
         icon("editor.next", "forward.frame.fill", disabled: !model.hasVideo) { model.step(1) }
-        if fullscreen { icon("action.export", "square.and.arrow.up", disabled:!model.canExport) { model.export() } }
     }
     private var filmstrip: some View {
         let tile: CGFloat = timelineSize == .regular ? 108 : 72
@@ -265,9 +251,9 @@ struct EditorView: View {
             let clock = model.time
             let events = model.timelineEvents
             let px = tile / interval
-            let laneHeight = min(66, area.size.height * 0.56)
+            let laneHeight = min(26, area.size.height * 0.4)
             let lane = area.size.height - laneHeight
-            let ruler = min(18, area.size.height * 0.18)
+            let ruler = min(14, area.size.height * 0.24)
             let snapshot = lane - ruler
             let labelSize: CGFloat = 11
             ZStack(alignment: .topLeading) {
@@ -320,19 +306,14 @@ struct EditorView: View {
                             .offset(x: left, y: lane + 2).allowsHitTesting(false)
                     }
                 }
-                if laneHeight >= 58 {
-                    Text("editor.timelineTracer").font(.system(size: 10)).foregroundStyle(.secondary)
-                        .offset(x: 5, y: area.size.height - 13).allowsHitTesting(false)
-                }
                 ForEach(events) { event in
                     if let firstTime = model.times.first, let lastTime = model.times.last {
-                        let row = event.key == "ball" ? 0 : event.key == "apex" ? 1 : 2
                         let edgeTime = min(lastTime, max(firstTime, event.time))
                         let x = center + (edgeTime - clock) * px
-                        Text("▴ " + eventLabel(event, compact: true)).font(.system(size: labelSize, weight: .medium)).monospacedDigit()
-                            .padding(.horizontal, 4).background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
-                            .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).fixedSize().contentShape(Rectangle())
-                            .position(x: x, y: lane + laneHeight * (0.20 + CGFloat(row) * 0.25))
+                        Image(systemName:event.key == "ball" ? "scope" : event.key == "landing" ? "flag" : "circle.dotted")
+                            .font(.system(size:labelSize,weight:.medium)).frame(width:24,height:laneHeight)
+                            .foregroundStyle(eventColor(event.key)).opacity(event.inClip ? 1 : 0.55).contentShape(Rectangle())
+                            .position(x:x,y:lane+laneHeight/2)
                             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("shotFilmstrip")).onChanged { value in
                                 guard !model.busy, panOrigin == nil else { return }
                                 if draggingTime == nil && abs(value.translation.width) > 3 {
@@ -390,21 +371,6 @@ struct EditorView: View {
         }
         editingInfo=true
     }
-    private var shotInfoTabs: some View {
-        let total = model.scene.shot.shotInfo?["total"]?.value ?? ""
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("editor.info.total").font(.caption).foregroundStyle(.secondary)
-                Text(total.isEmpty ? NSLocalizedString("editor.distancePrompt",comment:"") : total)
-                    .font(.caption).lineLimit(2).fixedSize(horizontal:false,vertical:true)
-            }.frame(maxWidth:.infinity,alignment:.leading)
-            ForEach(shotInfoKeys, id: \.self) { key in
-                icon("editor.info."+key,key == "total" ? "ruler" : key == "carry" ? "arrow.up.forward" : "arrow.up.to.line",
-                     selected:model.scene.shot.shotInfo?[key]?.visible == true) { editInfo(key) }
-            }
-        }
-    }
-
     private var shotInfoEditor: some View {
         NavigationStack {
             Form {
@@ -422,7 +388,6 @@ struct EditorView: View {
                     }.pickerStyle(.segmented)
                 }
                 Toggle("editor.info.visible", isOn: $infoDraft.visible)
-                if infoKey == "total" { Text("editor.distanceExplanation").font(.footnote).foregroundStyle(.secondary) }
             }
             .navigationTitle(LocalizedStringKey("editor.info." + (infoKey ?? "total")))
             .toolbar {
